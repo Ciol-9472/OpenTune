@@ -634,6 +634,12 @@ bool OpenTuneAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SaveProject, key))
+    {
+        quickSaveProject();
+        return true;
+    }
+
     return false;
 }
 
@@ -1936,6 +1942,62 @@ void OpenTuneAudioProcessorEditor::finishNewProject()
     menuBar_.menuItemsChanged();
 }
 
+void OpenTuneAudioProcessorEditor::checkUnsavedChangesThen(std::function<void()> onProceed)
+{
+    if (!sessionNeedsSave_) {
+        onProceed();
+        return;
+    }
+
+    auto options = juce::MessageBoxOptions::makeOptionsYesNoCancel(
+        juce::MessageBoxIconType::QuestionIcon,
+        LOC(kUnsavedChangesTitle),
+        LOC(kUnsavedChangesLoadMessage),
+        LOC(kSave),
+        LOC(kDontSave),
+        LOC(kCancel),
+        this);
+
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    juce::AlertWindow::showAsync(options, [safeThis, proceed = std::move(onProceed)](int result) mutable {
+        if (safeThis == nullptr) {
+            return;
+        }
+
+        if (result == 0 || result == 3) {
+            return;
+        }
+
+        if (result == 2) {
+            proceed();
+            return;
+        }
+
+        if (result != 1) {
+            return;
+        }
+
+        if (safeThis->sessionProjectFile_.existsAsFile()) {
+            if (!safeThis->processorRef_.saveProjectToFile(safeThis->sessionProjectFile_)) {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    LOC(kProjectSaveFailedTitle),
+                    LOC(kProjectSaveFailedMessage));
+                return;
+            }
+            safeThis->recentProjects_.add(safeThis->sessionProjectFile_);
+            safeThis->menuBar_.menuItemsChanged();
+            safeThis->clearSessionNeedsSave();
+            proceed();
+            return;
+        }
+
+        safeThis->runSaveProjectDialogThen([proceed = std::move(proceed)]() {
+            proceed();
+        });
+    });
+}
+
 void OpenTuneAudioProcessorEditor::runSaveProjectDialogThen(std::function<void()> onSavedToDisk)
 {
     juce::File dir = getDefaultOpenTuneProjectsDirectory();
@@ -2038,8 +2100,32 @@ void OpenTuneAudioProcessorEditor::newProjectRequested()
     });
 }
 
+void OpenTuneAudioProcessorEditor::quickSaveProject()
+{
+    if (sessionProjectFile_.existsAsFile()) {
+        if (processorRef_.saveProjectToFile(sessionProjectFile_)) {
+            recentProjects_.add(sessionProjectFile_);
+            menuBar_.menuItemsChanged();
+            clearSessionNeedsSave();
+        } else {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                LOC(kProjectSaveFailedTitle),
+                LOC(kProjectSaveFailedMessage));
+        }
+        return;
+    }
+
+    saveProjectRequested();
+}
+
 void OpenTuneAudioProcessorEditor::saveProjectRequested()
 {
+    if (sessionProjectFile_.existsAsFile()) {
+        quickSaveProject();
+        return;
+    }
+
     juce::File dir = getDefaultOpenTuneProjectsDirectory();
     if (!dir.exists()) {
         (void)dir.createDirectory();
@@ -2086,34 +2172,40 @@ void OpenTuneAudioProcessorEditor::saveProjectRequested()
 
 void OpenTuneAudioProcessorEditor::loadProjectRequested()
 {
-    juce::File dir = getDefaultOpenTuneProjectsDirectory();
-    if (!dir.exists()) {
-        (void)dir.createDirectory();
-    }
-
-    const juce::File projectLoadStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::LoadProject, dir);
-
-    auto chooser = std::make_shared<juce::FileChooser>(
-        LOC(kLoadProject),
-        projectLoadStart,
-        "*.otproject");
-
-    const auto chooserFlags =
-        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-
-    chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
-        juce::File file = fc.getResult();
-        if (file == juce::File{}) {
-            return;
+    auto doLoad = [this]() {
+        juce::File dir = getDefaultOpenTuneProjectsDirectory();
+        if (!dir.exists()) {
+            (void)dir.createDirectory();
         }
-        LastFileDialogPaths::rememberOpenSelection(FileDialogKind::LoadProject, file);
-        openProjectFromFileWithUiFeedback(file);
-    });
+
+        const juce::File projectLoadStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::LoadProject, dir);
+
+        auto chooser = std::make_shared<juce::FileChooser>(
+            LOC(kLoadProject),
+            projectLoadStart,
+            "*.otproject");
+
+        const auto chooserFlags =
+            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
+            juce::File file = fc.getResult();
+            if (file == juce::File{}) {
+                return;
+            }
+            LastFileDialogPaths::rememberOpenSelection(FileDialogKind::LoadProject, file);
+            openProjectFromFileWithUiFeedback(file);
+        });
+    };
+
+    checkUnsavedChangesThen(std::move(doLoad));
 }
 
 void OpenTuneAudioProcessorEditor::recentProjectOpenRequested(const juce::File& file)
 {
-    openProjectFromFileWithUiFeedback(file);
+    checkUnsavedChangesThen([this, file]() {
+        openProjectFromFileWithUiFeedback(file);
+    });
 }
 
 void OpenTuneAudioProcessorEditor::openProjectFromFileWithUiFeedback(const juce::File& file)
@@ -2131,11 +2223,6 @@ void OpenTuneAudioProcessorEditor::openProjectFromFileWithUiFeedback(const juce:
     menuBar_.menuItemsChanged();
     clearSessionNeedsSave();
     syncUiAfterProjectLoad();
-
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon,
-        LOC(kProjectLoadedTitle),
-        LOC(kProjectLoadedMessage));
 }
 
 void OpenTuneAudioProcessorEditor::preferencesRequested()
@@ -3101,10 +3188,14 @@ void OpenTuneAudioProcessorEditor::trackTimeOffsetChanged(int trackId, double ne
 
 void OpenTuneAudioProcessorEditor::escapeKeyPressed()
 {
-    // ESC 等价于点击视图切换键：左右视图互切并同步按钮状态
     const bool targetWorkspaceView = !isWorkspaceView_;
     transportBar_.setWorkspaceView(targetWorkspaceView);
     viewToggled(targetWorkspaceView);
+}
+
+void OpenTuneAudioProcessorEditor::toolChanged(int toolId)
+{
+    parameterPanel_.setActiveTool(toolId);
 }
 
 void OpenTuneAudioProcessorEditor::audioSettingsRequested()

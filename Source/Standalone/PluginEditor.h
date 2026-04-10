@@ -110,6 +110,7 @@ public:
     void pitchCurveEdited(int startFrame, int endFrame) override;
     void trackTimeOffsetChanged(int trackId, double newOffset) override;
     void escapeKeyPressed() override;
+    void toolChanged(int toolId) override;
 
     // Keyboard handling
     bool keyPressed(const juce::KeyPress& key) override;
@@ -155,6 +156,8 @@ private:
     void markSessionNeedsSave();
     void clearSessionNeedsSave();
     void finishNewProject();
+    void quickSaveProject();
+    void checkUnsavedChangesThen(std::function<void()> onProceed);
     void runSaveProjectDialogThen(std::function<void()> onSavedToDisk);
     void launchStemExportFolderChooser(juce::String prefix, juce::Array<int> trackIds);
     void startStemExportWorker(juce::String prefix, juce::Array<int> trackIds, juce::File outputDir);

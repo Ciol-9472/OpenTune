@@ -701,10 +701,6 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
     }
 
     clip.renderCache = std::make_shared<RenderCache>();
-    auto rcTree = clipState.getChildWithName("RenderCache");
-    if (rcTree.isValid() && rcTree.getNumChildren() > 0) {
-        clip.renderCache->restoreFromProjectValueTree(rcTree);
-    }
 
     return true;
 }
@@ -1802,13 +1798,6 @@ bool OpenTuneAudioProcessor::saveProjectToFile(const juce::File& file)
             }
             clipState.addChild(gapsTree, -1, nullptr);
 
-            if (clip.renderCache) {
-                juce::ValueTree rcTree = clip.renderCache->toProjectValueTree();
-                if (rcTree.isValid() && rcTree.getNumChildren() > 0) {
-                    clipState.addChild(rcTree, -1, nullptr);
-                }
-            }
-
             trackState.addChild(clipState, -1, nullptr);
         }
 
@@ -1900,6 +1889,31 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
     setLoopEnabled(globals.loopEnabled);
 
     bumpEditVersion();
+
+    struct PendingRenderInfo {
+        int trackId;
+        int clipIndex;
+        double duration;
+    };
+    std::vector<PendingRenderInfo> clipsToRender;
+    {
+        const juce::ScopedReadLock rl(tracksLock_);
+        for (int trackId = 0; trackId < MAX_TRACKS; ++trackId) {
+            const auto& track = tracks_[static_cast<size_t>(trackId)];
+            for (int clipIdx = 0; clipIdx < static_cast<int>(track.clips.size()); ++clipIdx) {
+                const auto& clip = track.clips[static_cast<size_t>(clipIdx)];
+                if (clip.pitchCurve && clip.pitchCurve->hasAnyCorrection() && clip.audioBuffer) {
+                    const double clipDuration = TimeCoordinate::samplesToSeconds(
+                        clip.audioBuffer->getNumSamples(), TimeCoordinate::kRenderSampleRate);
+                    clipsToRender.push_back({trackId, clipIdx, clipDuration});
+                }
+            }
+        }
+    }
+    for (const auto& info : clipsToRender) {
+        enqueuePartialRender(info.trackId, info.clipIndex, 0.0, info.duration);
+    }
+
     return true;
 }
 

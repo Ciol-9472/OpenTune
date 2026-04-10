@@ -114,6 +114,7 @@ constexpr const char* kLoadProject = "Open Project...";
 constexpr const char* kNewProject = "New Project";
 constexpr const char* kUnsavedChangesTitle = "Unsaved changes";
 constexpr const char* kUnsavedChangesMessage = "Save changes to the current project before creating a new one?";
+constexpr const char* kUnsavedChangesLoadMessage = "Save changes to the current project before opening another one?";
 constexpr const char* kSave = "Save";
 constexpr const char* kDontSave = "Don't Save";
 constexpr const char* kProjectSavedTitle = "Project Saved";
@@ -237,6 +238,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kNewProject, "New Project", "新建工程", "新規プロジェクト", "Новый проект", "Proyecto nuevo" },
         { Keys::kUnsavedChangesTitle, "Unsaved changes", "未保存的更改", "未保存の変更", "Несохранённые изменения", "Cambios sin guardar" },
         { Keys::kUnsavedChangesMessage, "Save changes to the current project before creating a new one?", "新建工程前是否保存当前工程？", "新しいプロジェクトを作成する前に保存しますか？", "Сохранить текущий проект перед созданием нового?", "¿Guardar el proyecto actual antes de crear uno nuevo?" },
+        { Keys::kUnsavedChangesLoadMessage, "Save changes to the current project before opening another one?", "打开其他工程前是否保存当前工程？", "別のプロジェクトを開く前に保存しますか？", "Сохранить текущий проект перед открытием другого?", "¿Guardar el proyecto actual antes de abrir otro?" },
         { Keys::kSave, "Save", "保存", "保存", "Сохранить", "Guardar" },
         { Keys::kDontSave, "Don't Save", "不保存", "保存しない", "Не сохранять", "No guardar" },
         { Keys::kProjectSavedTitle, "Project Saved", "工程已保存", "保存しました", "Сохранено", "Proyecto guardado" },

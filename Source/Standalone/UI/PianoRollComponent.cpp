@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr int kRightToolMenuLongPressMs = 400;
+constexpr int kRightToolMenuLongPressMs = 200;
 
 } // namespace
 
@@ -1229,8 +1229,9 @@ void PianoRollComponent::setCurrentTool(ToolId tool) {
         interactionState_.drawing.pendingAnchors.clear();
     }
 
-    // Deselect all notes when switching tools
-    if (tool != currentTool_) {
+    const bool changed = (tool != currentTool_);
+
+    if (changed) {
         auto& notes = getCurrentClipNotes();
         for (auto& n : notes) n.selected = false;
         interactionState_.selection.clearF0Selection();
@@ -1247,8 +1248,10 @@ void PianoRollComponent::setCurrentTool(ToolId tool) {
             break;
         case ToolId::DrawNote:
         case ToolId::LineAnchor:
-        case ToolId::SplitNote:
             setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
+        case ToolId::SplitNote:
+            setMouseCursor(juce::MouseCursor::IBeamCursor);
             break;
         case ToolId::HandDraw:
             setMouseCursor(juce::MouseCursor::CrosshairCursor);
@@ -1256,6 +1259,11 @@ void PianoRollComponent::setCurrentTool(ToolId tool) {
         case ToolId::AutoTune:
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
             break;
+    }
+
+    if (changed) {
+        const int toolId = static_cast<int>(tool);
+        listeners_.call([toolId](Listener& l) { l.toolChanged(toolId); });
     }
 }
 
@@ -1332,6 +1340,7 @@ bool PianoRollComponent::handleRightToolMenuMouseUp(const juce::MouseEvent& e)
 
     ++rightToolMenuPressSerial_;
     rightToolMenuPhase_ = RightToolMenuPhase::None;
+    showToolContextPopupMenu();
     return true;
 }
 
@@ -1508,10 +1517,16 @@ void PianoRollComponent::handleHorizontalZoomWheel(const juce::MouseEvent& e, fl
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) {
     if (wheel.deltaY == 0.0f && wheel.deltaX == 0.0f) return;
-    
-    if (e.mods.isShiftDown()) {
+
+    const bool ctrl = e.mods.isCtrlDown() || e.mods.isCommandDown();
+    const bool shift = e.mods.isShiftDown();
+
+    if (ctrl && shift) {
+        handleHorizontalZoomWheel(e, wheel.deltaY);
         handleVerticalZoomWheel(e, wheel.deltaY);
-    } else if (e.mods.isCtrlDown()) {
+    } else if (shift) {
+        handleVerticalZoomWheel(e, wheel.deltaY);
+    } else if (ctrl) {
         handleHorizontalZoomWheel(e, wheel.deltaY);
     } else if (e.mods.isAltDown()) {
         handleHorizontalScrollWheel(wheel.deltaX, wheel.deltaY);

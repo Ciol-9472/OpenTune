@@ -227,6 +227,12 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
     }
 
     if (!key.getModifiers().isAnyModifierKeyDown()) {
+        if (key.getTextCharacter() == '1') {
+            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Select tool");
+            ctx_.setCurrentTool(ToolId::Select);
+            return true;
+        }
+
         if (key.getTextCharacter() == '2') {
             AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to DrawNote tool");
             ctx_.setCurrentTool(ToolId::DrawNote);
@@ -234,14 +240,14 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
         }
 
         if (key.getTextCharacter() == '3') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Select tool");
-            ctx_.setCurrentTool(ToolId::Select);
+            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to LineAnchor tool");
+            ctx_.setCurrentTool(ToolId::LineAnchor);
             return true;
         }
 
         if (key.getTextCharacter() == '4') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to LineAnchor tool");
-            ctx_.setCurrentTool(ToolId::LineAnchor);
+            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to HandDraw tool");
+            ctx_.setCurrentTool(ToolId::HandDraw);
             return true;
         }
 
@@ -270,8 +276,7 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::Delete, key) ||
-        key.getTextCharacter() == '1') {
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::Delete, key)) {
         AppLogger::debug("[PianoRollToolHandler] keyPressed: delete key pressed");
         handleDeleteKey();
         ctx_.requestRepaint();

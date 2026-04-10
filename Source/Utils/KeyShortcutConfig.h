@@ -18,6 +18,7 @@ enum class ShortcutId {
     Paste,
     SelectAll,
     Delete,
+    SaveProject,
     Count
 };
 
@@ -166,7 +167,8 @@ inline const ShortcutInfo kShortcutInfos[] = {
     { ShortcutId::Delete, Loc::Keys::kDelete, { 
         KeyBinding(juce::KeyPress::deleteKey, {}),
         KeyBinding(juce::KeyPress::backspaceKey, {})
-    } }
+    } },
+    { ShortcutId::SaveProject, Loc::Keys::kSaveProject, { KeyBinding('S', juce::ModifierKeys::commandModifier) } }
 };
 
 inline const size_t kShortcutCount = sizeof(kShortcutInfos) / sizeof(kShortcutInfos[0]);

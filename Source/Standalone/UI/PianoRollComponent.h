@@ -67,6 +67,7 @@ public:
         virtual void autoTuneRequested() {}
         virtual void trackTimeOffsetChanged(int trackId, double newOffset) { (void)trackId; (void)newOffset; }
         virtual void escapeKeyPressed() {}
+        virtual void toolChanged(int toolId) { juce::ignoreUnused(toolId); }
     };
 
     enum class TimeUnit

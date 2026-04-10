@@ -8,7 +8,7 @@ namespace UiText {
 
 inline juce::String pianoRollToolSelect()
 {
-    return LOC(kMouseSelectTool) + "\t[3]";
+    return LOC(kMouseSelectTool) + "\t[1]";
 }
 
 inline juce::String pianoRollToolDrawNote()
@@ -18,13 +18,12 @@ inline juce::String pianoRollToolDrawNote()
 
 inline juce::String pianoRollToolLineAnchor()
 {
-    return LOC(kLineAnchorTool) + "\t[4]";
+    return LOC(kLineAnchorTool) + "\t[3]";
 }
 
 inline juce::String pianoRollToolHandDraw()
 {
-    // 无数字快捷键时与侧栏一致，仅显示本地化名称
-    return LOC(kHandDrawTool);
+    return LOC(kHandDrawTool) + "\t[4]";
 }
 
 inline juce::String pianoRollToolSplitNote()
