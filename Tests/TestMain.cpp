@@ -337,6 +337,43 @@ void runRenderCacheTests() {
         }
         logPass(test);
     }
+
+    {
+        const char* test = "LRU evicts least recently used chunk";
+        RenderCache cache;
+        cache.setMemoryLimit(8000);
+
+        cache.requestRenderPending(0.0, 1.0);
+        std::vector<float> first(1000, 0.25f);
+        if (!cache.addChunk(0.0, 1.0, std::move(first), 1)) {
+            logFail(test, "first add failed"); return;
+        }
+
+        cache.requestRenderPending(10.0, 11.0);
+        std::vector<float> second(1000, 0.5f);
+        if (!cache.addChunk(10.0, 11.0, std::move(second), 1)) {
+            logFail(test, "second add failed"); return;
+        }
+
+        cache.requestRenderPending(20.0, 21.0);
+        std::vector<float> third(1000, 0.75f);
+        if (!cache.addChunk(20.0, 21.0, std::move(third), 1)) {
+            logFail(test, "third add failed"); return;
+        }
+
+        float buf[64];
+        int n = cache.readAtTimeForRate(buf, 64, 0.1, 44100, false);
+        if (n != 0) {
+            logFail(test, "expected earliest chunk evicted"); return;
+        }
+
+        n = cache.readAtTimeForRate(buf, 64, 10.1, 44100, false);
+        if (n <= 0) {
+            logFail(test, "middle chunk should remain"); return;
+        }
+
+        logPass(test);
+    }
 }
 
 void runPitchCurveTests() {

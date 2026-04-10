@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.22)
 # ==============================================================================
 # Project Definition
 # ==============================================================================
-project(OpenTune VERSION 1.1.2 LANGUAGES CXX C)
+project(OpenTune VERSION 1.0.0 LANGUAGES CXX C)
 
 # 为 clangd/LSP 导出编译数据库（compile_commands.json）
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -43,6 +43,7 @@ if(WIN32)
 
     set(OPENTUNE_DIRECTML_VERSION "1.15.4" CACHE STRING "Microsoft.AI.DirectML NuGet version")
     set(OPENTUNE_D3D12_AGILITY_VERSION "1.619.1" CACHE STRING "Microsoft.Direct3D.D3D12 NuGet version")
+    option(OPENTUNE_NUGET_TLS_RELAXED "If ON, download NuGet packages with TLS verification disabled (use only if configure fails with SSL peer certificate errors)" OFF)
 
     if(OPENTUNE_DIRECTML_VERSION VERSION_LESS "1.13.0")
         message(FATAL_ERROR "DirectML version must be >= 1.13.0")
@@ -63,7 +64,11 @@ if(WIN32)
         if(NOT EXISTS "${marker_path}")
             if(NOT EXISTS "${nupkg_path}")
                 set(download_url "https://api.nuget.org/v3-flatcontainer/${package_id_lower}/${package_version}/${package_id_lower}.${package_version}.nupkg")
-                file(DOWNLOAD "${download_url}" "${nupkg_path}" STATUS download_status SHOW_PROGRESS TLS_VERIFY ON)
+                if(OPENTUNE_NUGET_TLS_RELAXED)
+                    file(DOWNLOAD "${download_url}" "${nupkg_path}" STATUS download_status SHOW_PROGRESS TLS_VERIFY OFF)
+                else()
+                    file(DOWNLOAD "${download_url}" "${nupkg_path}" STATUS download_status SHOW_PROGRESS TLS_VERIFY ON)
+                endif()
                 list(GET download_status 0 download_code)
                 if(NOT download_code EQUAL 0)
                     list(GET download_status 1 download_message)
@@ -203,7 +208,7 @@ juce_add_plugin(OpenTune
     # Product Information
     PRODUCT_NAME "OpenTune"
     BUNDLE_ID "com.daya.opentune"
-    VERSION "${PROJECT_VERSION}"
+    VERSION "1.0.0"
     
     # Formats (Standalone only)
     FORMATS Standalone
@@ -295,8 +300,8 @@ target_sources(OpenTune
         Source/DSP/ResamplingManager.h
         Source/DSP/MelSpectrogram.cpp
         Source/DSP/MelSpectrogram.h
-        Source/DSP/ChromaKeyDetector.cpp
-        Source/DSP/ChromaKeyDetector.h
+        Source/DSP/ScaleInference.cpp
+        Source/DSP/ScaleInference.h
 
         # Third Party
         ThirdParty/r8brain-free-src-master/fft/pffft_double.c
@@ -339,6 +344,8 @@ target_sources(OpenTune
         Source/Standalone/UI/TimeConverter.h
         Source/Standalone/UI/MenuBarComponent.cpp
         Source/Standalone/UI/MenuBarComponent.h
+        Source/Standalone/UI/StemExportDialogComponent.cpp
+        Source/Standalone/UI/StemExportDialogComponent.h
         Source/Standalone/UI/TransportBarComponent.cpp
         Source/Standalone/UI/TransportBarComponent.h
         Source/Standalone/UI/TopBarComponent.cpp
@@ -349,7 +356,6 @@ target_sources(OpenTune
         Source/Standalone/UI/ArrangementViewComponent.h
         Source/Standalone/UI/WaveformMipmap.cpp
         Source/Standalone/UI/WaveformMipmap.h
-        Source/Standalone/UI/RippleOverlayComponent.h
         Source/Standalone/UI/AutoRenderOverlayComponent.h
 
         # Utilities
@@ -366,8 +372,10 @@ target_sources(OpenTune
         Source/Utils/WindowsDllSearchPath.cpp
         Source/Utils/OnnxRuntimeDelayLoadHook.cpp
         Source/Utils/ModelPathResolver.h
-        Source/Utils/PresetManager.cpp
-        Source/Utils/PresetManager.h
+        Source/Utils/RecentProjectsManager.cpp
+        Source/Utils/RecentProjectsManager.h
+        Source/Utils/LastFileDialogPaths.cpp
+        Source/Utils/LastFileDialogPaths.h
         Source/Utils/CpuFeatures.cpp
         Source/Utils/CpuFeatures.h
         Source/Utils/CpuBudgetManager.cpp
@@ -496,7 +504,8 @@ endif()
 # Standalone Bundle Resources
 # ==============================================================================
 # Define model files
-set(HIFIGAN_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/pc_nsf_hifigan_44.1k_ONNX/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx")
+# Real weights live under models/; pc_nsf_hifigan_44.1k_ONNX/*.onnx may be an LFS pointer only.
+set(HIFIGAN_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/models/hifigan.onnx")
 set(RMVPE_MODEL "${CMAKE_CURRENT_SOURCE_DIR}/models/rmvpe.onnx")
 
 # --- ONNX Runtime library copying ---
