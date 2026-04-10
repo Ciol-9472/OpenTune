@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_data_structures/juce_data_structures.h>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -41,6 +42,9 @@ public:
 
         uint64_t desiredRevision{0};    // 目标版本（用户最新编辑产生）
         uint64_t publishedRevision{0};  // 已成功发布的版本
+
+        /** Monotonically bumped on read/write; lowest stamp evicted first (approx LRU). */
+        mutable uint64_t lastLruStamp{0};
     };
 
     // 调度状态管理 API
@@ -113,6 +117,12 @@ public:
 
     void clear();
 
+    /** 工程文件序列化：已发布的块内 44.1kHz 渲染波形（不含 resampled 缓存） */
+    juce::ValueTree toProjectValueTree() const;
+
+    /** 自 clear() 后调用，导入工程中的渲染块 */
+    void restoreFromProjectValueTree(const juce::ValueTree& tree);
+
     size_t getTotalMemoryUsage() const;
     void setMemoryLimit(size_t bytes);
 
@@ -124,6 +134,13 @@ private:
     std::map<double, Chunk> chunks_;
     std::set<double> pendingChunks_;  // 待渲染 Chunk 的 startSeconds 索引
     size_t totalMemoryUsage_ = 0;
+    uint64_t nextLruStamp_{1};
+
+    void touchChunkLru(Chunk& chunk);
+    void evictUntilUnderLimit(Chunk* protect);
+
+    /** 调用方已持有 lock_ */
+    int readAtTimeUnlocked(float* dest, int numSamples, double timeSeconds, int targetSampleRate);
 
     static std::atomic<size_t>& globalCacheLimitBytes();
     static std::atomic<size_t>& globalCacheCurrentBytes();

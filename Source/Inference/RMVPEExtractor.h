@@ -42,7 +42,8 @@ public:
 
     RMVPEExtractor(
         std::unique_ptr<Ort::Session> session,
-        std::shared_ptr<ResamplingManager> resampler
+        std::shared_ptr<ResamplingManager> resampler,
+        bool useDedicatedVramPreflight = false
     );
     ~RMVPEExtractor() override;
 
@@ -97,6 +98,7 @@ private:
     std::unique_ptr<Ort::Session> session_;
     std::shared_ptr<ResamplingManager> resampler_;
     std::unique_ptr<Ort::MemoryInfo> memoryInfo_;
+    bool useDedicatedVramPreflight_{false};
     
     // Post-processing
     void fixOctaveErrors(std::vector<float>& f0);
@@ -125,6 +127,7 @@ private:
     static constexpr double kMaxAudioDurationSec = 600.0; // 10 minutes
     static constexpr double kMemoryOverheadFactor = 6.0;
     static constexpr size_t kMinReservedMemoryMB = 512;
+    /** Minimum dedicated VRAM (MB) treated as usable when F0 runs on DirectML. */
     static constexpr size_t kMinGpuMemoryMB = 256;
     static constexpr size_t kModelMemoryMB = 200;
     static constexpr int kMaxGapFramesDefault = 8;

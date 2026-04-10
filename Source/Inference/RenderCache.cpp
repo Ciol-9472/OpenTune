@@ -1,6 +1,7 @@
 #include "RenderCache.h"
 #include "Utils/AppLogger.h"
 #include <algorithm>
+#include <cstring>
 
 namespace OpenTune {
 
@@ -23,6 +24,56 @@ RenderCache::RenderCache() = default;
 
 RenderCache::~RenderCache() {
     clear();
+}
+
+void RenderCache::touchChunkLru(Chunk& chunk) {
+    chunk.lastLruStamp = nextLruStamp_++;
+}
+
+void RenderCache::evictUntilUnderLimit(Chunk* protect) {
+    const size_t limit = globalCacheLimitBytes().load(std::memory_order_relaxed);
+    while (globalCacheCurrentBytes().load(std::memory_order_relaxed) > limit && !chunks_.empty()) {
+        std::map<double, Chunk>::iterator victimIt = chunks_.end();
+        uint64_t oldestStamp = UINT64_MAX;
+
+        for (auto it = chunks_.begin(); it != chunks_.end(); ++it) {
+            if (protect != nullptr && &it->second == protect) {
+                continue;
+            }
+
+            const size_t evictBytes = it->second.audio.size() * sizeof(float);
+            size_t evictResampledBytes = 0;
+            for (const auto& [rate, data] : it->second.resampledAudio) {
+                juce::ignoreUnused(rate);
+                evictResampledBytes += data.size() * sizeof(float);
+            }
+            const size_t totalEvictBytes = evictBytes + evictResampledBytes;
+            if (totalEvictBytes == 0) {
+                continue;
+            }
+
+            if (it->second.lastLruStamp < oldestStamp) {
+                oldestStamp = it->second.lastLruStamp;
+                victimIt = it;
+            }
+        }
+
+        if (victimIt == chunks_.end()) {
+            break;
+        }
+
+        const size_t evictBytes = victimIt->second.audio.size() * sizeof(float);
+        size_t evictResampledBytes = 0;
+        for (const auto& [rate, data] : victimIt->second.resampledAudio) {
+            juce::ignoreUnused(rate);
+            evictResampledBytes += data.size() * sizeof(float);
+        }
+        const size_t totalEvictBytes = evictBytes + evictResampledBytes;
+        totalMemoryUsage_ -= totalEvictBytes;
+        globalCacheCurrentBytes().fetch_sub(totalEvictBytes, std::memory_order_relaxed);
+        victimIt->second.audio.clear();
+        victimIt->second.resampledAudio.clear();
+    }
 }
 
 bool RenderCache::addChunk(double startSeconds, double endSeconds, std::vector<float>&& audio, uint64_t targetRevision) {
@@ -73,6 +124,7 @@ bool RenderCache::addChunk(double startSeconds, double endSeconds, std::vector<f
 
     chunk.audio = std::move(audio);
     chunk.publishedRevision = targetRevision;
+    touchChunkLru(chunk);
 
     const size_t chunkBytes = chunk.audio.size() * sizeof(float);
     totalMemoryUsage_ += chunkBytes;
@@ -82,31 +134,7 @@ bool RenderCache::addChunk(double startSeconds, double endSeconds, std::vector<f
     size_t peak = globalCachePeakBytes().load(std::memory_order_relaxed);
     while (newCurrent > peak && !globalCachePeakBytes().compare_exchange_weak(peak, newCurrent, std::memory_order_relaxed)) {}
 
-    const size_t limit = globalCacheLimitBytes().load(std::memory_order_relaxed);
-    // currentChunk 指向刚写入的 chunk，避免在驱逐时删除自身
-    Chunk* currentChunk = &chunk;
-    if (newCurrent > limit && !chunks_.empty()) {
-        for (auto it = chunks_.begin(); it != chunks_.end(); ++it) {
-            if (&it->second == currentChunk) {
-                continue;
-            }
-            const size_t evictBytes = it->second.audio.size() * sizeof(float);
-            size_t evictResampledBytes = 0;
-            for (const auto& [rate, data] : it->second.resampledAudio) {
-                juce::ignoreUnused(rate);
-                evictResampledBytes += data.size() * sizeof(float);
-            }
-            const size_t totalEvictBytes = evictBytes + evictResampledBytes;
-            if (totalEvictBytes == 0) {
-                continue;
-            }
-            totalMemoryUsage_ -= totalEvictBytes;
-            globalCacheCurrentBytes().fetch_sub(totalEvictBytes, std::memory_order_relaxed);
-            it->second.audio.clear();
-            it->second.resampledAudio.clear();
-            break;
-        }
-    }
+    evictUntilUnderLimit(&chunk);
 
     return true;
 }
@@ -142,91 +170,122 @@ bool RenderCache::addResampledChunk(double startSeconds, double endSeconds, int 
     chunk.resampledAudio[targetSampleRate] = std::move(resampledAudio);
     totalMemoryUsage_ += newBytes;
     globalCacheCurrentBytes().fetch_add(newBytes, std::memory_order_relaxed);
+    touchChunkLru(chunk);
+    evictUntilUnderLimit(&chunk);
 
     return true;
 }
 
-int RenderCache::readAtTimeForRate(float* dest, int numSamples, double timeSeconds, 
-                                   int targetSampleRate, bool nonBlocking) {
-    auto readWithLock = [&]() -> int {
-        auto it = chunks_.upper_bound(timeSeconds);
-        if (it == chunks_.begin()) {
+int RenderCache::readAtTimeUnlocked(float* dest, int numSamples, double timeSeconds, int targetSampleRate)
+{
+    auto it = chunks_.upper_bound(timeSeconds);
+    if (it == chunks_.begin()) {
+        return 0;
+    }
+
+    --it;
+    const auto& chunk = it->second;
+    if (timeSeconds < chunk.startSeconds || timeSeconds >= chunk.endSeconds) {
+        return 0;
+    }
+
+    if (chunk.publishedRevision != chunk.desiredRevision) {
+        return 0;
+    }
+
+    const double sampleRate = static_cast<double>(targetSampleRate);
+    const double readPos = TimeCoordinate::secondsToSamplesExact(timeSeconds - chunk.startSeconds, sampleRate);
+    if (readPos < 0.0) {
+        return 0;
+    }
+
+    const float* src = nullptr;
+    int64_t chunkSize64 = 0;
+
+    if (targetSampleRate == static_cast<int>(kSampleRate)) {
+        if (chunk.audio.empty()) {
             return 0;
         }
-
-        --it;
-        const auto& chunk = it->second;
-        if (timeSeconds < chunk.startSeconds || timeSeconds >= chunk.endSeconds) {
-            return 0;
-        }
-
-        if (chunk.publishedRevision != chunk.desiredRevision) {
-            return 0;
-        }
-
-        const double sampleRate = static_cast<double>(targetSampleRate);
-        const double readPos = TimeCoordinate::secondsToSamplesExact(timeSeconds - chunk.startSeconds, sampleRate);
-        if (readPos < 0.0) {
-            return 0;
-        }
-
-        const float* src = nullptr;
-        int64_t chunkSize64 = 0;
-
-        if (targetSampleRate == static_cast<int>(kSampleRate)) {
-            if (chunk.audio.empty()) {
-                return 0;
-            }
-            src = chunk.audio.data();
-            chunkSize64 = static_cast<int64_t>(chunk.audio.size());
-        } else {
-            auto resampledIt = chunk.resampledAudio.find(targetSampleRate);
-            if (resampledIt == chunk.resampledAudio.end() || resampledIt->second.empty()) {
-                return 0;
-            }
+        src = chunk.audio.data();
+        chunkSize64 = static_cast<int64_t>(chunk.audio.size());
+    } else {
+        auto resampledIt = chunk.resampledAudio.find(targetSampleRate);
+        if (resampledIt != chunk.resampledAudio.end() && !resampledIt->second.empty()) {
             src = resampledIt->second.data();
             chunkSize64 = static_cast<int64_t>(resampledIt->second.size());
-        }
-
-        if (readPos >= static_cast<double>(chunkSize64)) {
+        } else if (!chunk.audio.empty()) {
+            touchChunkLru(it->second);
+            const double offset0Sec = timeSeconds - chunk.startSeconds;
+            const double baseSr = static_cast<double>(kSampleRate);
+            const float* base = chunk.audio.data();
+            const int64_t n441 = static_cast<int64_t>(chunk.audio.size());
+            int produced = 0;
+            for (int i = 0; i < numSamples; ++i) {
+                const double pos441 =
+                    (offset0Sec + static_cast<double>(i) / sampleRate) * baseSr;
+                if (pos441 < 0.0) {
+                    return 0;
+                }
+                if (pos441 >= static_cast<double>(n441 - 1)) {
+                    break;
+                }
+                const int64_t i0 = static_cast<int64_t>(pos441);
+                const double frac = pos441 - static_cast<double>(i0);
+                const int64_t i1 = std::min<int64_t>(i0 + 1, n441 - 1);
+                const float s0 = base[static_cast<size_t>(i0)];
+                const float s1 = base[static_cast<size_t>(i1)];
+                dest[produced++] = static_cast<float>(s0 + (s1 - s0) * frac);
+            }
+            return produced;
+        } else {
             return 0;
         }
+    }
 
-        const int64_t startIndex = static_cast<int64_t>(readPos);
-        const int64_t availableSamples = chunkSize64 - startIndex;
-        const int64_t requestedSamples = std::max<int64_t>(0, numSamples);
-        const int samplesToRead = static_cast<int>(std::min(availableSamples, requestedSamples));
+    if (readPos >= static_cast<double>(chunkSize64)) {
+        return 0;
+    }
 
-        if (samplesToRead <= 0) {
-            return 0;
-        }
+    const int64_t startIndex = static_cast<int64_t>(readPos);
+    const int64_t availableSamples = chunkSize64 - startIndex;
+    const int64_t requestedSamples = std::max<int64_t>(0, numSamples);
+    const int samplesToRead = static_cast<int>(std::min(availableSamples, requestedSamples));
 
-        const double baseFraction = readPos - static_cast<double>(startIndex);
-        if (baseFraction == 0.0) {
-            std::copy(src + startIndex, src + startIndex + samplesToRead, dest);
-            return samplesToRead;
-        }
+    if (samplesToRead <= 0) {
+        return 0;
+    }
 
-        for (int i = 0; i < samplesToRead; ++i) {
-            const int64_t idx0 = startIndex + i;
-            const int64_t idx1 = std::min<int64_t>(idx0 + 1, chunkSize64 - 1);
-            const float s0 = src[idx0];
-            const float s1 = src[idx1];
-            dest[i] = static_cast<float>(s0 + (s1 - s0) * baseFraction);
-        }
+    touchChunkLru(it->second);
+
+    const double baseFraction = readPos - static_cast<double>(startIndex);
+    if (baseFraction == 0.0) {
+        std::copy(src + startIndex, src + startIndex + samplesToRead, dest);
         return samplesToRead;
-    };
+    }
 
+    for (int i = 0; i < samplesToRead; ++i) {
+        const int64_t idx0 = startIndex + i;
+        const int64_t idx1 = std::min<int64_t>(idx0 + 1, chunkSize64 - 1);
+        const float s0 = src[idx0];
+        const float s1 = src[idx1];
+        dest[i] = static_cast<float>(s0 + (s1 - s0) * baseFraction);
+    }
+    return samplesToRead;
+}
+
+int RenderCache::readAtTimeForRate(float* dest, int numSamples, double timeSeconds,
+                                   int targetSampleRate, bool nonBlocking)
+{
     if (nonBlocking) {
         juce::SpinLock::ScopedTryLockType guard(lock_);
         if (!guard.isLocked()) {
             return 0;
         }
-        return readWithLock();
+        return readAtTimeUnlocked(dest, numSamples, timeSeconds, targetSampleRate);
     }
 
     const juce::SpinLock::ScopedLockType guard(lock_);
-    return readWithLock();
+    return readAtTimeUnlocked(dest, numSamples, timeSeconds, targetSampleRate);
 }
 
 void RenderCache::clearResampledCache() {
@@ -259,7 +318,107 @@ void RenderCache::clear() {
         }
     }
     chunks_.clear();
+    pendingChunks_.clear();
     totalMemoryUsage_ = 0;
+}
+
+namespace {
+
+juce::String encodeFloatVectorBase64(const std::vector<float>& v) {
+    if (v.empty()) {
+        return {};
+    }
+    return juce::Base64::toBase64(v.data(), v.size() * sizeof(float));
+}
+
+bool decodeFloatVectorBase64(const juce::var& value, std::vector<float>& out) {
+    out.clear();
+    const juce::String s = value.toString();
+    if (s.isEmpty()) {
+        return true;
+    }
+    juce::MemoryBlock mb;
+    juce::MemoryOutputStream mos(mb, false);
+    if (!juce::Base64::convertFromBase64(mos, s)) {
+        return false;
+    }
+    if (mb.getSize() % sizeof(float) != 0) {
+        return false;
+    }
+    const size_t n = mb.getSize() / sizeof(float);
+    out.resize(n);
+    std::memcpy(out.data(), mb.getData(), n * sizeof(float));
+    return true;
+}
+
+} // namespace
+
+juce::ValueTree RenderCache::toProjectValueTree() const {
+    juce::ValueTree root("RenderCache");
+    const juce::SpinLock::ScopedLockType guard(lock_);
+    for (const auto& kv : chunks_) {
+        const auto& c = kv.second;
+        if (c.audio.empty() || c.publishedRevision == 0) {
+            continue;
+        }
+        juce::ValueTree ch("RChunk");
+        ch.setProperty("startSeconds", c.startSeconds, nullptr);
+        ch.setProperty("endSeconds", c.endSeconds, nullptr);
+        ch.setProperty("status", static_cast<int>(c.status), nullptr);
+        ch.setProperty("desiredRevision", static_cast<juce::int64>(c.desiredRevision), nullptr);
+        ch.setProperty("publishedRevision", static_cast<juce::int64>(c.publishedRevision), nullptr);
+        ch.setProperty("audioBase64", encodeFloatVectorBase64(c.audio), nullptr);
+        root.addChild(ch, -1, nullptr);
+    }
+    return root;
+}
+
+void RenderCache::restoreFromProjectValueTree(const juce::ValueTree& tree) {
+    clear();
+    if (!tree.isValid() || !tree.hasType("RenderCache")) {
+        return;
+    }
+
+    const juce::SpinLock::ScopedLockType guard(lock_);
+    for (int ci = 0; ci < tree.getNumChildren(); ++ci) {
+        const juce::ValueTree ch = tree.getChild(ci);
+        if (!ch.hasType("RChunk")) {
+            continue;
+        }
+        std::vector<float> audio;
+        if (!decodeFloatVectorBase64(ch.getProperty("audioBase64"), audio) || audio.empty()) {
+            continue;
+        }
+
+        const double start = static_cast<double>(ch.getProperty("startSeconds", 0.0));
+        const double end = static_cast<double>(ch.getProperty("endSeconds", 0.0));
+        if (!(end > start)) {
+            continue;
+        }
+
+        Chunk chunk;
+        chunk.startSeconds = start;
+        chunk.endSeconds = end;
+        chunk.status = static_cast<Chunk::Status>(static_cast<int>(ch.getProperty("status", static_cast<int>(Chunk::Status::Idle))));
+        chunk.desiredRevision =
+            static_cast<uint64_t>(static_cast<juce::int64>(ch.getProperty("desiredRevision", static_cast<juce::int64>(0))));
+        chunk.publishedRevision =
+            static_cast<uint64_t>(static_cast<juce::int64>(ch.getProperty("publishedRevision", static_cast<juce::int64>(0))));
+        chunk.audio = std::move(audio);
+
+        if (chunk.desiredRevision == 0 || chunk.publishedRevision == 0) {
+            chunk.desiredRevision = 1;
+            chunk.publishedRevision = 1;
+        }
+
+        const size_t chunkBytes = chunk.audio.size() * sizeof(float);
+        totalMemoryUsage_ += chunkBytes;
+        const size_t newCurrent = globalCacheCurrentBytes().fetch_add(chunkBytes, std::memory_order_relaxed) + chunkBytes;
+        size_t peak = globalCachePeakBytes().load(std::memory_order_relaxed);
+        while (newCurrent > peak && !globalCachePeakBytes().compare_exchange_weak(peak, newCurrent, std::memory_order_relaxed)) {}
+
+        chunks_[start] = std::move(chunk);
+    }
 }
 
 size_t RenderCache::getTotalMemoryUsage() const {

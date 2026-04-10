@@ -1,4 +1,5 @@
 #include "ModelFactory.h"
+#include "DmlConfig.h"
 #include "RMVPEExtractor.h"
 #include "../DSP/ResamplingManager.h"
 #include "../Utils/CpuBudgetManager.h"
@@ -8,6 +9,10 @@
 #include <juce_core/juce_core.h>
 #include <cstdlib>
 #include <iomanip>
+#include <unordered_map>
+#if defined(_WIN32)
+#include <dml_provider_factory.h>
+#endif
 
 namespace OpenTune {
 
@@ -37,7 +42,126 @@ void logOnnxSessionCpuConfig(const CpuBudgetManager::BudgetConfig& budget)
               + " allowSpinning=" + juce::String(budget.allowSpinning ? 1 : 0));
 }
 
+/** Git LFS checkout without `git lfs pull` leaves tiny pointer files; ORT then fails with "Protobuf parsing failed". */
+bool isGitLfsPointerFile(const juce::File& file)
+{
+    if (!file.existsAsFile()) {
+        return false;
+    }
+    const juce::int64 sz = file.getSize();
+    if (sz <= 0 || sz > 1024) {
+        return false;
+    }
+    juce::FileInputStream in(file);
+    if (!in.openedOk()) {
+        return false;
+    }
+    const juce::String line = in.readNextLine().trimStart();
+    return line.startsWith("version https://git-lfs.github.com/spec/v1");
 }
+
+Ort::SessionOptions buildF0SessionOptionsImpl(bool allowWin32DirectML,
+                                              bool& outGpuMode,
+                                              bool& outUsesDedicatedVramForPreflight)
+{
+    Ort::SessionOptions sessionOptions;
+
+    bool gpuMode = false;
+    outUsesDedicatedVramForPreflight = false;
+
+#if defined(_WIN32)
+    bool f0DmlAttached = false;
+    if (allowWin32DirectML) {
+        auto& gpuDet = AccelerationDetector::getInstance();
+        if (gpuDet.getSelectedBackend() == AccelerationDetector::AccelBackend::DirectML) {
+            auto& api = Ort::GetApi();
+            const OrtDmlApi* dmlApi = nullptr;
+            OrtStatus* probeStatus = api.GetExecutionProviderApi(
+                "DML",
+                ORT_API_VERSION,
+                reinterpret_cast<const void**>(&dmlApi));
+            if (probeStatus != nullptr) {
+                const char* msg = api.GetErrorMessage(probeStatus);
+                AppLogger::warn("[ModelFactory] F0: GetExecutionProviderApi(DML) failed: "
+                    + juce::String(msg != nullptr ? msg : ""));
+                api.ReleaseStatus(probeStatus);
+            } else if (dmlApi != nullptr) {
+                DmlConfig cfg;
+                cfg.deviceId = gpuDet.getDirectMLDeviceId();
+                cfg.performancePreference = 1;
+                cfg.deviceFilter = 1;
+                OrtDmlDeviceOptions devOpts{};
+                devOpts.Preference = static_cast<OrtDmlPerformancePreference>(cfg.performancePreference);
+                devOpts.Filter = static_cast<OrtDmlDeviceFilter>(cfg.deviceFilter);
+                OrtStatus* dmlStatus = dmlApi->SessionOptionsAppendExecutionProvider_DML2(sessionOptions, &devOpts);
+                if (dmlStatus != nullptr) {
+                    const char* msg = api.GetErrorMessage(dmlStatus);
+                    AppLogger::warn("[ModelFactory] F0: AppendExecutionProvider DML2 failed: "
+                        + juce::String(msg != nullptr ? msg : ""));
+                    api.ReleaseStatus(dmlStatus);
+                } else {
+                    gpuMode = true;
+                    f0DmlAttached = true;
+                    outUsesDedicatedVramForPreflight = true;
+                    sessionOptions.DisableMemPattern();
+                    AppLogger::info("[ModelFactory] F0 session: DirectML (DML2) EP added");
+                }
+            }
+        }
+    }
+#endif
+
+#if defined(__APPLE__)
+    try {
+        std::unordered_map<std::string, std::string> coremlOptions;
+        coremlOptions["ModelFormat"] = "MLProgram";
+        coremlOptions["MLComputeUnits"] = "CPUAndGPU";
+        sessionOptions.AppendExecutionProvider("CoreML", coremlOptions);
+        gpuMode = true;
+        AppLogger::info("[ModelFactory] F0 session: CoreML EP added (macOS, MLProgram+CPUAndGPU)");
+    } catch (const Ort::Exception& e) {
+        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0: " + juce::String(e.what()));
+        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
+    } catch (const std::exception& e) {
+        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0: " + juce::String(e.what()));
+        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
+    } catch (...) {
+        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0 (unknown error)");
+        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
+    }
+#endif
+
+#if defined(_WIN32)
+    if (f0DmlAttached) {
+        sessionOptions.SetIntraOpNumThreads(1);
+        sessionOptions.SetInterOpNumThreads(1);
+        sessionOptions.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
+        sessionOptions.AddConfigEntry("session.intra_op.allow_spinning", "0");
+        sessionOptions.AddConfigEntry("session.inter_op.allow_spinning", "0");
+        AppLogger::info("[ModelFactory] F0 session: DML thread policy (intra=1 inter=1, sequential)");
+    } else
+#endif
+    {
+        const auto budget = CpuBudgetManager::buildConfig(gpuMode);
+        sessionOptions.SetIntraOpNumThreads(budget.onnxIntra);
+        sessionOptions.SetInterOpNumThreads(budget.onnxInter);
+        sessionOptions.SetExecutionMode(budget.onnxSequential ? ExecutionMode::ORT_SEQUENTIAL : ExecutionMode::ORT_PARALLEL);
+        sessionOptions.AddConfigEntry("session.intra_op.allow_spinning", budget.allowSpinning ? "1" : "0");
+        sessionOptions.AddConfigEntry("session.inter_op.allow_spinning", budget.allowSpinning ? "1" : "0");
+
+        logOnnxSessionCpuConfig(budget);
+    }
+
+    sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+    if (!gpuMode) {
+        AppLogger::info("[ModelFactory] F0 session: CPU-only mode");
+    }
+    outGpuMode = gpuMode;
+    return sessionOptions;
+}
+
+} // namespace
 
 // ==============================================================================
 // F0 Extractor Creation
@@ -56,21 +180,34 @@ ModelFactory::F0ExtractorResult ModelFactory::createF0Extractor(
             "F0 model file: " + modelPath);
     }
 
+    if (isGitLfsPointerFile(juce::File(modelPath))) {
+        AppLogger::error("[ModelFactory] F0 model is a Git LFS pointer, not real ONNX: " + juce::String(modelPath));
+        return F0ExtractorResult::failure(ErrorCode::ModelLoadFailed,
+            "rmvpe.onnx is a Git LFS pointer (approx. 130 bytes), not the model weights. "
+            "Install Git LFS, then in the repo root run: git lfs install && git lfs pull "
+            "(or obtain the full rmvpe.onnx, ~345 MB, and replace this file).");
+    }
+
     try {
         bool gpuMode = false;
-        auto session = loadF0Session(modelPath, env, gpuMode);
+        bool vramPreflight = false;
+        auto session = loadF0Session(modelPath, env, gpuMode, vramPreflight);
         if (!session) {
             return F0ExtractorResult::failure(ErrorCode::SessionCreationFailed,
                 "Failed to create ONNX session for: " + modelPath);
         }
 
+#if defined(_WIN32)
+        const juce::String backendStr = vramPreflight ? "DirectML" : (gpuMode ? "GPU" : "CPU");
+#else
         const juce::String backendStr = gpuMode ? "CoreML" : "CPU";
+#endif
         AppLogger::info("[ModelFactory] Loaded F0 model (" + backendStr + "): " + juce::String(modelPath));
 
         switch (type) {
             case F0ModelType::RMVPE:
                 return F0ExtractorResult::success(
-                    std::make_unique<RMVPEExtractor>(std::move(session), resampler));
+                    std::make_unique<RMVPEExtractor>(std::move(session), resampler, vramPreflight));
         }
 
         return F0ExtractorResult::failure(ErrorCode::InvalidModelType,
@@ -132,47 +269,9 @@ std::vector<F0ModelInfo> ModelFactory::getAvailableF0Models(const std::string& m
 // F0 Session Options
 // ==============================================================================
 
-Ort::SessionOptions ModelFactory::createF0SessionOptions(bool& outGpuMode) {
-    Ort::SessionOptions sessionOptions;
-    
-    bool gpuMode = false;
-
-#if defined(__APPLE__)
-    // macOS: attempt CoreML acceleration for F0 extraction via Neural Engine
-    try {
-        std::unordered_map<std::string, std::string> coremlOptions;
-        coremlOptions["ModelFormat"] = "MLProgram";
-        coremlOptions["MLComputeUnits"] = "CPUAndGPU";
-        sessionOptions.AppendExecutionProvider("CoreML", coremlOptions);
-        gpuMode = true;
-        AppLogger::info("[ModelFactory] F0 session: CoreML EP added (macOS, MLProgram+CPUAndGPU)");
-    } catch (const Ort::Exception& e) {
-        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0: " + juce::String(e.what()));
-        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
-    } catch (const std::exception& e) {
-        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0: " + juce::String(e.what()));
-        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
-    } catch (...) {
-        AppLogger::warn("[ModelFactory] Failed to add CoreML EP for F0 (unknown error)");
-        AppLogger::info("[ModelFactory] F0 session: falling back to CPU");
-    }
-#endif
-
-    const auto budget = CpuBudgetManager::buildConfig(gpuMode);
-    sessionOptions.SetIntraOpNumThreads(budget.onnxIntra);
-    sessionOptions.SetInterOpNumThreads(budget.onnxInter);
-    sessionOptions.SetExecutionMode(budget.onnxSequential ? ExecutionMode::ORT_SEQUENTIAL : ExecutionMode::ORT_PARALLEL);
-    sessionOptions.AddConfigEntry("session.intra_op.allow_spinning", budget.allowSpinning ? "1" : "0");
-    sessionOptions.AddConfigEntry("session.inter_op.allow_spinning", budget.allowSpinning ? "1" : "0");
-    
-    logOnnxSessionCpuConfig(budget);
-    sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    
-    if (!gpuMode) {
-        AppLogger::info("[ModelFactory] F0 session: CPU-only mode");
-    }
-    outGpuMode = gpuMode;
-    return sessionOptions;
+Ort::SessionOptions ModelFactory::createF0SessionOptions(bool& outGpuMode,
+                                                         bool& outUsesDedicatedVramForPreflight) {
+    return buildF0SessionOptionsImpl(true, outGpuMode, outUsesDedicatedVramForPreflight);
 }
 
 // ==============================================================================
@@ -182,11 +281,10 @@ Ort::SessionOptions ModelFactory::createF0SessionOptions(bool& outGpuMode) {
 std::unique_ptr<Ort::Session> ModelFactory::loadF0Session(
     const std::string& modelPath,
     Ort::Env& env,
-    bool& outGpuMode)
+    bool& outGpuMode,
+    bool& outUsesDedicatedVramForPreflight)
 {
-    try {
-        auto sessionOptions = createF0SessionOptions(outGpuMode);
-
+    auto tryCreate = [&](Ort::SessionOptions& sessionOptions) -> std::unique_ptr<Ort::Session> {
         if (shouldEnableOrtProfilingInDebug()) {
 #ifdef _WIN32
             sessionOptions.EnableProfiling(L"opentune_f0_profile");
@@ -203,8 +301,25 @@ std::unique_ptr<Ort::Session> ModelFactory::loadF0Session(
 #else
         return std::make_unique<Ort::Session>(env, modelPath.c_str(), sessionOptions);
 #endif
+    };
 
+    try {
+        auto sessionOptions = buildF0SessionOptionsImpl(true, outGpuMode, outUsesDedicatedVramForPreflight);
+        return tryCreate(sessionOptions);
     } catch (const Ort::Exception& e) {
+#if defined(_WIN32)
+        if (outUsesDedicatedVramForPreflight) {
+            AppLogger::warn("[ModelFactory] F0 session load failed with DirectML; retrying CPU: "
+                + juce::String(e.what()));
+            try {
+                auto sessionOptions = buildF0SessionOptionsImpl(false, outGpuMode, outUsesDedicatedVramForPreflight);
+                return tryCreate(sessionOptions);
+            } catch (const Ort::Exception& e2) {
+                AppLogger::error("[ModelFactory] F0 CPU session load failed: " + juce::String(e2.what()));
+                return nullptr;
+            }
+        }
+#endif
         AppLogger::error("[ModelFactory] Failed to load F0 session: " + juce::String(e.what()));
         return nullptr;
     }
