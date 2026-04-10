@@ -3,6 +3,7 @@
 #include "UIColors.h"
 #include "../../Utils/LocalizationManager.h"
 #include "../../Utils/KeyShortcutConfig.h"
+#include "../../Utils/RecentProjectsManager.h"
 
 namespace OpenTune {
 
@@ -44,6 +45,12 @@ void MenuBarComponent::refreshLocalizedText()
     menuItemsChanged();
 }
 
+void MenuBarComponent::setRecentProjectsManager(RecentProjectsManager* manager)
+{
+    recentProjects_ = manager;
+    menuItemsChanged();
+}
+
 juce::StringArray MenuBarComponent::getMenuBarNames()
 {
     return { LOC(kFile), LOC(kEdit), LOC(kView) };
@@ -63,11 +70,35 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             exportMenu.addItem(ExportSelectedClip, LOC(kExportSelectedClip));
             exportMenu.addItem(ExportTrack, LOC(kExportTrack));
             exportMenu.addItem(ExportBus, LOC(kExportBus));
+            exportMenu.addSeparator();
+            exportMenu.addItem(ExportStems, LOC(kExportStems));
             menu.addSubMenu(LOC(kExportAudio), exportMenu);
 
             menu.addSeparator();
-            menu.addItem(SavePreset, LOC(kSavePreset));
-            menu.addItem(LoadPreset, LOC(kLoadPreset));
+            menu.addItem(NewProject, LOC(kNewProject));
+            menu.addItem(SaveProject, LOC(kSaveProject));
+            menu.addItem(LoadProject, LOC(kLoadProject));
+
+            juce::PopupMenu recentMenu;
+            if (recentProjects_ != nullptr) {
+                const auto& files = recentProjects_->getRecentProjects();
+                if (files.isEmpty()) {
+                    recentMenu.addItem(RecentProjectsEmpty, LOC(kRecentProjectsEmpty), false);
+                } else {
+                    const int n = juce::jmin(static_cast<int>(files.size()),
+                                             RecentProjectsManager::kMaxEntries);
+                    for (int i = 0; i < n; ++i) {
+                        juce::PopupMenu::Item it;
+                        it.itemID = RecentProjectFirst + i;
+                        it.text = files.getReference(i).getFileName();
+                        it.isEnabled = files.getReference(i).existsAsFile();
+                        recentMenu.addItem(it);
+                    }
+                }
+            } else {
+                recentMenu.addItem(RecentProjectsEmpty, LOC(kRecentProjectsEmpty), false);
+            }
+            menu.addSubMenu(LOC(kRecentProjects), recentMenu);
 
             menu.addSeparator();
             menu.addItem(OpenPreferences, LOC(kOptions));
@@ -92,33 +123,12 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             menu.addItem(ShowWaveform, LOC(kShowWaveform), true, processor_.getShowWaveform());
             menu.addItem(ShowLanes, LOC(kShowLanes), true, processor_.getShowLanes());
 
-            {
-                juce::PopupMenu noteNamesMenu;
-                noteNamesMenu.addItem(NoteNamesAll, LOC(kShowAllNotes), true, currentNoteNameMode_ == 0);
-                noteNamesMenu.addItem(NoteNamesCOnly, LOC(kShowCOnly), true, currentNoteNameMode_ == 1);
-                noteNamesMenu.addItem(NoteNamesHide, LOC(kHideNoteNames), true, currentNoteNameMode_ == 2);
-                menu.addSubMenu(LOC(kNoteNames), noteNamesMenu);
-            }
-
             juce::PopupMenu themeMenu;
             themeMenu.addItem(ThemeBlueBreeze, LOC(kThemeBlueBreeze), true, Theme::getActiveTheme() == ThemeId::BlueBreeze);
             themeMenu.addItem(ThemeDarkBlueGrey, LOC(kThemeDarkBlueGrey), true, Theme::getActiveTheme() == ThemeId::DarkBlueGrey);
             themeMenu.addItem(ThemeAurora, LOC(kThemeAurora), true, Theme::getActiveTheme() == ThemeId::Aurora);
             menu.addSeparator();
             menu.addSubMenu(LOC(kTheme), themeMenu);
-            
-            auto currentTrailTheme = MouseTrailConfig::getTheme();
-            juce::PopupMenu mouseTrailMenu;
-            mouseTrailMenu.addItem(MouseTrailNone, LOC(kOff), true, currentTrailTheme == MouseTrailConfig::TrailTheme::None);
-            mouseTrailMenu.addSeparator();
-            mouseTrailMenu.addItem(MouseTrailClassic, LOC(kClassic), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Classic);
-            mouseTrailMenu.addItem(MouseTrailNeon, LOC(kNeon), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Neon);
-            mouseTrailMenu.addItem(MouseTrailFire, LOC(kFire), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Fire);
-            mouseTrailMenu.addItem(MouseTrailOcean, LOC(kOcean), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Ocean);
-            mouseTrailMenu.addItem(MouseTrailGalaxy, LOC(kGalaxy), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Galaxy);
-            mouseTrailMenu.addItem(MouseTrailCherryBlossom, LOC(kCherryBlossom), true, currentTrailTheme == MouseTrailConfig::TrailTheme::CherryBlossom);
-            mouseTrailMenu.addItem(MouseTrailMatrix, LOC(kMatrix), true, currentTrailTheme == MouseTrailConfig::TrailTheme::Matrix);
-            menu.addSubMenu(LOC(kMouseTrail), mouseTrailMenu);
             break;
         }
         default:
@@ -151,12 +161,19 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         case ExportBus:
             listeners_.call([](Listener& l) { l.exportAudioRequested(ExportType::Bus); });
             break;
-
-        case SavePreset:
-            listeners_.call([](Listener& l) { l.savePresetRequested(); });
+        case ExportStems:
+            listeners_.call([](Listener& l) { l.exportStemsRequested(); });
             break;
-        case LoadPreset:
-            listeners_.call([](Listener& l) { l.loadPresetRequested(); });
+
+        case NewProject:
+            listeners_.call([](Listener& l) { l.newProjectRequested(); });
+            break;
+
+        case SaveProject:
+            listeners_.call([](Listener& l) { l.saveProjectRequested(); });
+            break;
+        case LoadProject:
+            listeners_.call([](Listener& l) { l.loadProjectRequested(); });
             break;
 
         case OpenPreferences:
@@ -183,21 +200,6 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             menuItemsChanged();
             break;
         }
-        case NoteNamesAll:
-            currentNoteNameMode_ = 0;
-            listeners_.call([](Listener& l) { l.noteNameModeChanged(0); });
-            menuItemsChanged();
-            break;
-        case NoteNamesCOnly:
-            currentNoteNameMode_ = 1;
-            listeners_.call([](Listener& l) { l.noteNameModeChanged(1); });
-            menuItemsChanged();
-            break;
-        case NoteNamesHide:
-            currentNoteNameMode_ = 2;
-            listeners_.call([](Listener& l) { l.noteNameModeChanged(2); });
-            menuItemsChanged();
-            break;
         case ThemeBlueBreeze:
             listeners_.call([](Listener& l) { l.themeChanged(ThemeId::BlueBreeze); });
             menuItemsChanged();
@@ -210,39 +212,6 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             listeners_.call([](Listener& l) { l.themeChanged(ThemeId::Aurora); });
             menuItemsChanged();
             break;
-            
-        case MouseTrailNone:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::None); });
-            menuItemsChanged();
-            break;
-        case MouseTrailClassic:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Classic); });
-            menuItemsChanged();
-            break;
-        case MouseTrailNeon:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Neon); });
-            menuItemsChanged();
-            break;
-        case MouseTrailFire:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Fire); });
-            menuItemsChanged();
-            break;
-        case MouseTrailOcean:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Ocean); });
-            menuItemsChanged();
-            break;
-        case MouseTrailGalaxy:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Galaxy); });
-            menuItemsChanged();
-            break;
-        case MouseTrailCherryBlossom:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::CherryBlossom); });
-            menuItemsChanged();
-            break;
-        case MouseTrailMatrix:
-            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Matrix); });
-            menuItemsChanged();
-            break;
 
         case EditUndo:
             listeners_.call([](Listener& l) { l.undoRequested(); });
@@ -253,6 +222,21 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             break;
 
         default:
+            if (menuItemID == RecentProjectsEmpty) {
+                break;
+            }
+            if (recentProjects_ != nullptr
+                && menuItemID >= RecentProjectFirst
+                && menuItemID < RecentProjectFirst + RecentProjectsManager::kMaxEntries) {
+                const int idx = menuItemID - RecentProjectFirst;
+                const auto& files = recentProjects_->getRecentProjects();
+                if (idx >= 0 && idx < files.size()) {
+                    const juce::File f = files.getReference(idx);
+                    if (f.existsAsFile()) {
+                        listeners_.call([&f](Listener& l) { l.recentProjectOpenRequested(f); });
+                    }
+                }
+            }
             break;
     }
 }

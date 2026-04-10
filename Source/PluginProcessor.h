@@ -29,7 +29,7 @@
 #include <thread>
 #include "DSP/ResamplingManager.h"
 #include "Utils/PitchCurve.h"
-#include "DSP/ChromaKeyDetector.h"
+#include "DSP/ScaleInference.h"
 #include "Inference/RenderCache.h"
 #include "Inference/F0InferenceService.h"
 #include "Inference/VocoderDomain.h"
@@ -112,6 +112,26 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    /**
+     * 保存完整工程（轨道、Clip 音频、音高线、音符等到 .otproject XML 文件）。
+     */
+    bool saveProjectToFile(const juce::File& file);
+
+    /**
+     * 从 .otproject 加载工程，替换当前会话（会清空撤销历史并停止播放）。
+     */
+    bool loadProjectFromFile(const juce::File& file);
+
+    /**
+     * 重置为空白工程（空时间线、默认 BPM/视图、清空撤销）。Standalone 新建工程用。
+     */
+    void resetToNewEmptyProject();
+
+    /**
+     * 从磁盘读取音频并重采样到内部存储采样率（工程按绝对路径还原干声时使用）。
+     */
+    bool loadAudioFileToHostRateBuffer(const juce::File& file, juce::AudioBuffer<float>& outHostRate);
+
     double getSampleRate() const { return currentSampleRate_.load(std::memory_order_relaxed); }
     
     // 音频以固定 44.1kHz 存储，用于存储音频数据的采样-时间转换
@@ -128,6 +148,7 @@ public:
     struct PreparedImportClip {
         int trackId{};
         juce::String clipName;
+        juce::String sourceAudioAbsolutePath;
         juce::AudioBuffer<float> hostRateBuffer;
         std::vector<SilentGap> silentGaps;
     };
@@ -174,6 +195,49 @@ public:
     void bumpEditVersion();
     void showAudioSettingsDialog(juce::AudioProcessorEditor& editor);
 
+    // Multi-track clip layout (public for project I/O helpers in PluginProcessor.cpp)
+    struct TrackState {
+        struct AudioClip {
+            uint64_t clipId{0};
+            std::shared_ptr<const juce::AudioBuffer<float>> audioBuffer;  // 共享所有权，地址稳定
+            juce::AudioBuffer<float> drySignalBuffer_;   // Pre-resampled to device rate for dry signal playback
+            double startSeconds{0.0};
+            float gain{1.0f};
+            double fadeInDuration{0.0};
+            double fadeOutDuration{0.0};
+            juce::String name;
+            juce::Colour colour;
+            std::shared_ptr<PitchCurve> pitchCurve;
+            OriginalF0State originalF0State{OriginalF0State::NotRequested};
+            DetectedKey detectedKey;
+            std::shared_ptr<RenderCache> renderCache;
+            // Per-clip editing data
+            std::vector<Note> notes;
+            
+            // Silent gap detection results (computed on import)
+            std::vector<SilentGap> silentGaps;
+
+            /** 导入时的源文件绝对路径（用于工程存盘引用，可为空） */
+            juce::String sourceAudioAbsolutePath;
+
+            AudioClip() = default;
+            AudioClip(const AudioClip& other);
+            AudioClip& operator=(const AudioClip& other);
+            AudioClip(AudioClip&& other) noexcept;
+            AudioClip& operator=(AudioClip&& other) noexcept;
+        };
+
+        std::vector<AudioClip> clips;
+        int selectedClipIndex{0};
+
+        bool isMuted{false};
+        bool isSolo{false};
+        float volume{1.0f};
+        juce::String name;
+        juce::Colour colour;
+        std::atomic<float> currentRMS{-100.0f}; // Current RMS level in dB
+    };
+
 private:
     friend class HostIntegrationPlugin;
     friend class HostIntegrationStandalone;
@@ -203,46 +267,6 @@ private:
     std::atomic<bool> isBuffering_{false};
     std::atomic<bool> useDrySignalFallback_{false};
     int64_t bufferingStartCheckTime_{0}; // Milliseconds
-
-    // Multi-track support
-    struct TrackState {
-        struct AudioClip {
-            uint64_t clipId{0};
-            std::shared_ptr<const juce::AudioBuffer<float>> audioBuffer;  // 共享所有权，地址稳定
-            juce::AudioBuffer<float> drySignalBuffer_;   // Pre-resampled to device rate for dry signal playback
-            double startSeconds{0.0};
-            float gain{1.0f};
-            double fadeInDuration{0.0};
-            double fadeOutDuration{0.0};
-            juce::String name;
-            juce::Colour colour;
-            std::shared_ptr<PitchCurve> pitchCurve;
-            OriginalF0State originalF0State{OriginalF0State::NotRequested};
-            DetectedKey detectedKey;
-            std::shared_ptr<RenderCache> renderCache;
-            // Per-clip editing data
-            std::vector<Note> notes;
-            
-            // Silent gap detection results (computed on import)
-            std::vector<SilentGap> silentGaps;
-
-            AudioClip() = default;
-            AudioClip(const AudioClip& other);
-            AudioClip& operator=(const AudioClip& other);
-            AudioClip(AudioClip&& other) noexcept;
-            AudioClip& operator=(AudioClip&& other) noexcept;
-        };
-
-        std::vector<AudioClip> clips;
-        int selectedClipIndex{0};
-
-        bool isMuted{false};
-        bool isSolo{false};
-        float volume{1.0f};
-        juce::String name;
-        juce::Colour colour;
-        std::atomic<float> currentRMS{-100.0f}; // Current RMS level in dB
-    };
 
     std::array<TrackState, MAX_TRACKS> tracks_;
     
@@ -419,6 +443,10 @@ public:
 
     // Rendering & Buffering
     void enqueuePartialRender(int trackId, int clipIndex, double relStartSeconds, double relEndSeconds);
+    /** 按 F0 帧范围入队渲染（内部换算为秒并调用 enqueuePartialRender） */
+    void enqueuePartialRenderForFrameRange(int trackId, int clipIndex, int startFrame, int endFrame);
+    /** 同上，用 clipId 定位片段（异步修音完成时选区可能已变） */
+    void enqueuePartialRenderForFrameRangeByClipId(int trackId, uint64_t clipId, int startFrame, int endFrame);
 
     // Playback Buffering State
     bool isBuffering() const { return isBuffering_; }

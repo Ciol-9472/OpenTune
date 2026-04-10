@@ -4,19 +4,17 @@
  * 菜单栏组件
  * 
  * 实现 JUCE MenuBarModel 接口，提供应用程序菜单：
- * - File（导入、导出、预设等）
+ * - File（导入、导出、工程等）
  * - Edit（撤销、重做等）
  * - View（波形显示、调式、主题等）
- * - 鼠标轨迹特效设置
  */
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "ThemeTokens.h"
-#include "../Utils/MouseTrailConfig.h"
-
 namespace OpenTune {
 
 class OpenTuneAudioProcessor;
+class RecentProjectsManager;
 
 class MenuBarComponent : public juce::Component,
                          public juce::MenuBarModel
@@ -35,8 +33,12 @@ public:
         virtual ~Listener() = default;
         virtual void importAudioRequested() = 0;
         virtual void exportAudioRequested(ExportType exportType) = 0;
-        virtual void savePresetRequested() = 0;
-        virtual void loadPresetRequested() = 0;
+        /** 分轨导出：选择音轨与文件名前缀后导出到文件夹 */
+        virtual void exportStemsRequested() = 0;
+        virtual void newProjectRequested() = 0;
+        virtual void saveProjectRequested() = 0;
+        virtual void loadProjectRequested() = 0;
+        virtual void recentProjectOpenRequested(const juce::File& file) = 0;
         virtual void preferencesRequested() = 0;
         virtual void helpRequested() = 0;
         virtual void showWaveformToggled(bool shouldShow) = 0;
@@ -44,8 +46,6 @@ public:
         virtual void themeChanged(ThemeId themeId) = 0;
         virtual void undoRequested() = 0;
         virtual void redoRequested() = 0;
-        virtual void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) = 0;
-        virtual void noteNameModeChanged(int mode) {}
     };
 
     explicit MenuBarComponent(OpenTuneAudioProcessor& processor);
@@ -59,6 +59,8 @@ public:
 
     void refreshLocalizedText();  // 刷新本地化文本
 
+    void setRecentProjectsManager(RecentProjectsManager* manager);
+
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
     void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
@@ -67,7 +69,7 @@ private:
     OpenTuneAudioProcessor& processor_;
     juce::MenuBarComponent menuBar_;
     juce::ListenerList<Listener> listeners_;
-    int currentNoteNameMode_ = 1; // 0=ShowAll, 1=COnly, 2=Hide
+    RecentProjectsManager* recentProjects_{nullptr};
 
     enum MenuItemIDs
     {
@@ -75,8 +77,12 @@ private:
         ExportSelectedClip,
         ExportTrack,
         ExportBus,
-        SavePreset,
-        LoadPreset,
+        ExportStems,
+        NewProject = 39,
+        SaveProject = 40,
+        LoadProject,
+        RecentProjectsEmpty = 305,
+        RecentProjectFirst = 310,
 
         EditUndo = 50,
         EditRedo,
@@ -86,19 +92,6 @@ private:
         ThemeBlueBreeze,
         ThemeDarkBlueGrey,
         ThemeAurora,
-
-        NoteNamesAll = 110,
-        NoteNamesCOnly,
-        NoteNamesHide,
-
-        MouseTrailNone = 150,
-        MouseTrailClassic,
-        MouseTrailNeon,
-        MouseTrailFire,
-        MouseTrailOcean,
-        MouseTrailGalaxy,
-        MouseTrailCherryBlossom,
-        MouseTrailMatrix,
 
         OpenPreferences = 200,
         OpenHelp

@@ -26,9 +26,8 @@
 #include "UI/OpenTuneLookAndFeel.h"
 #include "UI/AuroraLookAndFeel.h"
 #include "UI/UIColors.h"
-#include "UI/RippleOverlayComponent.h"
 #include "UI/AutoRenderOverlayComponent.h"
-#include "Utils/PresetManager.h"
+#include "Utils/RecentProjectsManager.h"
 #include "Utils/LocalizationManager.h"
 #include "Audio/AsyncAudioLoader.h"
 #include "Services/F0ExtractionService.h"
@@ -67,17 +66,18 @@ public:
     // MenuBarComponent::Listener
     void importAudioRequested() override;  // 新版本：不再需要trackId参数
     void exportAudioRequested(MenuBarComponent::ExportType exportType) override;  // 使用ExportType枚举
-    void savePresetRequested() override;
-    void loadPresetRequested() override;
+    void exportStemsRequested() override;
+    void newProjectRequested() override;
+    void saveProjectRequested() override;
+    void loadProjectRequested() override;
+    void recentProjectOpenRequested(const juce::File& file) override;
     void preferencesRequested() override;
     void helpRequested() override;
     void showWaveformToggled(bool shouldShow) override;
     void showLanesToggled(bool shouldShow) override;
-    void noteNameModeChanged(int mode) override;
     void themeChanged(ThemeId themeId) override;
     void undoRequested() override;
     void redoRequested() override;
-    void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) override;
 
     // TransportBarComponent::Listener
     void playRequested() override;
@@ -110,7 +110,6 @@ public:
     void pitchCurveEdited(int startFrame, int endFrame) override;
     void trackTimeOffsetChanged(int trackId, double newOffset) override;
     void escapeKeyPressed() override;
-    void playFromPositionRequested(double timeSeconds) override;
 
     // Keyboard handling
     bool keyPressed(const juce::KeyPress& key) override;
@@ -124,14 +123,13 @@ private:
     // 调式状态辅助
     static int scaleToUiScaleType(Scale scale);
     static Scale uiScaleTypeToScale(int scaleType);
-    static ScaleMode scaleToScaleMode(Scale scale);
     static DetectedKey makeDetectedKeyFromUi(int rootNote, int scaleType, float confidence = 1.0f);
     DetectedKey resolveScaleForClip(int trackId, int clipIndex, juce::String* sourceOut = nullptr) const;
     void applyScaleToUi(int rootNote, int scaleType);
     void applyResolvedScaleForClip(int trackId, int clipIndex);
     void syncPianoRollFromClipSelection(int trackId, int clipIndex);
 
-    void performKeyDetectionForClip(int trackId, int clipIndex);
+    void performScaleInferenceForClip(int trackId, int clipIndex);
     void requestOriginalF0ExtractionForImport(int trackId, int clipIndex);
 
     void timerCallback() override;
@@ -142,10 +140,24 @@ private:
     void importAudioFileToTrack(int trackId, const juce::File& file);
     void processNextImportInQueue();  // 处理导入队列中的下一个文件
     void processDeferredImportPostProcessQueue();
-    void promptTrackSelectionForDroppedFile(const juce::File& file);
+    /** 解析拖放落点所在轨道；无法识别时返回 -1 */
+    int resolveTrackIndexForAudioDrop(int editorX, int editorY) const;
+    /** 菜单导入：第一个无任何 clip 的轨道；若无则扩展可见轨并仍无则返回 -1 */
+    int findFirstEmptyTrackIndexForMenuImport();
+    void clearAllClipsOnTrack(int trackId);
+    /** 若轨道上已有片段则询问是否覆盖；replaceExisting true 时清空轨道后再导入 */
+    void importAudioFileToTrackWithOverwritePrompt(int trackId, const juce::File& file, bool replaceExisting);
     void launchBackgroundUiTask(std::function<void()> task);
     void waitForBackgroundUiTasks();
     void refreshAfterUndoRedo();
+    void syncUiAfterProjectLoad();
+    void openProjectFromFileWithUiFeedback(const juce::File& file);
+    void markSessionNeedsSave();
+    void clearSessionNeedsSave();
+    void finishNewProject();
+    void runSaveProjectDialogThen(std::function<void()> onSavedToDisk);
+    void launchStemExportFolderChooser(juce::String prefix, juce::Array<int> trackIds);
+    void startStemExportWorker(juce::String prefix, juce::Array<int> trackIds, juce::File outputDir);
     void performUndoWithRangeTracking();
     void performRedoWithRangeTracking();
     
@@ -167,11 +179,9 @@ private:
     ParameterPanel parameterPanel_;
     ArrangementViewComponent arrangementView_;
     PianoRollComponent pianoRoll_;
-    RippleOverlayComponent rippleOverlay_;
     AutoRenderOverlayComponent autoRenderOverlay_;
 
-    // Preset Manager
-    PresetManager presetManager_;
+    RecentProjectsManager recentProjects_;
 
     // Async loaders
     AsyncAudioLoader asyncAudioLoader_;
@@ -230,6 +240,14 @@ private:
     // Export worker thread management
     std::thread exportWorker_;
     std::atomic<bool> exportInProgress_{false};
+
+    /** 最近成功保存或打开的工程文件；用于分轨导出默认前缀（未关联工程时为空） */
+    juce::File sessionProjectFile_;
+
+    /** 自上次保存/打开/新建以来是否有应写入工程的修改（用于新建前提示） */
+    bool sessionNeedsSave_{false};
+    /** syncUiAfterProjectLoad 等同步 UI 时不应标记为已修改 */
+    bool suppressSessionNeedsSave_{false};
 
     // Detached-safe background tasks (import/deferred post-process)
     std::vector<std::future<void>> backgroundTasks_;
