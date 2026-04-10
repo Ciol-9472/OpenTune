@@ -29,6 +29,8 @@
 #include <optional>
 #include <utility>
 #include <atomic>
+#include <functional>
+#include <cstdint>
 #include <thread>
 #include "SmallButton.h"
 #include "PianoRoll/PianoRollUndoSupport.h"
@@ -50,6 +52,7 @@ public:
     static constexpr int kContextMenuCommandSelect = 3001;
     static constexpr int kContextMenuCommandDrawNote = 3002;
     static constexpr int kContextMenuCommandHandDraw = 3003;
+    static constexpr int kContextMenuCommandSplitNote = 3004;
     static constexpr int kAudioSampleRate = 44100;
 
     class Listener
@@ -64,7 +67,6 @@ public:
         virtual void autoTuneRequested() {}
         virtual void trackTimeOffsetChanged(int trackId, double newOffset) { (void)trackId; (void)newOffset; }
         virtual void escapeKeyPressed() {}
-        virtual void playFromPositionRequested(double timeSeconds) { (void)timeSeconds; }
     };
 
     enum class TimeUnit
@@ -117,7 +119,6 @@ public:
     void setF0SampleRate(double rate) { f0SampleRate_ = rate; }
     void setHasUserAudio(bool hasAudio);
     void setScale(int rootNote, int scaleType);
-    void setNoteNameMode(int mode);
 
     void resetUserZoomFlag() { userHasManuallyZoomed_ = false; }
     bool hasUserManuallyZoomed() const { return userHasManuallyZoomed_; }
@@ -183,6 +184,9 @@ public:
     void addListener(Listener* listener);
     void removeListener(Listener* listener);
 
+    /** If set, tool picks from the right-button tool menu call this (e.g. editor `toolSelected` for parameter bar sync). */
+    void setExternalToolSelectionHandler(std::function<void(int toolId)> fn) { externalToolSelectionHandler_ = std::move(fn); }
+
     void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override;
     void updateScrollBars();
 
@@ -199,8 +203,7 @@ private:
                                          int endFrameExclusive,
                                          float retuneSpeed,
                                          float vibratoDepth,
-                                         float vibratoRate,
-                                         bool isAutoTuneRequest = false);
+                                         float vibratoRate);
 
     bool applyRetuneSpeedToSelectedNotes(float speed);
 
@@ -213,7 +216,6 @@ private:
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
-    void mouseDoubleClick(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 public:
     bool keyPressed(const juce::KeyPress& key) override;
@@ -245,6 +247,13 @@ private:
     void consumeCompletedCorrectionResults();
     PianoRollToolHandler::Context buildToolHandlerContext();
     void initializeToolHandler();
+
+    enum class RightToolMenuPhase { None, WaitingLongPress };
+
+    void beginRightToolMenuLongPress(juce::Point<int> anchorPos);
+    void onRightToolMenuLongPressFired(uint32_t serial);
+    bool handleRightToolMenuMouseUp(const juce::MouseEvent& e);
+    void showToolContextPopupMenu();
 
     float midiToY(float midiNote) const;
     float yToMidi(float y) const;
@@ -309,11 +318,10 @@ private:
 
     int scaleRootNote_ = 0;
     int scaleType_ = 1;
-    int noteNameMode_ = 1; // 0=ShowAll, 1=COnly, 2=Hide
 
     static constexpr float minMidi_ = 24.0f;
     static constexpr float maxMidi_ = 108.0f;
-    float pixelsPerSemitone_ = 25.0f;
+    float pixelsPerSemitone_ = 50.0f;
 
     ToolId currentTool_ = ToolId::Select;
 
@@ -411,6 +419,10 @@ private:
     std::weak_ptr<std::atomic<double>> positionSource_;
 
     juce::ListenerList<Listener> listeners_;
+
+    std::function<void(int)> externalToolSelectionHandler_;
+    RightToolMenuPhase rightToolMenuPhase_ = RightToolMenuPhase::None;
+    uint32_t rightToolMenuPressSerial_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRollComponent)
 };

@@ -81,8 +81,9 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
             ctx_.requestRepaint();
             return;
         }
-        AppLogger::debug("[PianoRollToolHandler] mouseDown: showing context menu");
-        showToolContextMenu(e);
+        AppLogger::debug("[PianoRollToolHandler] mouseDown: begin right tool menu long-press");
+        if (ctx_.beginRightToolMenuLongPress)
+            ctx_.beginRightToolMenuLongPress(e.getPosition());
         return;
     }
 
@@ -95,11 +96,17 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
         if (clickedTime >= 0) {
             ctx_.notifyPlayheadChange(clickedTime);
         }
-        isDraggingTimeline_ = true;
         return;
     }
 
     dragStartPos_ = e.getPosition();
+
+    if (e.x > ctx_.getPianoKeyWidth()) {
+        double clickedTime = ctx_.xToTime(e.x);
+        if (clickedTime >= 0) {
+            ctx_.notifyPlayheadChange(clickedTime);
+        }
+    }
 
     switch (currentTool_) {
         case ToolId::AutoTune:
@@ -122,6 +129,10 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
             AppLogger::debug("[PianoRollToolHandler] mouseDown: handling LineAnchor tool");
             handleLineAnchorMouseDown(e);
             break;
+        case ToolId::SplitNote:
+            AppLogger::debug("[PianoRollToolHandler] mouseDown: handling SplitNote tool");
+            handleSplitNoteTool(e);
+            break;
         default:
             AppLogger::warn("[PianoRollToolHandler] mouseDown: unknown tool " + juce::String(static_cast<int>(currentTool_)));
             break;
@@ -132,14 +143,6 @@ void PianoRollToolHandler::mouseDrag(const juce::MouseEvent& e)
 {
     AppLogger::debug("[PianoRollToolHandler] mouseDrag: pos=(" + juce::String(e.x) + "," + juce::String(e.y) 
         + "), tool=" + juce::String(static_cast<int>(currentTool_)));
-
-    if (isDraggingTimeline_) {
-        double t = ctx_.xToTime(e.x);
-        if (t >= 0)
-            ctx_.notifyPlayheadChange(t);
-        ctx_.requestRepaint();
-        return;
-    }
 
     switch (currentTool_) {
         case ToolId::Select:
@@ -175,8 +178,6 @@ void PianoRollToolHandler::mouseDrag(const juce::MouseEvent& e)
 void PianoRollToolHandler::mouseUp(const juce::MouseEvent& e)
 {
     AppLogger::debug("[PianoRollToolHandler] mouseUp: tool=" + juce::String(static_cast<int>(currentTool_)));
-
-    isDraggingTimeline_ = false;
 
     switch (currentTool_) {
         case ToolId::Select:
@@ -244,12 +245,17 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
             return true;
         }
 
+        if (key.getTextCharacter() == '5') {
+            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to SplitNote tool");
+            ctx_.setCurrentTool(ToolId::SplitNote);
+            return true;
+        }
+
         if (key.getTextCharacter() == '6') {
             AppLogger::debug("[PianoRollToolHandler] keyPressed: AutoTune requested");
             ctx_.notifyAutoTuneRequested();
             return true;
         }
-
     }
 
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::PlayPause, key)) {
@@ -709,6 +715,79 @@ void PianoRollToolHandler::handleDrawNoteMouseDown(const juce::MouseEvent& e)
     
     ctx_.setDrawNoteToolPendingDrag(true);
     ctx_.setDrawNoteToolMouseDownPos(e.getPosition());
+}
+
+void PianoRollToolHandler::handleSplitNoteTool(const juce::MouseEvent& e)
+{
+    if (e.x <= ctx_.getPianoKeyWidth()) {
+        return;
+    }
+
+    const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+    const double clickedTime = ctx_.xToTime(e.x) - offsetSeconds;
+    if (clickedTime < 0.0) {
+        return;
+    }
+
+    const float clickedPitch = ctx_.yToFreq(static_cast<float>(e.y));
+    Note* target = ctx_.findNoteAt(clickedTime, clickedPitch, 100.0f);
+    if (target == nullptr) {
+        return;
+    }
+
+    constexpr double kMinHalfDuration = 0.02;
+    const double splitTime = clickedTime;
+    if (splitTime <= target->startTime + kMinHalfDuration
+        || splitTime >= target->endTime - kMinHalfDuration) {
+        return;
+    }
+
+    const double origStart = target->startTime;
+    const double origEnd = target->endTime;
+
+    ctx_.beginEditTransaction("Split Note");
+
+    Note left = *target;
+    Note right = *target;
+    left.endTime = splitTime;
+    right.startTime = splitTime;
+    left.selected = false;
+    right.selected = true;
+    left.dirty = true;
+    right.dirty = true;
+
+    auto& notes = ctx_.getNotes();
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (&notes[i] == target) {
+            notes[i] = left;
+            notes.insert(notes.begin() + static_cast<std::ptrdiff_t>(i) + 1, right);
+            break;
+        }
+    }
+
+    auto pitchCurve = ctx_.getPitchCurve();
+    if (pitchCurve) {
+        const double frameDuration = static_cast<double>(ctx_.getCurveHopSize()) / ctx_.getCurveSampleRate();
+        int startFrame = static_cast<int>(origStart / frameDuration);
+        int endFrame = static_cast<int>(origEnd / frameDuration);
+        if (startFrame < 0) {
+            startFrame = 0;
+        }
+        if (endFrame < startFrame) {
+            endFrame = startFrame;
+        }
+
+        ctx_.enqueueNoteBasedCorrection(
+            startFrame,
+            endFrame + 1,
+            ctx_.getRetuneSpeed(),
+            ctx_.getVibratoDepth(),
+            ctx_.getVibratoRate());
+    } else {
+        ctx_.commitEditTransaction();
+    }
+
+    ctx_.requestRepaint();
 }
 
 void PianoRollToolHandler::handleDrawNoteTool(const juce::MouseEvent& e)
@@ -1317,13 +1396,6 @@ void PianoRollToolHandler::handleDrawNoteUp(const juce::MouseEvent& e)
         ctx_.commitEditTransaction();
     }
     ctx_.requestRepaint();
-}
-
-void PianoRollToolHandler::showToolContextMenu(const juce::MouseEvent& e)
-{
-    juce::ignoreUnused(e);
-    AppLogger::debug("[PianoRollToolHandler] showToolContextMenu: opening tool selection menu");
-    ctx_.showToolSelectionMenu();
 }
 
 void PianoRollToolHandler::deleteSelectedNotes()

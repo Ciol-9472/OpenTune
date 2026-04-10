@@ -90,7 +90,7 @@ public:
         std::function<void(const juce::MouseCursor&)> setMouseCursor;
         std::function<void()> grabKeyboardFocus;
         std::function<void(ToolId)> setCurrentTool;
-        std::function<void()> showToolSelectionMenu;
+        std::function<void(juce::Point<int>)> beginRightToolMenuLongPress;
 
         std::function<void(double)> notifyPlayheadChange;
         std::function<void(int, int)> notifyPitchCurveEdited;
@@ -129,6 +129,7 @@ private:
     void handleDrawCurveTool(const juce::MouseEvent& e);
     void handleDrawNoteTool(const juce::MouseEvent& e);
     void handleDrawNoteMouseDown(const juce::MouseEvent& e);
+    void handleSplitNoteTool(const juce::MouseEvent& e);
     void handleAutoTuneTool(const juce::MouseEvent& e);
     void handleLineAnchorMouseDown(const juce::MouseEvent& e);
     void handleLineAnchorMouseDrag(const juce::MouseEvent& e);
@@ -142,8 +143,6 @@ private:
     void handleSelectUp(const juce::MouseEvent& e);
     void handleDrawCurveUp(const juce::MouseEvent& e);
     void handleDrawNoteUp(const juce::MouseEvent& e);
-
-    void showToolContextMenu(const juce::MouseEvent& e);
 
     void deleteSelectedNotes();
     void handleDeleteKey();
@@ -167,7 +166,6 @@ private:
 
     juce::Point<int> dragStartPos_;
     juce::Point<float> lastDrawPoint_;
-    bool isDraggingTimeline_ = false;
 };
 
 } // namespace OpenTune
