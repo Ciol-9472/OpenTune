@@ -6,6 +6,7 @@
 #include <vector>
 #include <functional>
 #include "Note.h"
+#include "HermiteInterpolation.h"
 #include "ClipSnapshot.h"
 #include "../Utils/PitchCurve.h"
 
@@ -201,6 +202,66 @@ private:
 
     static inline int lastAffectedStartFrame_ = -1;
     static inline int lastAffectedEndFrame_ = -1;
+};
+
+class AnchorChangeAction : public UndoAction
+{
+public:
+    using SegmentSnapshot = CorrectedSegmentsChangeAction::SegmentSnapshot;
+
+    AnchorChangeAction(
+        uint64_t clipId,
+        std::vector<AnchorGroup> oldAnchors,
+        std::vector<AnchorGroup> newAnchors,
+        std::vector<SegmentSnapshot> oldSegments,
+        std::vector<SegmentSnapshot> newSegments,
+        std::shared_ptr<PitchCurve> curve,
+        const juce::String& description = "Edit Anchor")
+        : clipId_(clipId)
+        , oldAnchors_(std::move(oldAnchors))
+        , newAnchors_(std::move(newAnchors))
+        , oldSegments_(std::move(oldSegments))
+        , newSegments_(std::move(newSegments))
+        , curve_(curve)
+        , description_(description)
+    {}
+
+    void undo() override { apply(oldAnchors_, oldSegments_); }
+    void redo() override { apply(newAnchors_, newSegments_); }
+
+    juce::String getDescription() const override { return description_; }
+    uint64_t getClipId() const override { return clipId_; }
+
+    static std::vector<SegmentSnapshot> captureSegments(const std::shared_ptr<PitchCurve>& curve) {
+        return CorrectedSegmentsChangeAction::captureSegments(curve);
+    }
+
+private:
+    void apply(const std::vector<AnchorGroup>& anchors,
+               const std::vector<SegmentSnapshot>& segments) {
+        auto c = curve_.lock();
+        if (!c) return;
+
+        std::vector<CorrectedSegment> segs;
+        segs.reserve(segments.size());
+        for (const auto& ss : segments) {
+            CorrectedSegment s(ss.startFrame, ss.endFrame, ss.f0Data, ss.source);
+            s.retuneSpeed = ss.retuneSpeed;
+            s.vibratoDepth = ss.vibratoDepth;
+            s.vibratoRate = ss.vibratoRate;
+            segs.push_back(std::move(s));
+        }
+
+        c->restoreSegmentsAndAnchors(segs, anchors);
+    }
+
+    uint64_t clipId_;
+    std::vector<AnchorGroup> oldAnchors_;
+    std::vector<AnchorGroup> newAnchors_;
+    std::vector<SegmentSnapshot> oldSegments_;
+    std::vector<SegmentSnapshot> newSegments_;
+    std::weak_ptr<PitchCurve> curve_;
+    juce::String description_;
 };
 
 class ClipSplitAction : public UndoAction

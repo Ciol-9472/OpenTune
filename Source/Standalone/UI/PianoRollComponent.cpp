@@ -59,6 +59,9 @@ void PianoRollComponent::initializeUIComponents() {
     addAndMakeVisible(playheadOverlay_);
     playheadOverlay_.setPianoKeyWidth(pianoKeyWidth_);
 
+    anchorFitOverlay_.setVisible(false);
+    addChildComponent(anchorFitOverlay_);
+
     scrollVBlankAttachment_ = std::make_unique<juce::VBlankAttachment>(
         this, [this](double timestampSec) { onScrollVBlankCallback(timestampSec); });
 }
@@ -498,33 +501,108 @@ void PianoRollComponent::drawHandDrawPreview(juce::Graphics& g, double offsetSec
 }
 
 void PianoRollComponent::drawLineAnchorPreview(juce::Graphics& g, double offsetSeconds) {
-    if (!interactionState_.drawing.isPlacingAnchors || currentTool_ != ToolId::LineAnchor || interactionState_.drawing.pendingAnchors.empty()) return;
+    const auto& ae = interactionState_.drawing.anchorEdit;
+    if (currentTool_ != ToolId::LineAnchor || !ae.hasAnyPoints()) return;
 
-    juce::Colour anchorColour = UIColors::correctedF0;
+    const juce::Colour anchorColour = UIColors::correctedF0;
+    constexpr int kSubdivisions = 4;
 
-    for (size_t i = 0; i < interactionState_.drawing.pendingAnchors.size(); ++i) {
-        const auto& anchor = interactionState_.drawing.pendingAnchors[i];
-        float x = static_cast<float>(timeToX(anchor.time + offsetSeconds));
-        float y = freqToY(anchor.freq);
+    for (const auto& grp : ae.groups) {
+        const auto& pts = grp.points;
+        if (pts.empty()) continue;
 
-        g.setColour(anchorColour);
-        g.fillEllipse(x - 2.0f, y - 2.0f, 4.0f, 4.0f);
+        if (pts.size() >= 2) {
+            const int n = static_cast<int>(pts.size());
+            const auto slopes = HermiteInterpolation::computeClampedSlopes(pts);
 
-        if (i > 0) {
-            const auto& prev = interactionState_.drawing.pendingAnchors[i - 1];
-            float prevX = static_cast<float>(timeToX(prev.time + offsetSeconds));
-            float prevY = freqToY(prev.freq);
+            juce::Path curvePath;
+            bool pathStarted = false;
+
+            for (int seg = 0; seg < n - 1; ++seg) {
+                const auto& p0 = pts[seg];
+                const auto& p1 = pts[seg + 1];
+                float h = static_cast<float>(p1.time - p0.time);
+                if (h <= 0.0f) continue;
+
+                int steps = std::max(2, static_cast<int>(
+                    std::abs(static_cast<float>(timeToX(p1.time + offsetSeconds)) -
+                             static_cast<float>(timeToX(p0.time + offsetSeconds))) / kSubdivisions));
+
+                for (int s = 0; s <= steps; ++s) {
+                    float t = static_cast<float>(s) / static_cast<float>(steps);
+                    float midi = HermiteInterpolation::hermiteBasis(
+                        p0.pitch, p1.pitch, slopes[seg], slopes[seg + 1], t, h);
+                    float freq = PitchUtils::midiToFreq(midi);
+                    float sx = static_cast<float>(timeToX(p0.time + (p1.time - p0.time) * t + offsetSeconds));
+                    float sy = freqToY(freq);
+
+                    if (!pathStarted) {
+                        curvePath.startNewSubPath(sx, sy);
+                        pathStarted = true;
+                    } else {
+                        curvePath.lineTo(sx, sy);
+                    }
+                }
+            }
+
             g.setColour(anchorColour.withAlpha(0.7f));
-            g.drawLine(prevX, prevY, x, y, 2.0f);
+            juce::PathStrokeType strokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+            g.strokePath(curvePath, strokeType);
+        }
+
+        for (const auto& pt : pts) {
+            float ax = static_cast<float>(timeToX(pt.time + offsetSeconds));
+            float ay = freqToY(PitchUtils::midiToFreq(pt.pitch));
+
+            if (pt.selected) {
+                g.setColour(juce::Colours::white);
+                g.fillEllipse(ax - 5.0f, ay - 5.0f, 10.0f, 10.0f);
+                g.setColour(anchorColour);
+                g.fillEllipse(ax - 3.5f, ay - 3.5f, 7.0f, 7.0f);
+            } else {
+                g.setColour(anchorColour);
+                g.fillEllipse(ax - 4.0f, ay - 4.0f, 8.0f, 8.0f);
+                g.setColour(anchorColour.darker(0.3f));
+                g.drawEllipse(ax - 4.0f, ay - 4.0f, 8.0f, 8.0f, 1.0f);
+            }
         }
     }
 
-    if (!interactionState_.drawing.pendingAnchors.empty()) {
-        const auto& last = interactionState_.drawing.pendingAnchors.back();
-        float lastX = static_cast<float>(timeToX(last.time + offsetSeconds));
-        float lastY = freqToY(last.freq);
-        g.setColour(anchorColour.withAlpha(0.4f));
-        g.drawLine(lastX, lastY, interactionState_.drawing.currentMousePos.x, interactionState_.drawing.currentMousePos.y, 1.5f);
+    // Draw guide line from active group's last anchor to cursor when placing
+    if (ae.mode == AnchorEditState::Mode::Placing && ae.activeGroupIndex >= 0
+        && ae.activeGroupIndex < static_cast<int>(ae.groups.size())) {
+        const auto& activePts = ae.groups[ae.activeGroupIndex].points;
+        if (!activePts.empty()) {
+            const auto& last = activePts.back();
+            float lastX = static_cast<float>(timeToX(last.time + offsetSeconds));
+            float lastY = freqToY(PitchUtils::midiToFreq(last.pitch));
+            g.setColour(anchorColour.withAlpha(0.35f));
+            const float dashLengths[] = { 4.0f, 4.0f };
+            juce::Path dashPath;
+            dashPath.startNewSubPath(lastX, lastY);
+            dashPath.lineTo(interactionState_.drawing.currentMousePos.x, interactionState_.drawing.currentMousePos.y);
+            juce::PathStrokeType dashStroke(1.5f);
+            dashStroke.createDashedStroke(dashPath, dashPath, dashLengths, 2);
+            g.strokePath(dashPath, juce::PathStrokeType(1.5f));
+        }
+    }
+
+    // Draw box selection rectangle
+    if (ae.mode == AnchorEditState::Mode::BoxSelecting) {
+        double t0 = std::min(ae.boxStartTime, ae.boxEndTime);
+        double t1 = std::max(ae.boxStartTime, ae.boxEndTime);
+        float p0 = std::min(ae.boxStartPitch, ae.boxEndPitch);
+        float p1 = std::max(ae.boxStartPitch, ae.boxEndPitch);
+
+        float x0 = static_cast<float>(timeToX(t0 + offsetSeconds));
+        float x1 = static_cast<float>(timeToX(t1 + offsetSeconds));
+        float y0 = freqToY(PitchUtils::midiToFreq(p1));
+        float y1 = freqToY(PitchUtils::midiToFreq(p0));
+
+        g.setColour(anchorColour.withAlpha(0.15f));
+        g.fillRect(x0, y0, x1 - x0, y1 - y0);
+        g.setColour(anchorColour.withAlpha(0.5f));
+        g.drawRect(x0, y0, x1 - x0, y1 - y0, 1.0f);
     }
 }
 
@@ -636,8 +714,8 @@ void PianoRollComponent::paint(juce::Graphics& g) {
 
         renderer_->drawNotes(g, ctx, getCurrentClipNotes(), trackOffsetSeconds_);
 
-        // Highlight notes that overlap the active HandDraw/LineAnchor drawing region
-        if (interactionState_.drawing.isDrawingF0 || interactionState_.drawing.isPlacingAnchors) {
+        const bool hasActiveAnchors = interactionState_.drawing.anchorEdit.hasAnyPoints();
+        if (interactionState_.drawing.isDrawingF0 || interactionState_.drawing.isPlacingAnchors || hasActiveAnchors) {
             double drawStart = -1.0;
             double drawEnd = -1.0;
             if (interactionState_.drawing.isDrawingF0
@@ -645,6 +723,15 @@ void PianoRollComponent::paint(juce::Graphics& g) {
                 && interactionState_.drawing.dirtyEndTime >= 0.0) {
                 drawStart = std::min(interactionState_.drawing.dirtyStartTime, interactionState_.drawing.dirtyEndTime);
                 drawEnd = std::max(interactionState_.drawing.dirtyStartTime, interactionState_.drawing.dirtyEndTime);
+            } else if (hasActiveAnchors) {
+                for (const auto& grp : interactionState_.drawing.anchorEdit.groups) {
+                    if (grp.points.empty()) continue;
+                    double gs = grp.points.front().time;
+                    double ge = grp.points.back().time;
+                    if (ge < gs) std::swap(gs, ge);
+                    if (drawStart < 0.0 || gs < drawStart) drawStart = gs;
+                    if (drawEnd < 0.0 || ge > drawEnd) drawEnd = ge;
+                }
             } else if (interactionState_.drawing.isPlacingAnchors && !interactionState_.drawing.pendingAnchors.empty()) {
                 drawStart = interactionState_.drawing.pendingAnchors.front().time;
                 drawEnd = interactionState_.drawing.pendingAnchors.back().time;
@@ -941,8 +1028,8 @@ void PianoRollComponent::resized() {
     currentX -= (btnW + spacing);
     timeUnitToggleButton_.setBounds(currentX, 5, btnW, btnH);
 
-    // 播放头覆盖层覆盖整个组件区域
     playheadOverlay_.setBounds(getLocalBounds());
+    anchorFitOverlay_.setBounds(getLocalBounds());
 }
 
 void PianoRollComponent::setPitchCurve(std::shared_ptr<PitchCurve> curve) {
@@ -1223,10 +1310,15 @@ void PianoRollComponent::setZoomLevel(double zoom) {
 }
 
 void PianoRollComponent::setCurrentTool(ToolId tool) {
-    if (interactionState_.drawing.isPlacingAnchors && tool != ToolId::LineAnchor) {
-        if (undoSupport_ && undoSupport_->isTransactionActive()) undoSupport_->commitTransaction();
-        interactionState_.drawing.isPlacingAnchors = false;
-        interactionState_.drawing.pendingAnchors.clear();
+    if (tool != ToolId::LineAnchor && currentTool_ == ToolId::LineAnchor) {
+        if (interactionState_.drawing.isPlacingAnchors) {
+            if (undoSupport_ && undoSupport_->isTransactionActive()) undoSupport_->commitTransaction();
+            interactionState_.drawing.isPlacingAnchors = false;
+            interactionState_.drawing.pendingAnchors.clear();
+        }
+        interactionState_.drawing.anchorEdit.clear();
+        anchorFitOverlay_.setVisible(false);
+        anchorFitting_.store(false, std::memory_order_release);
     }
 
     const bool changed = (tool != currentTool_);
@@ -1238,8 +1330,23 @@ void PianoRollComponent::setCurrentTool(ToolId tool) {
     }
 
     currentTool_ = tool;
+    anchorFitSerial_++;
     if (toolHandler_) {
         toolHandler_->setTool(tool);
+        if (tool == ToolId::LineAnchor) {
+            anchorFitting_.store(true, std::memory_order_release);
+            anchorFitOverlay_.setMessageText(juce::String::fromUTF8("\u6b63\u5728\u62df\u5408\u951a\u70b9..."));
+            anchorFitOverlay_.setVisible(true);
+            anchorFitOverlay_.toFront(false);
+            const uint32_t serial = anchorFitSerial_;
+            juce::MessageManager::callAsync([this, serial]() {
+                if (anchorFitSerial_ != serial) return;
+                toolHandler_->loadAnchorsFromCurve();
+                anchorFitting_.store(false, std::memory_order_release);
+                anchorFitOverlay_.setVisible(false);
+                repaint();
+            });
+        }
     }
 
     switch (tool) {
@@ -1536,7 +1643,7 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::M
 }
 
 bool PianoRollComponent::keyPressed(const juce::KeyPress& key) {
-    if (isAutoTuneProcessing()) {
+    if (isAutoTuneProcessing() || isAnchorFitting()) {
         return false;
     }
     return toolHandler_->keyPressed(key);
@@ -1965,20 +2072,35 @@ void PianoRollComponent::refreshAfterUndoRedo() {
 
 void PianoRollComponent::refreshAfterUndoRedoWithRange(int startFrame, int endFrame) {
     updateScrollBars();
-    
+
+    // Reload anchor UI from the (possibly restored) PitchCurve snapshot
+    if (currentTool_ == ToolId::LineAnchor && currentCurve_) {
+        auto snap = currentCurve_->getSnapshot();
+        if (snap) {
+            const auto& groups = snap->getAnchorGroups();
+            interactionState_.drawing.anchorEdit.groups = groups;
+            interactionState_.drawing.anchorEdit.mode = AnchorEditState::Mode::Idle;
+            interactionState_.drawing.anchorEdit.activeGroupIndex = -1;
+            interactionState_.drawing.anchorEdit.draggedAnchorIndex = -1;
+        } else {
+            interactionState_.drawing.anchorEdit.clear();
+        }
+    } else {
+        interactionState_.drawing.anchorEdit.clear();
+    }
+
     if (currentCurve_) {
         int affectedStartFrame = startFrame;
         int affectedEndFrame = endFrame;
-        
-        // If no range provided (diff found no changes), skip render
+
         if (affectedStartFrame < 0 || affectedEndFrame < 0) {
             AppLogger::log("refreshAfterUndoRedo: no diff range (no changes detected), skipping render");
             repaint();
             return;
         }
-        
+
         AppLogger::log("refreshAfterUndoRedo: using provided range [" + juce::String(affectedStartFrame) + ", " + juce::String(affectedEndFrame) + "]");
-        
+
         listeners_.call([affectedStartFrame, affectedEndFrame](Listener& l) {
             l.pitchCurveEdited(affectedStartFrame, affectedEndFrame);
         });
@@ -2023,6 +2145,11 @@ std::vector<Note> PianoRollComponent::getCurrentClipNotesCopy() const {
 bool PianoRollComponent::isAutoTuneProcessing() const
 {
     return correctionInFlight_.load(std::memory_order_acquire);
+}
+
+bool PianoRollComponent::isAnchorFitting() const
+{
+    return anchorFitting_.load(std::memory_order_acquire);
 }
 
 void PianoRollComponent::updateScrollBars() {

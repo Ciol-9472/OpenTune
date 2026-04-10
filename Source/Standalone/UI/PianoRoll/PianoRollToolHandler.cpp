@@ -23,8 +23,14 @@ PianoRollToolHandler::PianoRollToolHandler(Context context)
 void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
 // 鼠标移动处理：更新光标形状（音符边缘调整、线锚点预览）
 {
-    if (currentTool_ == ToolId::LineAnchor && ctx_.getState().drawing.isPlacingAnchors) {
+    if (currentTool_ == ToolId::LineAnchor) {
         ctx_.getState().drawing.currentMousePos = e.position;
+        auto hit = hitTestAnchor(static_cast<float>(e.x), static_cast<float>(e.y));
+        if (hit.groupIdx >= 0) {
+            ctx_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        } else {
+            ctx_.setMouseCursor(juce::MouseCursor::CrosshairCursor);
+        }
         ctx_.requestRepaint();
         return;
     }
@@ -74,11 +80,33 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
     ctx_.grabKeyboardFocus();
 
     if (e.mods.isPopupMenu()) {
-        if (currentTool_ == ToolId::LineAnchor && ctx_.getState().drawing.isPlacingAnchors) {
-            if (ctx_.isTransactionActive()) ctx_.commitEditTransaction();
-            ctx_.getState().drawing.isPlacingAnchors = false;
-            ctx_.getState().drawing.pendingAnchors.clear();
-            ctx_.requestRepaint();
+        if (currentTool_ == ToolId::LineAnchor) {
+            auto& ae = ctx_.getState().drawing.anchorEdit;
+            auto hit = hitTestAnchor(static_cast<float>(e.x), static_cast<float>(e.y));
+            if (hit.groupIdx >= 0 && hit.pointIdx >= 0) {
+                if (!ctx_.isTransactionActive())
+                    ctx_.beginEditTransaction("Delete Anchor");
+                auto& grp = ae.groups[hit.groupIdx];
+                grp.removePoint(hit.pointIdx);
+                if (grp.points.size() < 2) {
+                    ae.groups.erase(ae.groups.begin() + hit.groupIdx);
+                    ae.activeGroupIndex = -1;
+                }
+                regenerateAnchorsF0();
+                commitAnchorEdit();
+                ctx_.requestRepaint();
+                return;
+            }
+            if (ae.mode == AnchorEditState::Mode::Placing) {
+                for (auto& g : ae.groups) g.deselectAll();
+                ae.mode = AnchorEditState::Mode::Idle;
+                ae.activeGroupIndex = -1;
+                ae.draggedAnchorIndex = -1;
+                ctx_.getState().drawing.isPlacingAnchors = false;
+                if (ctx_.isTransactionActive())
+                    ctx_.commitEditTransaction();
+                ctx_.requestRepaint();
+            }
             return;
         }
         AppLogger::debug("[PianoRollToolHandler] mouseDown: begin right tool menu long-press");
@@ -214,6 +242,15 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
     AppLogger::debug("[PianoRollToolHandler] keyPressed: keyCode=" + juce::String(key.getKeyCode()));
 
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SelectAll, key)) {
+        if (currentTool_ == ToolId::LineAnchor) {
+            auto& ae = ctx_.getState().drawing.anchorEdit;
+            for (auto& g : ae.groups)
+                for (auto& pt : g.points)
+                    pt.selected = true;
+            ctx_.requestRepaint();
+            return true;
+        }
+
         AppLogger::debug("[PianoRollToolHandler] keyPressed: select all");
         auto& notes = ctx_.getNotes();
         if (notes.empty()) {
@@ -278,21 +315,55 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
 
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::Delete, key)) {
         AppLogger::debug("[PianoRollToolHandler] keyPressed: delete key pressed");
+
+        if (currentTool_ == ToolId::LineAnchor) {
+            auto& ae = ctx_.getState().drawing.anchorEdit;
+            bool anySelected = false;
+            for (const auto& g : ae.groups)
+                if (g.hasSelected()) { anySelected = true; break; }
+            if (anySelected) {
+                if (!ctx_.isTransactionActive())
+                    ctx_.beginEditTransaction("Delete Anchor");
+                for (auto& g : ae.groups) g.deleteSelected();
+                ae.groups.erase(
+                    std::remove_if(ae.groups.begin(), ae.groups.end(),
+                        [](const AnchorGroup& g) { return g.points.size() < 2; }),
+                    ae.groups.end());
+                ae.activeGroupIndex = -1;
+                regenerateAnchorsF0();
+                commitAnchorEdit();
+                ctx_.requestRepaint();
+                return true;
+            }
+        }
+
         handleDeleteKey();
         ctx_.requestRepaint();
         return true;
     }
 
     if (key == juce::KeyPress::escapeKey) {
+        if (currentTool_ == ToolId::LineAnchor) {
+            auto& ae = ctx_.getState().drawing.anchorEdit;
+            bool anySelected = false;
+            for (const auto& g : ae.groups) if (g.hasSelected()) { anySelected = true; break; }
+            if (ae.mode == AnchorEditState::Mode::Placing || anySelected) {
+                for (auto& g : ae.groups) g.deselectAll();
+                ae.mode = AnchorEditState::Mode::Idle;
+                ae.activeGroupIndex = -1;
+                ctx_.getState().drawing.isPlacingAnchors = false;
+                ctx_.requestRepaint();
+                return true;
+            }
+        }
+
         auto selectedNotes = ctx_.getSelectedNotes();
         if (!selectedNotes.empty()) {
-            // If notes are selected, Escape only deselects — don't propagate to close the view
             AppLogger::debug("[PianoRollToolHandler] keyPressed: escape deselecting " + juce::String(selectedNotes.size()) + " notes");
             ctx_.deselectAllNotes();
             ctx_.getState().selection.clearF0Selection();
             ctx_.requestRepaint();
         } else {
-            // No notes selected — propagate Escape to parent (view toggle)
             AppLogger::debug("[PianoRollToolHandler] keyPressed: escape key, no selection, propagating");
             ctx_.notifyEscapeKey();
         }
@@ -1417,119 +1488,393 @@ void PianoRollToolHandler::deleteSelectedNotes()
     AppLogger::debug("[PianoRollToolHandler] deleteSelectedNotes: removed " + juce::String(beforeCount - afterCount) + " notes");
 }
 
-void PianoRollToolHandler::handleLineAnchorMouseDown(const juce::MouseEvent& e)
-// 线锚点工具鼠标按下处理：放置锚点，在锚点间生成线性插值的F0曲线
-{
-    const double sampleRate = ctx_.getCurveSampleRate();
-    const int hopSize = ctx_.getCurveHopSize();
-    if (sampleRate <= 0.0 || hopSize <= 0) return;
+// ============================================================================
+// LineAnchor tool — Hermite-spline anchor editing
+// ============================================================================
+
+void PianoRollToolHandler::loadAnchorsFromCurve() {
+    auto& ae = ctx_.getState().drawing.anchorEdit;
+    ae.clear();
+
+    auto pitchCurve = ctx_.getPitchCurve();
+    if (!pitchCurve) return;
+    auto snap = pitchCurve->getSnapshot();
+    if (!snap) return;
+
+    const auto& notes = ctx_.getNotes();
+
+    // Always re-fit from the current rendered F0
+    const auto& originalF0 = snap->getOriginalF0();
+    if (originalF0.empty() || notes.empty()) return;
+
+    const int hopSize = snap->getHopSize();
+    const double sampleRate = snap->getSampleRate();
+    if (hopSize <= 0 || sampleRate <= 0.0) return;
 
     const double frameDuration = static_cast<double>(hopSize) / sampleRate;
+    const int totalFrames = static_cast<int>(originalF0.size());
+
+    std::vector<float> renderedF0(totalFrames, 0.0f);
+    snap->renderF0Range(0, totalFrames,
+        [&](int startFrame, const float* data, int length) {
+            for (int i = 0; i < length; ++i) {
+                int idx = startFrame + i;
+                if (idx >= 0 && idx < totalFrames)
+                    renderedF0[idx] = data[i];
+            }
+        });
+
+    ae.groups = HermiteInterpolation::fitToF0PerNote(
+        renderedF0, notes, frameDuration, 10.0f, 80);
+
+    if (!ae.groups.empty()) {
+        if (!ctx_.isTransactionActive())
+            ctx_.beginEditTransaction("Auto-fit Anchors");
+
+        pitchCurve->setAnchorGroups(ae.groups, notes, ctx_.getRetuneSpeed());
+        commitAnchorEdit();
+    }
+}
+
+PianoRollToolHandler::AnchorHit PianoRollToolHandler::hitTestAnchor(float screenX, float screenY, float radius) const {
+    const auto& ae = ctx_.getState().drawing.anchorEdit;
+    const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+    const float radiusSq = radius * radius;
+
+    for (int gi = 0; gi < static_cast<int>(ae.groups.size()); ++gi) {
+        const auto& grp = ae.groups[gi];
+        for (int pi = 0; pi < static_cast<int>(grp.points.size()); ++pi) {
+            const auto& pt = grp.points[pi];
+            float ax = static_cast<float>(ctx_.timeToX(pt.time + offsetSeconds));
+            float ay = ctx_.freqToY(PitchUtils::midiToFreq(pt.pitch));
+            float dx = screenX - ax;
+            float dy = screenY - ay;
+            if (dx * dx + dy * dy <= radiusSq)
+                return { gi, pi };
+        }
+    }
+    return {};
+}
+
+void PianoRollToolHandler::regenerateAnchorsF0() {
+    auto& ae = ctx_.getState().drawing.anchorEdit;
+    auto pitchCurve = ctx_.getPitchCurve();
+    if (!pitchCurve) return;
+
+    for (auto& g : ae.groups) g.sortByTime();
+
+    // Filter out groups with < 2 points
+    std::vector<AnchorGroup> validGroups;
+    for (const auto& g : ae.groups)
+        if (g.points.size() >= 2) validGroups.push_back(g);
+
+    pitchCurve->setAnchorGroups(validGroups, ctx_.getNotes(), ctx_.getRetuneSpeed());
+
+    auto snap = pitchCurve->getSnapshot();
+    if (snap) {
+        const auto& segs = snap->getCorrectedSegments();
+        int minF = std::numeric_limits<int>::max();
+        int maxF = std::numeric_limits<int>::min();
+        for (const auto& s : segs) {
+            if (s.source == CorrectedSegment::Source::LineAnchor) {
+                minF = std::min(minF, s.startFrame);
+                maxF = std::max(maxF, s.endFrame);
+            }
+        }
+        if (minF < maxF)
+            ctx_.notifyPitchCurveEdited(minF, maxF);
+    }
+}
+
+void PianoRollToolHandler::commitAnchorEdit() {
+    if (ctx_.isTransactionActive())
+        ctx_.commitEditTransaction();
+    ctx_.requestRepaint();
+}
+
+void PianoRollToolHandler::handleLineAnchorMouseDown(const juce::MouseEvent& e)
+{
+    auto& ae = ctx_.getState().drawing.anchorEdit;
     const double offsetSeconds = ctx_.getTrackOffsetSeconds();
     const double clickTime = ctx_.xToTime(e.x) - offsetSeconds;
     float clickFreq = ctx_.yToFreq(static_cast<float>(e.y));
     clickFreq = std::max(20.0f, clickFreq);
+    float clickMidi = PitchUtils::freqToMidi(clickFreq);
 
-    float midiNote = 69.0f + 12.0f * std::log2(clickFreq / 440.0f);
-    int roundedMidi = static_cast<int>(std::round(midiNote));
-    float snappedFreq = 440.0f * std::pow(2.0f, static_cast<float>(roundedMidi - 69) / 12.0f);
-
-    if (e.getNumberOfClicks() >= 2 && ctx_.getState().drawing.isPlacingAnchors) {
-        commitLineAnchorOperation();
-        return;
-    }
-
-    if (!ctx_.getState().drawing.isPlacingAnchors) {
-        ctx_.getState().drawing.isPlacingAnchors = true;
-        ctx_.beginEditTransaction("Line Anchor");
-        ctx_.getState().drawing.pendingAnchors.clear();
-        LineAnchor firstAnchor;
-        firstAnchor.time = clickTime;
-        firstAnchor.freq = snappedFreq;
-        firstAnchor.id = 0;
-        firstAnchor.selected = false;
-        ctx_.getState().drawing.pendingAnchors.push_back(firstAnchor);
-        ctx_.getState().drawing.currentMousePos = e.position;
+    // Ctrl+click starts box selection
+    if (e.mods.isCtrlDown()) {
+        for (auto& g : ae.groups) g.deselectAll();
+        ae.mode = AnchorEditState::Mode::BoxSelecting;
+        ae.boxStartTime = clickTime;
+        ae.boxStartPitch = clickMidi;
+        ae.boxEndTime = clickTime;
+        ae.boxEndPitch = clickMidi;
         ctx_.requestRepaint();
         return;
     }
 
-    auto& anchors = ctx_.getState().drawing.pendingAnchors;
-    const auto& prev = anchors.back();
-    auto pitchCurve = ctx_.getPitchCurve();
-    if (!pitchCurve) return;
-    const auto& originalF0 = ctx_.getOriginalF0();
-    if (originalF0.empty()) return;
+    auto hit = hitTestAnchor(static_cast<float>(e.x), static_cast<float>(e.y));
 
-    int prevFrame = static_cast<int>(prev.time / frameDuration);
-    int currFrame = static_cast<int>(clickTime / frameDuration);
-    int maxFrame = static_cast<int>(originalF0.size()) - 1;
-    prevFrame = juce::jlimit(0, maxFrame, prevFrame);
-    currFrame = juce::jlimit(0, maxFrame, currFrame);
-    if (currFrame <= prevFrame) currFrame = prevFrame + 1;
+    if (hit.groupIdx >= 0 && hit.pointIdx >= 0) {
+        // In Placing mode, clicking an existing anchor connects (merges) groups
+        // but only if both groups belong to the same note
+        if (ae.mode == AnchorEditState::Mode::Placing
+            && ae.activeGroupIndex >= 0
+            && ae.activeGroupIndex != hit.groupIdx) {
 
-    int startFrame = prevFrame;
-    int endFrameExclusive = juce::jmin(currFrame + 1, maxFrame + 1);
+            bool sameNote = false;
+            const auto& notes = ctx_.getNotes();
+            const auto& srcGrp = ae.groups[ae.activeGroupIndex];
+            const auto& dstGrp = ae.groups[hit.groupIdx];
+            if (!srcGrp.points.empty() && !dstGrp.points.empty()) {
+                double srcMid = (srcGrp.points.front().time + srcGrp.points.back().time) * 0.5;
+                double dstMid = (dstGrp.points.front().time + dstGrp.points.back().time) * 0.5;
+                for (const auto& note : notes) {
+                    bool srcIn = srcMid >= note.startTime && srcMid <= note.endTime;
+                    bool dstIn = dstMid >= note.startTime && dstMid <= note.endTime;
+                    if (srcIn && dstIn) { sameNote = true; break; }
+                }
+            }
 
-    std::vector<float> f0Data;
-    f0Data.reserve(endFrameExclusive - startFrame);
-    float logA = std::log2(std::max(prev.freq, 1.0f));
-    float logB = std::log2(std::max(snappedFreq, 1.0f));
-    for (int f = startFrame; f < endFrameExclusive; ++f) {
-        float t = static_cast<float>(f - startFrame) / static_cast<float>(endFrameExclusive - startFrame);
-        f0Data.push_back(std::pow(2.0f, logA + (logB - logA) * t));
-    }
+            if (sameNote) {
+                if (!ctx_.isTransactionActive())
+                    ctx_.beginEditTransaction("Connect Anchors");
 
-    // Clip interpolated F0 to note boundaries
-    std::vector<int> affectedNoteIndices;
-    std::vector<ManualOp> ops = clipDrawDataToNotes(
-        startFrame, endFrameExclusive, f0Data,
-        CorrectedSegment::Source::LineAnchor, ctx_.getRetuneSpeed(),
-        affectedNoteIndices);
+                auto& srcGroup = ae.groups[ae.activeGroupIndex];
+                auto& dstGroup = ae.groups[hit.groupIdx];
+                for (const auto& pt : srcGroup.points)
+                    dstGroup.insertPoint(pt);
+                dstGroup.sortByTime();
 
-    if (!ops.empty()) {
-        int globalStartFrame = ops.front().startFrame;
-        int globalEndFrame = ops.back().endFrameExclusive - 1;
-        for (const auto& op : ops) {
-            globalStartFrame = std::min(globalStartFrame, op.startFrame);
-            globalEndFrame = std::max(globalEndFrame, op.endFrameExclusive - 1);
+                int oldActive = ae.activeGroupIndex;
+                ae.groups.erase(ae.groups.begin() + oldActive);
+                int newIdx = (hit.groupIdx > oldActive) ? hit.groupIdx - 1 : hit.groupIdx;
+                ae.activeGroupIndex = newIdx;
+                ae.mode = AnchorEditState::Mode::Idle;
+                ae.draggedAnchorIndex = -1;
+                for (auto& g : ae.groups) g.deselectAll();
+                ctx_.getState().drawing.isPlacingAnchors = false;
+
+                regenerateAnchorsF0();
+                commitAnchorEdit();
+                ctx_.requestRepaint();
+                return;
+            }
+            // Different notes — just stop placing and select the hit anchor instead
+            ae.mode = AnchorEditState::Mode::Idle;
+            ae.draggedAnchorIndex = -1;
+            ctx_.getState().drawing.isPlacingAnchors = false;
         }
 
-        ctx_.applyManualCorrection(std::move(ops), globalStartFrame, globalEndFrame, false);
-        ctx_.notifyPitchCurveEdited(globalStartFrame, globalEndFrame);
+        if (!e.mods.isShiftDown() && !ae.groups[hit.groupIdx].points[hit.pointIdx].selected) {
+            for (auto& g : ae.groups) g.deselectAll();
+        }
+        ae.groups[hit.groupIdx].points[hit.pointIdx].selected = true;
+
+        ae.mode = AnchorEditState::Mode::Dragging;
+        ae.activeGroupIndex = hit.groupIdx;
+        ae.draggedAnchorIndex = hit.pointIdx;
+        ae.dragStartTime = ae.groups[hit.groupIdx].points[hit.pointIdx].time;
+        ae.dragStartPitch = ae.groups[hit.groupIdx].points[hit.pointIdx].pitch;
+
+        // Ensure dragged anchor has a UID for stable tracking
+        if (ae.groups[hit.groupIdx].points[hit.pointIdx].uid == 0)
+            ae.groups[hit.groupIdx].points[hit.pointIdx].uid = AnchorPoint::nextUid();
+
+        for (auto& g : ae.groups)
+            for (auto& p : g.points)
+                p.dragBasePitch = p.pitch;
+
+        if (!ctx_.isTransactionActive())
+            ctx_.beginEditTransaction("Move Anchor");
+
+        ctx_.requestRepaint();
+        return;
     }
 
-    LineAnchor newAnchor;
-    newAnchor.time = clickTime;
-    newAnchor.freq = snappedFreq;
-    newAnchor.id = static_cast<int>(anchors.size());
-    newAnchor.selected = false;
-    anchors.push_back(newAnchor);
+    // Find which note the click falls in to determine the group
+    const auto& notes = ctx_.getNotes();
+    int targetGroupIdx = -1;
+    for (int gi = 0; gi < static_cast<int>(ae.groups.size()); ++gi) {
+        const auto& grp = ae.groups[gi];
+        if (grp.points.empty()) continue;
+        double gStart = grp.points.front().time;
+        double gEnd = grp.points.back().time;
+        // Check if click is near/within an existing group's time range
+        for (const auto& note : notes) {
+            if (clickTime >= note.startTime && clickTime <= note.endTime
+                && gStart >= note.startTime - 0.05 && gEnd <= note.endTime + 0.05) {
+                targetGroupIdx = gi;
+                break;
+            }
+        }
+        if (targetGroupIdx >= 0) break;
+    }
+
+    // If click not in any existing group, create a new one or find note boundary
+    if (targetGroupIdx < 0) {
+        for (const auto& note : notes) {
+            if (clickTime >= note.startTime && clickTime <= note.endTime) {
+                AnchorGroup newGroup;
+                ae.groups.push_back(newGroup);
+                targetGroupIdx = static_cast<int>(ae.groups.size()) - 1;
+                break;
+            }
+        }
+    }
+
+    // Click must be within a note
+    if (targetGroupIdx < 0) {
+        ctx_.requestRepaint();
+        return;
+    }
+
+    if (!ctx_.isTransactionActive())
+        ctx_.beginEditTransaction("Add Anchor");
+
+    for (auto& g : ae.groups) g.deselectAll();
+
+    AnchorPoint newPt;
+    newPt.time = clickTime;
+    newPt.pitch = clickMidi;
+    newPt.selected = true;
+    newPt.uid = AnchorPoint::nextUid();
+    int newIdx = ae.groups[targetGroupIdx].insertPoint(newPt);
+
+    ae.mode = AnchorEditState::Mode::Placing;
+    ae.activeGroupIndex = targetGroupIdx;
+    ae.draggedAnchorIndex = newIdx;
+    ae.dragStartTime = clickTime;
+    ae.dragStartPitch = clickMidi;
+
+    ctx_.getState().drawing.isPlacingAnchors = true;
     ctx_.getState().drawing.currentMousePos = e.position;
+
+    if (ae.groups[targetGroupIdx].points.size() >= 2) {
+        regenerateAnchorsF0();
+    }
+
     ctx_.requestRepaint();
 }
 
 void PianoRollToolHandler::handleLineAnchorMouseDrag(const juce::MouseEvent& e) {
-    if (!ctx_.getState().drawing.isPlacingAnchors) return;
+    auto& ae = ctx_.getState().drawing.anchorEdit;
     ctx_.getState().drawing.currentMousePos = e.position;
+
+    if (ae.mode == AnchorEditState::Mode::BoxSelecting) {
+        const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+        ae.boxEndTime = ctx_.xToTime(e.x) - offsetSeconds;
+        ae.boxEndPitch = PitchUtils::freqToMidi(std::max(20.0f, ctx_.yToFreq(static_cast<float>(e.y))));
+        ctx_.requestRepaint();
+        return;
+    }
+
+    if ((ae.mode == AnchorEditState::Mode::Dragging || ae.mode == AnchorEditState::Mode::Placing)
+        && ae.activeGroupIndex >= 0
+        && ae.activeGroupIndex < static_cast<int>(ae.groups.size())
+        && ae.draggedAnchorIndex >= 0
+        && ae.draggedAnchorIndex < static_cast<int>(ae.groups[ae.activeGroupIndex].points.size())) {
+
+        float newFreq = ctx_.yToFreq(static_cast<float>(e.y));
+        newFreq = std::max(20.0f, newFreq);
+        float newMidi = PitchUtils::freqToMidi(newFreq);
+
+        // Count total selected across all groups
+        int totalSelected = 0;
+        for (const auto& g : ae.groups)
+            for (const auto& p : g.points)
+                if (p.selected) totalSelected++;
+
+        if (totalSelected > 1 && ae.mode == AnchorEditState::Mode::Dragging) {
+            // Multi-select drag: vertical only, apply pitch delta to ALL selected
+            float pitchDelta = newMidi - ae.dragStartPitch;
+
+            for (auto& g : ae.groups)
+                for (auto& p : g.points)
+                    if (p.selected)
+                        p.pitch = p.dragBasePitch + pitchDelta;
+
+            regenerateAnchorsF0();
+        } else {
+            const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+            double newTime = ctx_.xToTime(e.x) - offsetSeconds;
+
+            // Clamp to the owning note's time range
+            auto& grp = ae.groups[ae.activeGroupIndex];
+            const auto& notes = ctx_.getNotes();
+            double clampMin = -1e9, clampMax = 1e9;
+            if (!grp.points.empty()) {
+                double grpMidTime = ae.dragStartTime;
+                for (const auto& note : notes) {
+                    if (grpMidTime >= note.startTime && grpMidTime <= note.endTime) {
+                        clampMin = note.startTime;
+                        clampMax = note.endTime;
+                        break;
+                    }
+                }
+            }
+            newTime = std::max(clampMin, std::min(clampMax, newTime));
+
+            auto& pt = grp.points[ae.draggedAnchorIndex];
+            const uint32_t dragUid = pt.uid;
+            pt.time = newTime;
+            pt.pitch = newMidi;
+
+            grp.sortByTime();
+            for (int i = 0; i < static_cast<int>(grp.points.size()); ++i) {
+                if (grp.points[i].uid == dragUid && dragUid != 0) {
+                    ae.draggedAnchorIndex = i;
+                    break;
+                }
+            }
+
+            if (grp.points.size() >= 2) {
+                regenerateAnchorsF0();
+            }
+        }
+    }
+
     ctx_.requestRepaint();
 }
 
 void PianoRollToolHandler::handleLineAnchorMouseUp(const juce::MouseEvent& e) {
     juce::ignoreUnused(e);
+    auto& ae = ctx_.getState().drawing.anchorEdit;
+
+    if (ae.mode == AnchorEditState::Mode::BoxSelecting) {
+        double t0 = std::min(ae.boxStartTime, ae.boxEndTime);
+        double t1 = std::max(ae.boxStartTime, ae.boxEndTime);
+        float p0 = std::min(ae.boxStartPitch, ae.boxEndPitch);
+        float p1 = std::max(ae.boxStartPitch, ae.boxEndPitch);
+
+        for (auto& g : ae.groups)
+            for (auto& pt : g.points)
+                if (pt.time >= t0 && pt.time <= t1 && pt.pitch >= p0 && pt.pitch <= p1)
+                    pt.selected = true;
+
+        ae.mode = AnchorEditState::Mode::Idle;
+        ctx_.requestRepaint();
+        return;
+    }
+
+    if (ae.mode == AnchorEditState::Mode::Dragging || ae.mode == AnchorEditState::Mode::Placing) {
+        ae.draggedAnchorIndex = -1;
+        if (ae.mode == AnchorEditState::Mode::Dragging)
+            ae.mode = AnchorEditState::Mode::Idle;
+        commitAnchorEdit();
+    }
 }
 
 void PianoRollToolHandler::commitLineAnchorOperation()
 {
-    ctx_.commitEditTransaction();
-    ctx_.getState().drawing.isPlacingAnchors = false;
-    ctx_.getState().drawing.pendingAnchors.clear();
+    auto& ae = ctx_.getState().drawing.anchorEdit;
 
-    // Auto-select notes that were affected by the line anchor operation.
-    // Since individual anchor pairs already clipped to notes, we select all notes
-    // that have LineAnchor corrections overlapping them.
-    // For simplicity, we just leave the selection as-is — affected notes were already
-    // selected during the draw/clip flow if needed.
+    if (ae.hasAnyPoints()) {
+        regenerateAnchorsF0();
+    }
+
+    commitAnchorEdit();
+    ctx_.getState().drawing.isPlacingAnchors = false;
     ctx_.requestRepaint();
 }
 

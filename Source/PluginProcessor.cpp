@@ -408,6 +408,7 @@ static juce::ValueTree pitchCurveToValueTree(const PitchCurve& pc) {
         segState.setProperty("f0", encodeFloatVectorBase64(seg.f0Data), nullptr);
         curveState.addChild(segState, -1, nullptr);
     }
+
     return curveState;
 }
 
@@ -423,18 +424,16 @@ static void restorePitchCurveFromValueTree(PitchCurve& pc, const juce::ValueTree
     pc.setOriginalEnergy(originalEnergy);
     pc.clearAllCorrections();
 
-    for (auto segState : curveState) {
-        if (!segState.hasType("Segment")) {
-            continue;
-        }
+    for (auto child : curveState) {
+        if (!child.hasType("Segment")) continue;
         CorrectedSegment seg;
-        seg.startFrame = static_cast<int>(segState.getProperty("start", 0));
-        seg.endFrame = static_cast<int>(segState.getProperty("end", 0));
-        seg.source = static_cast<CorrectedSegment::Source>(static_cast<int>(segState.getProperty("source", 0)));
-        seg.retuneSpeed = static_cast<float>(static_cast<double>(segState.getProperty("retuneSpeed", 100.0)));
-        seg.vibratoDepth = static_cast<float>(static_cast<double>(segState.getProperty("vibratoDepth", 0.0)));
-        seg.vibratoRate = static_cast<float>(static_cast<double>(segState.getProperty("vibratoRate", 7.5)));
-        decodeFloatVectorBase64(segState.getProperty("f0"), seg.f0Data);
+        seg.startFrame = static_cast<int>(child.getProperty("start", 0));
+        seg.endFrame = static_cast<int>(child.getProperty("end", 0));
+        seg.source = static_cast<CorrectedSegment::Source>(static_cast<int>(child.getProperty("source", 0)));
+        seg.retuneSpeed = static_cast<float>(static_cast<double>(child.getProperty("retuneSpeed", 100.0)));
+        seg.vibratoDepth = static_cast<float>(static_cast<double>(child.getProperty("vibratoDepth", 0.0)));
+        seg.vibratoRate = static_cast<float>(static_cast<double>(child.getProperty("vibratoRate", 7.5)));
+        decodeFloatVectorBase64(child.getProperty("f0"), seg.f0Data);
         if (seg.startFrame < seg.endFrame && !seg.f0Data.empty()) {
             pc.restoreCorrectedSegment(seg);
         }

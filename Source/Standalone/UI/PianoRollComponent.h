@@ -37,6 +37,7 @@
 #include "PianoRoll/PianoRollRenderer.h"
 #include "PianoRoll/PianoRollToolHandler.h"
 #include "PianoRoll/PianoRollCorrectionWorker.h"
+#include "AutoRenderOverlayComponent.h"
 #include "PianoRoll/InteractionState.h"
 #include "WaveformMipmap.h"
 
@@ -144,6 +145,7 @@ public:
     void setRenderingProgress(float progress, int pendingTasks);
     
     bool isAutoTuneProcessing() const;
+    bool isAnchorFitting() const;
     bool hasSelectionRange() const;
     std::pair<double, double> getSelectionTimeRange() const;
 
@@ -414,6 +416,9 @@ private:
     bool hasUserAudio_ = false;
 
     PlayheadOverlayComponent playheadOverlay_;
+    AutoRenderOverlayComponent anchorFitOverlay_;
+    std::atomic<bool> anchorFitting_{false};
+    uint32_t anchorFitSerial_ = 0;
 
     std::unique_ptr<juce::VBlankAttachment> scrollVBlankAttachment_;
 

@@ -279,10 +279,10 @@ private:
 };
 
 struct LineAnchor {
-    int id = 0;             // 锚点ID
-    double time = 0.0;      // 时间位置（秒）
-    float freq = 0.0f;      // 频率 (Hz)
-    bool selected = false;  // 选中状态
+    int id = 0;
+    double time = 0.0;
+    float freq = 0.0f;
+    bool selected = false;
 };
 
 } // namespace OpenTune

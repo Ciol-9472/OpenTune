@@ -4,6 +4,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Utils/Note.h"
 #include "Utils/PitchCurve.h"
+#include "Utils/HermiteInterpolation.h"
 #include "UI/ToolIds.h"
 #include "InteractionState.h"
 #include <vector>
@@ -123,6 +124,7 @@ public:
     bool keyPressed(const juce::KeyPress& key);
 
     void cancelDrag();
+    void loadAnchorsFromCurve();
 
 private:
     void handleSelectTool(const juce::MouseEvent& e);
@@ -135,6 +137,11 @@ private:
     void handleLineAnchorMouseDrag(const juce::MouseEvent& e);
     void handleLineAnchorMouseUp(const juce::MouseEvent& e);
     void commitLineAnchorOperation();
+
+    struct AnchorHit { int groupIdx = -1; int pointIdx = -1; };
+    AnchorHit hitTestAnchor(float screenX, float screenY, float radius = 8.0f) const;
+    void commitAnchorEdit();
+    void regenerateAnchorsF0();
 
     void handleSelectDrag(const juce::MouseEvent& e);
     void handleDrawCurveDrag(const juce::MouseEvent& e);

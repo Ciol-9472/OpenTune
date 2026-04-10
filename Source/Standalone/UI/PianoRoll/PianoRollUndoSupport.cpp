@@ -97,6 +97,12 @@ void PianoRollUndoSupport::beginTransaction(const juce::String& description)
 
     auto curve = ctx_.getPitchCurve ? ctx_.getPitchCurve() : nullptr;
     transactionBeforeSegments_ = CorrectedSegmentsChangeAction::captureSegments(curve);
+    if (curve) {
+        auto snap = curve->getSnapshot();
+        transactionBeforeAnchors_ = snap ? snap->getAnchorGroups() : std::vector<AnchorGroup>();
+    } else {
+        transactionBeforeAnchors_.clear();
+    }
 
     transactionActive_ = true;
 }
@@ -111,6 +117,7 @@ void PianoRollUndoSupport::clearTransaction()
     transactionDescription_.clear();
     transactionBeforeNotes_.clear();
     transactionBeforeSegments_.clear();
+    transactionBeforeAnchors_.clear();
     transactionActive_ = false;
 }
 
@@ -129,12 +136,55 @@ void PianoRollUndoSupport::commitTransaction()
     const bool segmentsChanged = !CorrectedSegmentsChangeAction::snapshotsEquivalent(
         transactionBeforeSegments_, afterSegments);
 
-    if (notesChanged || segmentsChanged) {
+    // Check if anchor groups changed
+    std::vector<AnchorGroup> afterAnchors;
+    if (curve) {
+        auto snap = curve->getSnapshot();
+        afterAnchors = snap ? snap->getAnchorGroups() : std::vector<AnchorGroup>();
+    }
+    const bool anchorsChanged = (transactionBeforeAnchors_.size() != afterAnchors.size())
+        || [&]() {
+            for (size_t i = 0; i < transactionBeforeAnchors_.size(); ++i) {
+                if (transactionBeforeAnchors_[i].points.size() != afterAnchors[i].points.size())
+                    return true;
+                for (size_t j = 0; j < transactionBeforeAnchors_[i].points.size(); ++j) {
+                    const auto& a = transactionBeforeAnchors_[i].points[j];
+                    const auto& b = afterAnchors[i].points[j];
+                    if (std::abs(a.time - b.time) > 1e-9 || std::abs(a.pitch - b.pitch) > 1e-4f)
+                        return true;
+                }
+            }
+            return false;
+        }();
+
+    if (notesChanged || segmentsChanged || anchorsChanged) {
         const uint64_t clipId = ctx_.getCurrentClipId ? ctx_.getCurrentClipId() : 0;
         const int trackId = ctx_.getCurrentTrackId ? ctx_.getCurrentTrackId() : 0;
         auto* processor = ctx_.getProcessor ? ctx_.getProcessor() : nullptr;
 
-        if (notesChanged && segmentsChanged && processor && curve) {
+        // Anchor changes use AnchorChangeAction which restores both anchors and segments
+        if (anchorsChanged && curve) {
+            if (notesChanged && processor) {
+                auto compound = std::make_unique<CompoundUndoAction>(transactionDescription_);
+                compound->addAction(std::make_unique<NotesChangeAction>(
+                    *processor, trackId, clipId,
+                    transactionBeforeNotes_, afterNotes, transactionDescription_));
+                compound->addAction(std::make_unique<AnchorChangeAction>(
+                    clipId,
+                    transactionBeforeAnchors_, afterAnchors,
+                    transactionBeforeSegments_, afterSegments,
+                    curve, transactionDescription_));
+                if (auto* um = getCurrentUndoManager())
+                    um->addAction(std::move(compound));
+            } else {
+                if (auto* um = getCurrentUndoManager())
+                    um->addAction(std::make_unique<AnchorChangeAction>(
+                        clipId,
+                        transactionBeforeAnchors_, afterAnchors,
+                        transactionBeforeSegments_, afterSegments,
+                        curve, transactionDescription_));
+            }
+        } else if (notesChanged && segmentsChanged && processor && curve) {
             auto action = std::make_unique<CompoundUndoAction>(transactionDescription_);
             action->addAction(std::make_unique<NotesChangeAction>(
                 *processor,
@@ -144,7 +194,6 @@ void PianoRollUndoSupport::commitTransaction()
                 afterNotes,
                 transactionDescription_));
 
-            // Compute actual affected range by diffing segments
             int affStart = 0, affEnd = static_cast<int>(curve->size()) - 1;
             computeSegmentDiffRange(transactionBeforeSegments_, afterSegments, affStart, affEnd);
 
@@ -174,7 +223,6 @@ void PianoRollUndoSupport::commitTransaction()
                     transactionDescription_));
             }
         } else if (segmentsChanged && curve) {
-            // Compute actual affected range by diffing segments
             int affStart = 0, affEnd = static_cast<int>(curve->size()) - 1;
             computeSegmentDiffRange(transactionBeforeSegments_, afterSegments, affStart, affEnd);
 

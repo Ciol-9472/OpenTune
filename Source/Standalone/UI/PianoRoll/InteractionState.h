@@ -4,6 +4,7 @@
 #include <vector>
 #include <utility>
 #include "Utils/Note.h"
+#include "Utils/HermiteInterpolation.h"
 
 namespace OpenTune {
 
@@ -57,6 +58,38 @@ struct NoteResizeState
     void clear();
 };
 
+struct AnchorEditState
+{
+    enum class Mode { Idle, Placing, Dragging, BoxSelecting };
+    Mode mode = Mode::Idle;
+
+    std::vector<AnchorGroup> groups;
+    int activeGroupIndex = -1;
+    int draggedAnchorIndex = -1;
+    double dragStartTime = 0.0;
+    float dragStartPitch = 0.0f;
+
+    double boxStartTime = 0.0;
+    float boxStartPitch = 0.0f;
+    double boxEndTime = 0.0;
+    float boxEndPitch = 0.0f;
+
+    juce::Point<float> currentMousePos;
+
+    void clear() {
+        mode = Mode::Idle;
+        groups.clear();
+        activeGroupIndex = -1;
+        draggedAnchorIndex = -1;
+    }
+
+    bool hasAnyPoints() const {
+        for (const auto& g : groups)
+            if (!g.points.empty()) return true;
+        return false;
+    }
+};
+
 struct DrawingState
 {
     bool isDrawingF0 = false;
@@ -74,6 +107,8 @@ struct DrawingState
     bool isPlacingAnchors = false;
     std::vector<LineAnchor> pendingAnchors;
     juce::Point<float> currentMousePos;
+
+    AnchorEditState anchorEdit;
     
     void clearF0Drawing();
     void clearNoteDrawing();

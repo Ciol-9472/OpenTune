@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Utils/Note.h"
 #include "Utils/PitchCurve.h"
+#include "Utils/HermiteInterpolation.h"
 #include "Utils/UndoAction.h"
 #include <vector>
 #include <functional>
@@ -53,6 +54,7 @@ private:
     juce::String transactionDescription_;
     std::vector<Note> transactionBeforeNotes_;
     std::vector<CorrectedSegmentsChangeAction::SegmentSnapshot> transactionBeforeSegments_;
+    std::vector<AnchorGroup> transactionBeforeAnchors_;
 };
 
 } // namespace OpenTune

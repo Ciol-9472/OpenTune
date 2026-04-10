@@ -9,6 +9,7 @@
 #include <atomic>
 #include "Note.h"
 #include "PitchUtils.h"
+#include "HermiteInterpolation.h"
 
 namespace OpenTune {
 
@@ -51,9 +52,27 @@ public:
         , renderGeneration_(renderGeneration)
     {}
 
+    PitchCurveSnapshot(
+        std::vector<float> originalF0,
+        std::vector<float> originalEnergy,
+        std::vector<CorrectedSegment> correctedSegments,
+        std::vector<AnchorGroup> anchorGroups,
+        int hopSize,
+        double sampleRate,
+        uint64_t renderGeneration = 0)
+        : originalF0_(std::move(originalF0))
+        , originalEnergy_(std::move(originalEnergy))
+        , correctedSegments_(std::move(correctedSegments))
+        , anchorGroups_(std::move(anchorGroups))
+        , hopSize_(hopSize)
+        , sampleRate_(sampleRate)
+        , renderGeneration_(renderGeneration)
+    {}
+
     const std::vector<float>& getOriginalF0() const { return originalF0_; }
     const std::vector<float>& getOriginalEnergy() const { return originalEnergy_; }
     const std::vector<CorrectedSegment>& getCorrectedSegments() const { return correctedSegments_; }
+    const std::vector<AnchorGroup>& getAnchorGroups() const { return anchorGroups_; }
     int getHopSize() const { return hopSize_; }
     double getSampleRate() const { return sampleRate_; }
 
@@ -96,6 +115,9 @@ public:
             total += sizeof(CorrectedSegment);
             total += seg.f0Data.capacity() * sizeof(float);
         }
+        for (const auto& grp : anchorGroups_) {
+            total += grp.points.capacity() * sizeof(AnchorPoint);
+        }
         return total;
     }
 
@@ -103,6 +125,7 @@ private:
     const std::vector<float> originalF0_;
     const std::vector<float> originalEnergy_;
     const std::vector<CorrectedSegment> correctedSegments_;
+    const std::vector<AnchorGroup> anchorGroups_;
     const int hopSize_;
     const double sampleRate_;
     const uint64_t renderGeneration_;
@@ -166,6 +189,7 @@ public:
                 ? std::vector<float>(f0.size(), 0.0f) 
                 : oldSnapshot->getOriginalEnergy(),
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             oldSnapshot->getRenderGeneration()
@@ -187,6 +211,7 @@ public:
                     ? std::vector<float>(energy.begin(), energy.begin() + oldSnapshot->getOriginalF0().size())
                     : energy,
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             oldSnapshot->getRenderGeneration()
@@ -215,6 +240,7 @@ public:
             std::move(originalF0),
             std::move(originalEnergy),
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             oldSnapshot->getRenderGeneration()
@@ -243,6 +269,7 @@ public:
             std::move(originalF0),
             std::move(originalEnergy),
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             oldSnapshot->getRenderGeneration()
@@ -274,11 +301,30 @@ public:
             oldSnapshot->getOriginalF0(),
             oldSnapshot->getOriginalEnergy(),
             std::vector<CorrectedSegment>(),
+            std::vector<AnchorGroup>(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             newGen
         );
         std::atomic_store(&snapshot_, newSnapshot);
+    }
+
+    // ========================================================================
+    // Anchor management
+    // ========================================================================
+
+    /** Replace all anchor groups and regenerate CorrectedSegments from them. */
+    void setAnchorGroups(const std::vector<AnchorGroup>& groups,
+                         const std::vector<Note>& notes,
+                         float retuneSpeed);
+
+    /** Restore both corrected segments and anchor groups atomically (for undo/redo). */
+    void restoreSegmentsAndAnchors(const std::vector<CorrectedSegment>& segments,
+                                    const std::vector<AnchorGroup>& anchors);
+
+    /** Get the current anchor groups (convenience). */
+    std::vector<AnchorGroup> getAnchorGroups() const {
+        return getSnapshot()->getAnchorGroups();
     }
 
     void replaceCorrectedSegments(const std::vector<CorrectedSegment>& segments) {
@@ -294,6 +340,7 @@ public:
             oldSnapshot->getOriginalF0(),
             oldSnapshot->getOriginalEnergy(),
             std::move(normalized),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             newGen
@@ -325,6 +372,7 @@ public:
             oldSnapshot->getOriginalF0(),
             oldSnapshot->getOriginalEnergy(),
             segments,
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             oldSnapshot->getSampleRate(),
             newGen
@@ -338,6 +386,7 @@ public:
             std::vector<float>(),
             std::vector<float>(),
             std::vector<CorrectedSegment>(),
+            std::vector<AnchorGroup>(),
             512,
             16000.0,
             newGen
@@ -351,6 +400,7 @@ public:
             oldSnapshot->getOriginalF0(),
             oldSnapshot->getOriginalEnergy(),
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             hopSize,
             oldSnapshot->getSampleRate(),
             oldSnapshot->getRenderGeneration()
@@ -364,6 +414,7 @@ public:
             oldSnapshot->getOriginalF0(),
             oldSnapshot->getOriginalEnergy(),
             oldSnapshot->getCorrectedSegments(),
+            oldSnapshot->getAnchorGroups(),
             oldSnapshot->getHopSize(),
             sampleRate,
             oldSnapshot->getRenderGeneration()

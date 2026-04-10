@@ -675,6 +675,7 @@ void PitchCurve::applyCorrectionToRange(
         oldSnapshot->getOriginalF0(),
         oldSnapshot->getOriginalEnergy(),
         std::move(correctedSegments),
+        oldSnapshot->getAnchorGroups(),
         hopSize,
         sampleRate,
         newGen
@@ -700,6 +701,7 @@ void PitchCurve::setManualCorrectionRange(int startFrame, int endFrame, const st
         oldSnapshot->getOriginalF0(),
         oldSnapshot->getOriginalEnergy(),
         std::move(correctedSegments),
+        oldSnapshot->getAnchorGroups(),
         oldSnapshot->getHopSize(),
         oldSnapshot->getSampleRate(),
         newGen
@@ -726,6 +728,7 @@ void PitchCurve::setManualCorrectionRange(int startFrame, int endFrame, const st
         oldSnapshot->getOriginalF0(),
         oldSnapshot->getOriginalEnergy(),
         std::move(correctedSegments),
+        oldSnapshot->getAnchorGroups(),
         oldSnapshot->getHopSize(),
         oldSnapshot->getSampleRate(),
         newGen
@@ -747,6 +750,105 @@ void PitchCurve::clearCorrectionRange(int startFrame, int endFrame) {
         oldSnapshot->getOriginalF0(),
         oldSnapshot->getOriginalEnergy(),
         std::move(correctedSegments),
+        oldSnapshot->getAnchorGroups(),
+        oldSnapshot->getHopSize(),
+        oldSnapshot->getSampleRate(),
+        newGen
+    );
+    std::atomic_store(&snapshot_, newSnapshot);
+}
+
+// ============================================================================
+// Anchor-based correction
+// ============================================================================
+
+void PitchCurve::setAnchorGroups(const std::vector<AnchorGroup>& groups,
+                                  const std::vector<Note>& notes,
+                                  float retuneSpeed) {
+    auto oldSnapshot = getSnapshot();
+    const auto& originalF0 = oldSnapshot->getOriginalF0();
+    const int hopSize = oldSnapshot->getHopSize();
+    const double sampleRate = oldSnapshot->getSampleRate();
+
+    if (originalF0.empty() || hopSize <= 0 || sampleRate <= 0.0) return;
+
+    const double frameDuration = static_cast<double>(hopSize) / sampleRate;
+    const double framePerSecond = sampleRate / static_cast<double>(hopSize);
+
+    // Remove all existing LineAnchor segments, keep other sources
+    auto segments = oldSnapshot->getCorrectedSegments();
+    segments.erase(
+        std::remove_if(segments.begin(), segments.end(),
+            [](const CorrectedSegment& s) {
+                return s.source == CorrectedSegment::Source::LineAnchor;
+            }),
+        segments.end());
+
+    // For each anchor group with >= 2 points, generate F0 via Hermite interpolation
+    for (const auto& group : groups) {
+        if (group.points.size() < 2) continue;
+
+        const double groupStart = group.getStartTime();
+        const double groupEnd = group.getEndTime();
+        int groupStartFrame = std::max(0, static_cast<int>(std::floor(groupStart * framePerSecond)));
+        int groupEndFrame = std::min(static_cast<int>(originalF0.size()),
+                                     static_cast<int>(std::ceil(groupEnd * framePerSecond)) + 1);
+        if (groupEndFrame <= groupStartFrame) continue;
+
+        // Hermite interpolation in MIDI pitch space
+        auto midiPitchData = HermiteInterpolation::interpolate(group, groupStartFrame, groupEndFrame, frameDuration);
+        HermiteInterpolation::midiToHz(midiPitchData);
+
+        // Clip to note boundaries (only create segments inside notes)
+        for (const auto& note : notes) {
+            int noteStartFrame = static_cast<int>(std::floor(note.startTime * framePerSecond));
+            int noteEndFrame = static_cast<int>(std::ceil(note.endTime * framePerSecond));
+
+            int overlapStart = std::max(groupStartFrame, noteStartFrame);
+            int overlapEnd = std::min(groupEndFrame, noteEndFrame);
+            if (overlapEnd <= overlapStart) continue;
+
+            std::vector<float> clippedF0;
+            clippedF0.reserve(overlapEnd - overlapStart);
+            for (int f = overlapStart; f < overlapEnd; ++f) {
+                int idx = f - groupStartFrame;
+                if (idx >= 0 && idx < static_cast<int>(midiPitchData.size()))
+                    clippedF0.push_back(midiPitchData[idx]);
+                else
+                    clippedF0.push_back(0.0f);
+            }
+
+            // Clear any existing segment in this range before inserting
+            clearSegmentsInRangePreserveOutside(segments, overlapStart, overlapEnd);
+
+            CorrectedSegment newSeg(overlapStart, overlapEnd, clippedF0, CorrectedSegment::Source::LineAnchor);
+            newSeg.retuneSpeed = -1.0f;
+            insertSegmentWithUnifiedTransitions(segments, originalF0, std::move(newSeg), kUnifiedTransitionFrames);
+        }
+    }
+
+    uint64_t newGen = incrementGeneration();
+    auto newSnapshot = std::make_shared<const PitchCurveSnapshot>(
+        oldSnapshot->getOriginalF0(),
+        oldSnapshot->getOriginalEnergy(),
+        std::move(segments),
+        groups,
+        oldSnapshot->getHopSize(),
+        oldSnapshot->getSampleRate(),
+        newGen
+    );
+    std::atomic_store(&snapshot_, newSnapshot);
+}
+
+void PitchCurve::restoreSegmentsAndAnchors(const std::vector<CorrectedSegment>& segments,
+                                            const std::vector<AnchorGroup>& anchors) {
+    auto oldSnapshot = getSnapshot();
+    uint64_t newGen = incrementGeneration();
+    auto newSnapshot = std::make_shared<const PitchCurveSnapshot>(
+        oldSnapshot->getOriginalF0(),
+        oldSnapshot->getOriginalEnergy(),
+        segments,
+        anchors,
         oldSnapshot->getHopSize(),
         oldSnapshot->getSampleRate(),
         newGen
