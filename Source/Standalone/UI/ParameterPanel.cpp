@@ -213,6 +213,12 @@ ParameterPanel::ParameterPanel()
     handDrawToolButton_->setIcon(ToolbarIcons::getHandDrawIcon(), false);
     handDrawToolButton_->onClick = [this] { onToolClicked(4); };
     addAndMakeVisible(*handDrawToolButton_);
+
+    splitNoteToolButton_ = std::make_unique<ToolIconButton>(5, "SplitNote", LOC(kSplitNote) + " (5)");
+    splitNoteToolButton_->setRadioGroupId(1001);
+    splitNoteToolButton_->setIcon(ToolbarIcons::getCutIcon(), false);
+    splitNoteToolButton_->onClick = [this] { onToolClicked(5); };
+    addAndMakeVisible(*splitNoteToolButton_);
 }
 
 ParameterPanel::~ParameterPanel()
@@ -308,37 +314,25 @@ void ParameterPanel::resized()
     toolsHeader_.setBounds(toolsArea.removeFromTop(headerHeight));
     toolsArea.removeFromTop(toolHeaderGap);
 
-    // 工具按钮布局：2列×3行网格，AUTO居中在第3行
+    // 工具按钮布局：2列×3行（选择/绘制 | 锚点/手绘 | 分割/AUTO）
     auto toolsColumn = toolsArea.reduced(5, 0);
     int startY = toolsColumn.getY();
 
-    // 按钮数组（重新排序：AUTO放最后，以便单独处理居中）
     std::vector<juce::Component*> buttons;
-    if (selectToolButton_) buttons.push_back(selectToolButton_.get());       // 第1行第1列
-    if (drawNoteToolButton_) buttons.push_back(drawNoteToolButton_.get());   // 第1行第2列
-    if (lineAnchorToolButton_) buttons.push_back(lineAnchorToolButton_.get()); // 第2行第1列
-    if (handDrawToolButton_) buttons.push_back(handDrawToolButton_.get());   // 第2行第2列
-    if (autoTuneToolButton_) buttons.push_back(autoTuneToolButton_.get());   // 第3行居中
+    if (selectToolButton_) buttons.push_back(selectToolButton_.get());
+    if (drawNoteToolButton_) buttons.push_back(drawNoteToolButton_.get());
+    if (lineAnchorToolButton_) buttons.push_back(lineAnchorToolButton_.get());
+    if (handDrawToolButton_) buttons.push_back(handDrawToolButton_.get());
+    if (splitNoteToolButton_) buttons.push_back(splitNoteToolButton_.get());
+    if (autoTuneToolButton_) buttons.push_back(autoTuneToolButton_.get());
 
-    // 2列×3行网格布局
+    int totalWidth = 2 * toolButtonSize + toolButtonHorizontalGap;
+    int gridStartX = toolsColumn.getCentreX() - totalWidth / 2;
     for (int i = 0; i < static_cast<int>(buttons.size()); ++i) {
-        int x, y;
-
-        if (i < 4) {
-            // 前4个按钮：2×2网格布局
-            int row = i / 2;
-            int col = i % 2;
-            // 计算2列网格的起始X坐标（居中对齐）
-            int totalWidth = 2 * toolButtonSize + toolButtonHorizontalGap;
-            int gridStartX = toolsColumn.getCentreX() - totalWidth / 2;
-            x = gridStartX + col * (toolButtonSize + toolButtonHorizontalGap);
-            y = startY + row * (toolButtonSize + toolButtonGap);
-        } else {
-            // 第5个按钮（AUTO）：第3行居中
-            x = toolsColumn.getCentreX() - toolButtonSize / 2;
-            y = startY + 2 * (toolButtonSize + toolButtonGap);
-        }
-
+        int row = i / 2;
+        int col = i % 2;
+        int x = gridStartX + col * (toolButtonSize + toolButtonHorizontalGap);
+        int y = startY + row * (toolButtonSize + toolButtonGap);
         buttons[i]->setBounds(x, y, toolButtonSize, toolButtonSize);
     }
 }
@@ -384,6 +378,8 @@ void ParameterPanel::refreshLocalizedText()
         lineAnchorToolButton_->setTooltip(LOC(kLineAnchor));
     if (handDrawToolButton_)
         handDrawToolButton_->setTooltip(LOC(kHandDraw));
+    if (splitNoteToolButton_)
+        splitNoteToolButton_->setTooltip(LOC(kSplitNote) + " (5)");
     
     repaint();
 }
@@ -433,6 +429,7 @@ void ParameterPanel::setActiveTool(int toolId)
     if (drawNoteToolButton_) drawNoteToolButton_->setToggleState(toolId == 2, juce::dontSendNotification);
     if (lineAnchorToolButton_) lineAnchorToolButton_->setToggleState(toolId == 3, juce::dontSendNotification);
     if (handDrawToolButton_) handDrawToolButton_->setToggleState(toolId == 4, juce::dontSendNotification);
+    if (splitNoteToolButton_) splitNoteToolButton_->setToggleState(toolId == 5, juce::dontSendNotification);
 }
 
 // Getters and Setters

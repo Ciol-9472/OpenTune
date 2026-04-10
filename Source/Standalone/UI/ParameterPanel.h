@@ -144,6 +144,7 @@ private:
     std::unique_ptr<ToolIconButton> drawNoteToolButton_;
     std::unique_ptr<ToolIconButton> lineAnchorToolButton_;
     std::unique_ptr<ToolIconButton> handDrawToolButton_;
+    std::unique_ptr<ToolIconButton> splitNoteToolButton_;
 
     LargeKnobLookAndFeel largeKnobLookAndFeel_;
 

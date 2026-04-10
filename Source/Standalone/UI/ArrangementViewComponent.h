@@ -87,6 +87,9 @@ public:
     void prioritizeWaveformBuildForClip(int trackId, uint64_t clipId);
     bool isWaveformCacheCompleteForClip(int trackId, uint64_t clipId) const;
 
+    /** 排列视图本地坐标 → 轨道索引；点在时间标尺上方等区域时返回 -1 */
+    int getTrackIndexAtPoint(juce::Point<int> localPoint) const;
+
     // 缩放状态管理
     void resetUserZoomFlag() { userHasManuallyZoomed_ = false; }
     bool hasUserManuallyZoomed() const { return userHasManuallyZoomed_; }

@@ -23,7 +23,13 @@ inline juce::String pianoRollToolLineAnchor()
 
 inline juce::String pianoRollToolHandDraw()
 {
-    return LOC(kHandDrawTool) + "\t[5]";
+    // 无数字快捷键时与侧栏一致，仅显示本地化名称
+    return LOC(kHandDrawTool);
+}
+
+inline juce::String pianoRollToolSplitNote()
+{
+    return LOC(kSplitNoteTool) + "\t[5]";
 }
 
 } // namespace UiText

@@ -300,19 +300,27 @@ juce::Rectangle<int> ArrangementViewComponent::getClipBounds(int trackId, int cl
     return { x1, lane.getY(), w, lane.getHeight() };
 }
 
+int ArrangementViewComponent::getTrackIndexAtPoint(juce::Point<int> p) const
+{
+    if (p.y < rulerHeight_)
+        return -1;
+
+    int adjustedY = p.y + verticalScrollOffset_;
+    int h = processor_.getTrackHeight();
+    if (h <= 0)
+        return -1;
+    int trackId = (adjustedY - rulerHeight_) / h;
+    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS)
+        return -1;
+    return trackId;
+}
+
 ArrangementViewComponent::HitTestResult ArrangementViewComponent::hitTestClip(juce::Point<int> p) const
 {
     HitTestResult r;
-    if (p.y < rulerHeight_)
+    const int trackId = getTrackIndexAtPoint(p);
+    if (trackId < 0)
         return r;
-
-    // Adjust for vertical scroll
-    int adjustedY = p.y + verticalScrollOffset_;
-
-    // Determine track ID based on dynamic track height
-    int h = processor_.getTrackHeight();
-    int trackId = (h > 0) ? (adjustedY - rulerHeight_) / h : -1;
-    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS) return r;
 
     int numClips = processor_.getNumClips(trackId);
     for (int i = 0; i < numClips; ++i)
@@ -1061,13 +1069,17 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    double sr = processor_.getSampleRate();
+    if (sr <= 0.0) sr = 44100.0;
+
+    double newPosSeconds = xToTime(e.x);
+    processor_.setPosition(newPosSeconds);
+    playheadOverlay_.setPlayheadSeconds(newPosSeconds);
+    playheadOverlay_.repaint();
+    repaint();
+
     if (e.y <= rulerHeight_)
     {
-        double newPosSeconds = xToTime(e.x);
-        processor_.setPosition(newPosSeconds);
-        playheadOverlay_.setPlayheadSeconds(newPosSeconds);
-        playheadOverlay_.repaint();
-        repaint();
         isDraggingPlayhead_ = true;
         dragStartPos_ = e.getPosition();
         FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
@@ -1389,16 +1401,7 @@ void ArrangementViewComponent::mouseDoubleClick(const juce::MouseEvent& e)
         listeners_.call([&](Listener& l) {
             l.clipDoubleClicked(hit.trackId, hit.clipIndex);
         });
-        return;
     }
-
-    // Double-click on empty area (no clip): play from this position
-    double newPosSeconds = xToTime(e.x);
-    processor_.setPosition(newPosSeconds);
-    processor_.setPlaying(true);
-    playheadOverlay_.setPlayheadSeconds(newPosSeconds);
-    playheadOverlay_.repaint();
-    repaint();
 }
 
 void ArrangementViewComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
