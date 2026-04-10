@@ -329,7 +329,7 @@
     <h1>OpenTune</h1>
     <div class="subtitle">AI 智能修音软件</div>
     <div class="tagline">保留共振峰，移调不失真</div>
-    <div class="version">用户指南 v1.2</div>
+    <div class="version">用户指南 v1.3</div>
     <div class="version" style="margin-top: 10px;">2026 年 4 月</div>
 </div>
 
@@ -507,7 +507,7 @@
     </tr>
     <tr>
         <td><strong>钢琴卷帘视图</strong></td>
-        <td>音高曲线编辑、音符绘制、F0 曲线显示</td>
+        <td>音高曲线编辑、音符绘制、F0 曲线显示；调式高亮（Major/Minor）；左下角当前工具说明</td>
     </tr>
     <tr>
         <td><strong>参数面板</strong></td>
@@ -553,7 +553,13 @@
 <p>在菜单 <strong>View</strong> 中可开关以下显示（与工程状态一同保存）：</p>
 <ul>
     <li><strong>Show Waveform（显示波形）</strong>：在钢琴卷帘背景中叠加当前片段的波形，便于对齐乐句与音高。</li>
-    <li><strong>Show Lanes（显示音高分层）</strong>：以半音为行高亮钢琴卷帘中的音高区域，便于辨认音区。</li>
+    <li><strong>Show Lanes（显示音高分层）</strong>：以半音为行划分卷帘区域，水平线与左侧琴键行一一对应；便于辨认音区。黑键行<strong>不再</strong>单独铺一层深灰底，以便与左侧琴键延伸区、调式高亮的叠色一致。</li>
+</ul>
+
+<h3>4.7 钢琴卷帘：调式高亮与工具提示</h3>
+<ul>
+    <li><strong>调式高亮</strong>：在传输栏选择 <strong>Major / Minor</strong>（非半音阶）时，当前调式内的音级会在<strong>左侧琴键</strong>与<strong>右侧音道</strong>上以同一套规则标示（调外琴键略压暗，调内叠加主题色高亮）。半音阶模式下不进行调内强调。</li>
+    <li><strong>工具提示</strong>：在钢琴卷帘左下角（琴键右侧、横向滚动条<strong>之上</strong>）显示<strong>当前工具</strong>的简要操作说明（半透明文字，随界面语言与主题变化）；切换工具或语言后会<strong>立即</strong>更新，无需再单击卷帘。</li>
 </ul>
 
 <h3>4.5 首选项（Options）</h3>
@@ -767,6 +773,7 @@
     <h4>🎹 AutoTune - 自动修正工具</h4>
     <p>根据当前调式与原始 F0 自动生成音符并应用音高校正。适合快速打底、整段修正。</p>
     <p><strong>使用场景</strong>：需要一键生成音符并量化到调性时；精细修音可再配合选择、分割与手绘等工具。</p>
+    <p><strong>音符切分（概要）</strong>：除「音符分割阈值」控制的平滑段切分外，相邻有声帧若瞬时音高跳变超过约<strong>两个半音</strong>也会拆成新音符；最短音符时长已放宽以利于短促发声。在 Major/Minor 吸附时，若某段原始音高与<strong>前后相邻音符</strong>的原始音高在约<strong>一个半音</strong>以内，允许按半音保留类似经过音的落点，而不强行吸附到调内音。AUTO 流程在具备每帧能量数据时，还会<strong>实验性</strong>地根据能量低谷尝试拆分相邻音（大电平—弱电平—大电平等情形）。</p>
     <p><strong>快捷方式</strong>：钢琴卷帘处于焦点且未按修饰键时，按数字键 <strong>6</strong> 可触发与点击该工具相同的自动修正流程。</p>
 </div>
 
@@ -799,7 +806,7 @@
 
 <div class="tool-card">
     <h4>✂️ SplitNote - 分割音符工具</h4>
-    <p>在音符上单击，于该时间点将音符分成两段，便于分段设置 Retune、颤音或后续编辑。</p>
+    <p>在音符上单击，于<strong>鼠标点击位置对应的时间</strong>将音符分成两段（非播放头位置），便于分段设置 Retune、颤音或后续编辑。</p>
     <p><strong>光标</strong>：使用文本竖线形光标提示当前为分割模式。</p>
 </div>
 
@@ -846,6 +853,7 @@
     <div class="param-name">Note Split Threshold（音符分割阈值）</div>
     <div class="param-range">范围：0 - 100 音分 | 默认值：80 音分</div>
     <p>控制自动音符分割的灵敏度。值越小，越容易分割成独立音符；值越大，倾向于合并相邻音高。</p>
+    <p><strong>说明</strong>：AUTO 生成音符时还受内部策略影响，例如大于约两半音的瞬时跳变会强制拆段、默认最短音符时长与能量低谷（见 AutoTune 工具说明）等；本旋钮主要调节「相对平均音高」变化触发的切分灵敏度。</p>
 </div>
 
 <h3>8.2 轨道参数</h3>

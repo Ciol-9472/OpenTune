@@ -40,6 +40,7 @@
 #include "AutoRenderOverlayComponent.h"
 #include "PianoRoll/InteractionState.h"
 #include "WaveformMipmap.h"
+#include "Utils/LocalizationManager.h"
 
 namespace OpenTune {
 
@@ -47,7 +48,8 @@ class OpenTuneAudioProcessor;
 
 class PianoRollComponent : public juce::Component,
                            public juce::ScrollBar::Listener,
-                           private juce::Timer {
+                           private juce::Timer,
+                           public LanguageChangeListener {
 public:
     void visibilityChanged() override;
     static constexpr int kContextMenuCommandSelect = 3001;
@@ -86,7 +88,10 @@ public:
     PianoRollComponent();
     ~PianoRollComponent() override;
 
+    void languageChanged(Language newLanguage) override;
+
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void onHeartbeatTick();
 
@@ -237,6 +242,7 @@ private:
     void drawLineAnchorPreview(juce::Graphics& g, double offsetSeconds);
     void drawSelectionBox(juce::Graphics& g, double offsetSeconds, ThemeId themeId);
     void drawRenderingProgress(juce::Graphics& g);
+    void drawToolHintOverlay(juce::Graphics& g);
 
     void handleVerticalZoomWheel(const juce::MouseEvent& e, float deltaY);
     void handleHorizontalScrollWheel(float deltaX, float deltaY);

@@ -10,6 +10,8 @@
 #include "../../PluginProcessor.h"
 #include "FrameScheduler.h"
 #include "UiText.h"
+#include "PianoRoll/PianoRollToolHints.h"
+#include "ThemeTokens.h"
 
 namespace {
 
@@ -245,6 +247,7 @@ void PianoRollComponent::initializeToolHandler() {
 }
 
 PianoRollComponent::PianoRollComponent() {
+    LocalizationManager::getInstance().addListener(this);
     initializeUIComponents();
     initializeUndoSupport();
     initializeRenderer();
@@ -253,6 +256,7 @@ PianoRollComponent::PianoRollComponent() {
 }
 
 PianoRollComponent::~PianoRollComponent() {
+    LocalizationManager::getInstance().removeListener(this);
     if (correctionWorker_) {
         correctionWorker_->stop();
     }
@@ -260,6 +264,46 @@ PianoRollComponent::~PianoRollComponent() {
     stopTimer();
     horizontalScrollBar_.removeListener(this);
     verticalScrollBar_.removeListener(this);
+}
+
+void PianoRollComponent::languageChanged(Language newLanguage)
+{
+    juce::ignoreUnused(newLanguage);
+    repaint();
+}
+
+void PianoRollComponent::drawToolHintOverlay(juce::Graphics& g)
+{
+    const auto lines = getPianoRollToolHintLines(currentTool_);
+    if (lines.empty())
+        return;
+
+    constexpr int   contentInset = 12;
+    constexpr int   scrollbarH     = 15;
+    constexpr float lineH          = 18.0f;
+    const int       margin         = 10;
+    const int       left           = contentInset + pianoKeyWidth_ + margin;
+    const int       scrollbarTopY  = getHeight() - contentInset - scrollbarH;
+    const int       bottomY        = scrollbarTopY - margin;
+    const int       textW          = juce::jmax(80, getWidth() - left - margin - contentInset);
+
+    juce::Colour textCol = UIColors::textSecondary.withAlpha(0.68f);
+    if (Theme::getActiveTheme() == ThemeId::DarkBlueGrey)
+        textCol = UIColors::textSecondary.withAlpha(0.78f);
+
+    g.setColour(textCol);
+    g.setFont(UIColors::getLabelFont(13.5f));
+
+    int y = bottomY - static_cast<int>(static_cast<float>(lines.size()) * lineH);
+    for (const auto& ln : lines) {
+        g.drawText(ln, left, y, textW, static_cast<int>(lineH), juce::Justification::topLeft, true);
+        y += static_cast<int>(lineH);
+    }
+}
+
+void PianoRollComponent::paintOverChildren(juce::Graphics& g)
+{
+    drawToolHintOverlay(g);
 }
 
 bool PianoRollComponent::applyCorrectionAsyncForEntireClip(float retuneSpeed, float vibratoDepth, float vibratoRate)
@@ -1372,6 +1416,8 @@ void PianoRollComponent::setCurrentTool(ToolId tool) {
         const int toolId = static_cast<int>(tool);
         listeners_.call([toolId](Listener& l) { l.toolChanged(toolId); });
     }
+
+    repaint();
 }
 
 bool PianoRollComponent::selectToolByContextMenuCommand(int commandId)
@@ -1966,6 +2012,7 @@ bool PianoRollComponent::applyAutoTuneToSelection()
 
     NoteGeneratorParams genParams;
     genParams.policy = segmentationPolicy_;
+    genParams.policy.energyValleySplitEnabled = true;
     genParams.retuneSpeed = currentRetuneSpeed_;
     genParams.vibratoDepth = currentVibratoDepth_;
     genParams.vibratoRate = currentVibratoRate_;
@@ -1989,6 +2036,12 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     request->audioSampleRate = static_cast<double>(PianoRollComponent::kAudioSampleRate);
 
     request->autoOriginalF0Full = originalF0;
+    const auto& originalEnergy = snapshot->getOriginalEnergy();
+    if (originalEnergy.size() == originalF0.size())
+        request->autoOriginalEnergyFull = originalEnergy;
+    else
+        request->autoOriginalEnergyFull.clear();
+
     request->autoHopSize = hopSize_;
     request->autoF0SampleRate = f0SampleRate_;
     request->autoStartFrame = startFrame;

@@ -116,6 +116,7 @@ void NoteGenerator::commitNote(
         if (rep > 0.0f) {
             current.originalPitch = rep;
             current.pitch         = quantisePitch(rep, params.scaleSnap);
+            current.pitchOffset   = 0.0f;
             current.retuneSpeed   = params.retuneSpeed;
             current.vibratoDepth  = params.vibratoDepth;
             current.vibratoRate   = params.vibratoRate;
@@ -126,6 +127,80 @@ void NoteGenerator::commitNote(
     pitches.clear();
     energyBuf.clear();
     current = Note{};
+}
+
+void NoteGenerator::commitPartialAtSplit(
+    std::vector<Note>&         out,
+    Note&                      current,
+    std::vector<float>&        pitches,
+    std::vector<float>&        energyBuf,
+    std::vector<int>&          voicedFrameIndices,
+    int                        splitIdx,
+    float                      hopSizeTime,
+    double                     minNoteDuration,
+    double                     tailExtendDuration,
+    const NoteGeneratorParams& params)
+{
+    if (splitIdx <= 0 || splitIdx > static_cast<int>(pitches.size())) return;
+    if (splitIdx > static_cast<int>(voicedFrameIndices.size())) return;
+
+    Note done = current;
+    std::vector<float> sp(pitches.begin(), pitches.begin() + splitIdx);
+    std::vector<float> se;
+    if (!energyBuf.empty())
+        se.assign(energyBuf.begin(), energyBuf.begin() + splitIdx);
+
+    const int lastF = voicedFrameIndices[static_cast<size_t>(splitIdx) - 1];
+    const double endTime = static_cast<double>(lastF + 1) * static_cast<double>(hopSizeTime);
+    commitNote(out, done, sp, se, hopSizeTime, endTime, minNoteDuration, tailExtendDuration, params);
+
+    pitches.erase(pitches.begin(), pitches.begin() + splitIdx);
+    if (!energyBuf.empty())
+        energyBuf.erase(energyBuf.begin(), energyBuf.begin() + splitIdx);
+    voicedFrameIndices.erase(voicedFrameIndices.begin(), voicedFrameIndices.begin() + splitIdx);
+
+    if (!voicedFrameIndices.empty())
+        current.startTime = static_cast<double>(voicedFrameIndices.front()) * static_cast<double>(hopSizeTime);
+}
+
+void NoteGenerator::applyNeighborTolerantScaleSnap(std::vector<Note>& notes, const ScaleSnapConfig& snap)
+{
+    if (notes.empty()) return;
+    if (snap.mode == ScaleMode::Chromatic) return;
+
+    for (size_t i = 0; i < notes.size(); ++i) {
+        Note& n = notes[i];
+        if (n.originalPitch <= 0.0f) continue;
+
+        const float rawMidi    = PitchUtils::freqToMidi(n.originalPitch);
+        const float snappedMidi = snap.snapMidi(rawMidi);
+        const int   snappedInt  = static_cast<int>(std::lround(snappedMidi));
+        const int   chromaticInt = static_cast<int>(std::lround(rawMidi));
+
+        if (std::abs(snappedMidi - rawMidi) < 0.08f) {
+            n.pitch = Note::midiToFrequency(snappedInt);
+            n.pitchOffset = 0.0f;
+            continue;
+        }
+
+        bool nearNeighbor = false;
+        if (i > 0 && notes[i - 1].originalPitch > 0.0f) {
+            const float prevRaw = PitchUtils::freqToMidi(notes[i - 1].originalPitch);
+            if (std::abs(rawMidi - prevRaw) <= 1.0f + 1e-3f) nearNeighbor = true;
+        }
+        if (!nearNeighbor && i + 1 < notes.size() && notes[i + 1].originalPitch > 0.0f) {
+            const float nextRaw = PitchUtils::freqToMidi(notes[i + 1].originalPitch);
+            if (std::abs(rawMidi - nextRaw) <= 1.0f + 1e-3f) nearNeighbor = true;
+        }
+
+        if (nearNeighbor) {
+            n.pitch = Note::midiToFrequency(chromaticInt);
+            n.pitchOffset = 0.0f;
+        } else {
+            n.pitch = Note::midiToFrequency(snappedInt);
+            n.pitchOffset = 0.0f;
+        }
+    }
 }
 
 std::vector<Note> NoteGenerator::generate(
@@ -164,46 +239,72 @@ std::vector<Note> NoteGenerator::generate(
         return static_cast<double>(frame) * hopSecs;
     };
 
-    Note              current;
-    bool              inNote                    = false;
-    int               trailingUnvoiced          = 0;
-    int               lastVoicedFrame           = -1;
-    double            segmentPitchSum           = 0.0;
-    int               segmentPitchCount         = 0;
+    Note               current;
+    bool               inNote           = false;
+    int                trailingUnvoiced = 0;
+    int                lastVoicedFrame  = -1;
+    double             segmentPitchSum  = 0.0;
+    int                segmentPitchCount = 0;
     std::vector<float> pitches;
     std::vector<float> energyBuf;
+    std::vector<int>   voicedFrameIndices;
     pitches.reserve(512);
     if (energy != nullptr) energyBuf.reserve(512);
+    voicedFrameIndices.reserve(512);
+
+    const bool trackEnergyValley =
+        params.policy.energyValleySplitEnabled && energy != nullptr;
+    float segmentPeakEnergy = 0.0f;
+    int   energyValleyRun   = 0;
 
     for (int i = startFrame; i < endFrameExclusive; ++i) {
         const float f0val  = f0[i];
         const bool  voiced = (f0val > 0.0f);
 
         if (voiced) {
+            if (inNote && !pitches.empty() && f0val > 0.0f && pitches.back() > 0.0f) {
+                const float jumpCents =
+                    std::abs(1200.0f * std::log2(f0val / pitches.back()));
+                if (jumpCents >= params.policy.largeJumpSplitCents) {
+                    commitNote(out, current, pitches, energyBuf,
+                               static_cast<float>(hopSecs), frameToTime(i),
+                               minNoteDuration, tailExtendDuration, params);
+                    voicedFrameIndices.clear();
+                    segmentPeakEnergy = 0.0f;
+                    energyValleyRun   = 0;
+                    inNote            = false;
+                }
+            }
+
             if (!inNote) {
-                current             = Note{};
-                current.startTime   = frameToTime(i);
-                current.isVoiced    = true;
+                current           = Note{};
+                current.startTime = frameToTime(i);
+                current.isVoiced  = true;
                 pitches.clear();
                 energyBuf.clear();
-                inNote                    = true;
-                trailingUnvoiced          = 0;
-                segmentPitchSum           = 0.0;
-                segmentPitchCount         = 0;
+                voicedFrameIndices.clear();
+                inNote             = true;
+                trailingUnvoiced   = 0;
+                segmentPitchSum    = 0.0;
+                segmentPitchCount  = 0;
+                segmentPeakEnergy  = 0.0f;
+                energyValleyRun    = 0;
             } else {
                 trailingUnvoiced = 0;
             }
 
             if (segmentPitchCount > 0) {
                 const float avgPitch = static_cast<float>(segmentPitchSum / static_cast<double>(segmentPitchCount));
-                float diffFromAvg = (avgPitch > 0.0f)
+                const float diffFromAvg = (avgPitch > 0.0f)
                     ? std::abs(1200.0f * std::log2(f0val / avgPitch)) : 0.0f;
 
-                if (diffFromAvg >= params.policy.transitionThresholdCents)
-                {
+                if (diffFromAvg >= params.policy.transitionThresholdCents) {
                     commitNote(out, current, pitches, energyBuf,
                                static_cast<float>(hopSecs), frameToTime(i),
                                minNoteDuration, tailExtendDuration, params);
+                    voicedFrameIndices.clear();
+                    segmentPeakEnergy = 0.0f;
+                    energyValleyRun   = 0;
 
                     current             = Note{};
                     current.startTime   = frameToTime(i);
@@ -215,9 +316,54 @@ std::vector<Note> NoteGenerator::generate(
 
             pitches.push_back(f0val);
             if (energy != nullptr) energyBuf.push_back(energy[i]);
+            if (trackEnergyValley) voicedFrameIndices.push_back(i);
+
             segmentPitchSum += static_cast<double>(f0val);
             ++segmentPitchCount;
             lastVoicedFrame = i;
+
+            if (trackEnergyValley && !energyBuf.empty()) {
+                segmentPeakEnergy = std::max(segmentPeakEnergy, energyBuf.back());
+                const float e = energyBuf.back();
+                if (segmentPeakEnergy > 1e-24f && e < segmentPeakEnergy * params.policy.energyValleyMaxRatio)
+                    ++energyValleyRun;
+                else
+                    energyValleyRun = 0;
+
+                const int minSide = std::max(1, params.policy.energyValleyMinPitchesEachSide);
+                if (energyValleyRun >= params.policy.energyValleyMinFrames
+                    && static_cast<int>(pitches.size())
+                           >= energyValleyRun + minSide * 2) {
+                    const int lowStartFrame = i - energyValleyRun + 1;
+                    auto      it = std::lower_bound(voicedFrameIndices.begin(), voicedFrameIndices.end(), lowStartFrame);
+                    const int splitIdx = static_cast<int>(it - voicedFrameIndices.begin());
+                    if (splitIdx >= minSide
+                        && static_cast<int>(pitches.size()) - splitIdx >= minSide) {
+                        commitPartialAtSplit(
+                            out,
+                            current,
+                            pitches,
+                            energyBuf,
+                            voicedFrameIndices,
+                            splitIdx,
+                            static_cast<float>(hopSecs),
+                            minNoteDuration,
+                            tailExtendDuration,
+                            params);
+
+                        segmentPitchSum   = 0.0;
+                        segmentPitchCount = 0;
+                        for (float p : pitches) {
+                            segmentPitchSum += static_cast<double>(p);
+                            ++segmentPitchCount;
+                        }
+                        segmentPeakEnergy = 0.0f;
+                        for (float eb : energyBuf)
+                            segmentPeakEnergy = std::max(segmentPeakEnergy, eb);
+                        energyValleyRun = 0;
+                    }
+                }
+            }
 
         } else {
             if (inNote) {
@@ -226,11 +372,14 @@ std::vector<Note> NoteGenerator::generate(
                     commitNote(out, current, pitches, energyBuf,
                                static_cast<float>(hopSecs), frameToTime(lastVoicedFrame + 1),
                                minNoteDuration, tailExtendDuration, params);
-                    inNote           = false;
-                    trailingUnvoiced = 0;
-                    lastVoicedFrame  = -1;
-                    segmentPitchSum  = 0.0;
-                    segmentPitchCount = 0;
+                    inNote               = false;
+                    trailingUnvoiced     = 0;
+                    lastVoicedFrame      = -1;
+                    segmentPitchSum      = 0.0;
+                    segmentPitchCount    = 0;
+                    voicedFrameIndices.clear();
+                    segmentPeakEnergy    = 0.0f;
+                    energyValleyRun      = 0;
                 }
             }
         }
@@ -258,6 +407,9 @@ std::vector<Note> NoteGenerator::generate(
                          return n.endTime <= n.startTime;
                        }),
         out.end());
+
+    if (params.scaleSnap.has_value())
+        applyNeighborTolerantScaleSnap(out, *params.scaleSnap);
 
     return out;
 }

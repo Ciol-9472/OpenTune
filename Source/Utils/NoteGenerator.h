@@ -36,9 +36,18 @@ struct ScaleSnapConfig {
 
 struct NoteSegmentationPolicy {
     float transitionThresholdCents = 80.0f;
+    /** 相邻有声帧瞬时音高超过该音分（默认 200≈2 半音）时强制拆分为新音符 */
+    float largeJumpSplitCents      = 200.0f;
     float gapBridgeMs              = 10.0f;
-    float minDurationMs            = 100.0f;
+    /** 最短音符时长（毫秒），略放宽以保留较短的有声段 */
+    float minDurationMs            = 80.0f;
     float tailExtendMs             = 15.0f;
+    /** 实验性：根据能量谷拆分（AUTO 等传入 energy 时有效） */
+    bool  energyValleySplitEnabled = false;
+    /** 当前段峰值能量低于该比例并持续若干帧时视为“谷” */
+    float energyValleyMaxRatio     = 0.18f;
+    int   energyValleyMinFrames    = 3;
+    int   energyValleyMinPitchesEachSide = 4;
 };
 
 struct NoteGeneratorParams {
@@ -95,6 +104,22 @@ private:
         double                     minNoteDuration,
         double                     tailExtendDuration,
         const NoteGeneratorParams& params);
+
+    static void commitPartialAtSplit(
+        std::vector<Note>&         out,
+        Note&                      current,
+        std::vector<float>&        pitches,
+        std::vector<float>&        energyBuf,
+        std::vector<int>&          voicedFrameIndices,
+        int                        splitIdx,
+        float                      hopSizeTime,
+        double                     minNoteDuration,
+        double                     tailExtendDuration,
+        const NoteGeneratorParams& params);
+
+    static void applyNeighborTolerantScaleSnap(
+        std::vector<Note>& notes,
+        const ScaleSnapConfig& snap);
 };
 
 } // namespace OpenTune

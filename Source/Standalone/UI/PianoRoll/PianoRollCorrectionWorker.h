@@ -50,6 +50,8 @@ public:
         int autoEndFrame = 0;
         NoteGeneratorParams autoGenParams;
         std::vector<float> autoOriginalF0Full;
+        /** 与 autoOriginalF0Full 对齐的每帧能量；用于实验性能量谷拆分 */
+        std::vector<float> autoOriginalEnergyFull;
         uint64_t clipContextGenerationSnapshot = 0;
         int trackIdSnapshot = -1;
         uint64_t clipIdSnapshot = 0;

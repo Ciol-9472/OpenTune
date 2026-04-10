@@ -2,10 +2,39 @@
 #include "../UIColors.h"
 #include "../../../Utils/AppLogger.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace OpenTune {
 namespace {
+
+/** UI scaleType：1 大调 2 自然小调 3 半音阶；与 3c4af88 一致用音级类集合驱动高亮（强度已压低） */
+static std::array<bool, 12> buildInScalePitchClassesUi(int scaleType, int rootNote) noexcept
+{
+    std::array<bool, 12> result{};
+    static constexpr int kChromatic = 3;
+    if (scaleType == kChromatic) {
+        result.fill(true);
+        return result;
+    }
+
+    result.fill(false);
+    const int rootPc = juce::jlimit(0, 11, rootNote);
+
+    if (scaleType == 1) {
+        static constexpr int kMajor[] = {0, 2, 4, 5, 7, 9, 11};
+        for (int interval : kMajor)
+            result[static_cast<std::size_t>((rootPc + interval) % 12)] = true;
+    } else if (scaleType == 2) {
+        static constexpr int kMinor[] = {0, 2, 3, 5, 7, 8, 10};
+        for (int interval : kMinor)
+            result[static_cast<std::size_t>((rootPc + interval) % 12)] = true;
+    } else {
+        result.fill(true);
+    }
+    return result;
+}
+
 juce::String midiToPitchLabel(int midiNote)
 {
     static constexpr const char* const kNames[12] = {
@@ -64,6 +93,9 @@ void PianoRollRenderer::drawLanes(juce::Graphics& g, const RenderContext& ctx)
         + ", minMidi=" + juce::String(ctx.minMidi) + ", maxMidi=" + juce::String(ctx.maxMidi)
         + ", showLanes=" + juce::String(ctx.showLanes ? "true" : "false"));
 
+    static constexpr int kScaleTypeChromatic = 3;
+    const auto           inScalePc = buildInScalePitchClassesUi(ctx.scaleType, ctx.scaleRootNote);
+
     for (int midi = static_cast<int>(ctx.minMidi); midi <= static_cast<int>(ctx.maxMidi); ++midi)
     {
         float y = ctx.midiToY(static_cast<float>(midi));
@@ -71,20 +103,15 @@ void PianoRollRenderer::drawLanes(juce::Graphics& g, const RenderContext& ctx)
 
         if (y < -laneH || y > h) continue;
 
-        int noteInOctave = midi % 12;
-        bool isBlackKey = (noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 ||
-                          noteInOctave == 8 || noteInOctave == 10);
+        const int noteInOctave = ((midi % 12) + 12) % 12;
 
-        if (ctx.showLanes)
-        {
-            if (isBlackKey)
-            {
-                if (Theme::getActiveTheme() == ThemeId::BlueBreeze)
-                {
-                    g.setColour(juce::Colour(BlueBreeze::Colors::GraphBgDeep).withAlpha(0.72f));
-                } else {
-                    g.setColour(UIColors::backgroundDark.withAlpha(0.42f));
-                }
+        // 不再对黑键行单独铺灰底，否则与左侧琴键行（浅底 + 调式高亮）叠色不一致
+
+        if (ctx.showLanes && ctx.scaleType != kScaleTypeChromatic) {
+            const int pc = static_cast<int>(noteInOctave);
+            if (inScalePc[static_cast<std::size_t>(pc)]) {
+                // 参考 3c4af88：scaleHighlight 叠色；降低 withMultipliedAlpha 避免过亮
+                g.setColour(UIColors::scaleHighlight.withMultipliedAlpha(0.28f));
                 g.fillRect(static_cast<float>(ctx.pianoKeyWidth), y, static_cast<float>(w - ctx.pianoKeyWidth), laneH);
             }
         }
@@ -367,15 +394,16 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
     const int w = ctx.pianoKeyWidth;
     const float blackKeyWidthRatio = 0.6f;
     const float blackKeyW = w * blackKeyWidthRatio;
-    static constexpr float kSharpKeyRowDarken = 0.24f;
 
     g.setColour(UIColors::backgroundDark);
     g.fillRect(0, 0, w, height);
 
     juce::Colour cWhite1(0xFFF7F9F9);
     juce::Colour cWhite2(0xFFECF0F1);
-    const juce::Colour cSharpRow1 = cWhite1.darker(kSharpKeyRowDarken);
-    const juce::Colour cSharpRow2 = cWhite2.darker(kSharpKeyRowDarken);
+
+    static constexpr int   kScaleTypeChromatic = 3;
+    static constexpr float kOutOfScaleDimAmount = 0.22f;
+    const auto             inScalePc = buildInScalePitchClassesUi(ctx.scaleType, ctx.scaleRootNote);
 
     for (int midi = static_cast<int>(ctx.minMidi); midi <= static_cast<int>(ctx.maxMidi); ++midi)
     {
@@ -383,36 +411,58 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
         float y = ctx.midiToY(static_cast<float>(drawMidi));
         float h = ctx.pixelsPerSemitone;
 
-        if (y < -50.0f || y > height + 50.0f) continue;
+        // 与 drawLanes 使用相同的可见性判定与行高，避免滚动边界处琴键与音道错位
+        if (y < -h || y > static_cast<float>(height)) continue;
 
-        int noteInOctave = drawMidi % 12;
+        const int noteInOctave = ((drawMidi % 12) + 12) % 12;
         bool isBlackKey = (noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 ||
                           noteInOctave == 8 || noteInOctave == 10);
 
-        float drawH = h + 1.0f;
+        const int    pc       = ((drawMidi % 12) + 12) % 12;
+        const bool   chromatic = (ctx.scaleType == kScaleTypeChromatic);
+        const bool   inScale   = chromatic || inScalePc[static_cast<std::size_t>(pc)];
 
         if (!isBlackKey)
         {
-            juce::Rectangle<float> keyRect(0.0f, y, static_cast<float>(w), drawH);
+            juce::Rectangle<float> keyRect(0.0f, y, static_cast<float>(w), h);
 
-            juce::ColourGradient grad(cWhite1, 0.0f, y, cWhite2, static_cast<float>(w), y, false);
+            juce::ColourGradient grad(
+                inScale ? cWhite1 : cWhite1.darker(kOutOfScaleDimAmount),
+                0.0f, y,
+                inScale ? cWhite2 : cWhite2.darker(kOutOfScaleDimAmount),
+                static_cast<float>(w), y, false);
             g.setGradientFill(grad);
             g.fillRect(keyRect);
 
+            if (!chromatic && inScale) {
+                g.setColour(UIColors::scaleHighlight.withMultipliedAlpha(0.32f));
+                g.fillRect(keyRect);
+            }
+
             if (noteInOctave == 0)
             {
-                g.setColour(juce::Colour(0xFF7F8C8D));
+                g.setColour(juce::Colour(0xFF7F8C8D).withMultipliedAlpha(inScale ? 1.0f : 0.78f));
                 g.setFont(UIColors::getLabelFont(10.0f).withStyle(juce::Font::bold));
                 int octave = (drawMidi / 12) - 1;
                 juce::String noteName = "C" + juce::String(octave);
                 g.drawText(noteName, 0, static_cast<int>(y), w - 4, static_cast<int>(h), juce::Justification::centredRight);
             }
         } else {
-            juce::Rectangle<float> extensionRect(blackKeyW, y, static_cast<float>(w) - blackKeyW, drawH);
+            juce::Rectangle<float> extensionRect(blackKeyW, y, static_cast<float>(w) - blackKeyW, h);
 
-            juce::ColourGradient grad(cSharpRow1, blackKeyW, y, cSharpRow2, static_cast<float>(w), y, false);
-            g.setGradientFill(grad);
+            // 延伸区与白键行同一套底色/调外压暗，避免与右侧音道（已无黑键行加灰）观感错位
+            juce::ColourGradient extGrad(
+                inScale ? cWhite1 : cWhite1.darker(kOutOfScaleDimAmount),
+                blackKeyW, y,
+                inScale ? cWhite2 : cWhite2.darker(kOutOfScaleDimAmount),
+                static_cast<float>(w), y, false);
+            g.setGradientFill(extGrad);
             g.fillRect(extensionRect);
+
+            if (!chromatic && inScale) {
+                g.setColour(UIColors::scaleHighlight.withMultipliedAlpha(0.32f));
+                g.fillRect(extensionRect);
+            }
 
             g.setColour(UIColors::panelBorder);
             g.drawLine(blackKeyW, y + h * 0.5f, static_cast<float>(w), y + h * 0.5f, 1.0f);
@@ -424,9 +474,9 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
         int drawMidi = midi;
         float y = ctx.midiToY(static_cast<float>(drawMidi));
         float h = ctx.pixelsPerSemitone;
-        if (y < -50.0f || y > height + 50.0f) continue;
+        if (y < -h || y > static_cast<float>(height)) continue;
 
-        int noteInOctave = drawMidi % 12;
+        const int noteInOctave = ((drawMidi % 12) + 12) % 12;
         if (noteInOctave == 5 || noteInOctave == 0)
         {
             g.setColour(UIColors::panelBorder);
@@ -440,11 +490,15 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
         float y = ctx.midiToY(static_cast<float>(drawMidi));
         float h = ctx.pixelsPerSemitone;
 
-        if (y < -50.0f || y > height + 50.0f) continue;
+        if (y < -h || y > static_cast<float>(height)) continue;
 
-        int noteInOctave = drawMidi % 12;
+        const int noteInOctave = ((drawMidi % 12) + 12) % 12;
         bool isBlackKey = (noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 ||
                           noteInOctave == 8 || noteInOctave == 10);
+
+        const int  pc         = ((drawMidi % 12) + 12) % 12;
+        const bool chromatic  = (ctx.scaleType == kScaleTypeChromatic);
+        const bool inScale    = chromatic || inScalePc[static_cast<std::size_t>(pc)];
 
         if (isBlackKey)
         {
@@ -470,11 +524,20 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
 
             juce::Colour cTop(0xFF34495E);
             juce::Colour cBottom(0xFF1B2026);
+            if (!inScale) {
+                cTop    = cTop.darker(kOutOfScaleDimAmount);
+                cBottom = cBottom.darker(kOutOfScaleDimAmount);
+            }
 
             juce::ColourGradient grad(cTop, 0.0f, keyRect.getY(),
                                       cBottom, 0.0f, keyRect.getBottom(), false);
             g.setGradientFill(grad);
             g.fillRoundedRectangle(keyRect, 2.0f);
+
+            if (!chromatic && inScale) {
+                g.setColour(UIColors::scaleHighlight.withMultipliedAlpha(0.28f));
+                g.fillRoundedRectangle(keyRect, 2.0f);
+            }
 
             g.setColour(juce::Colours::white.withAlpha(0.2f));
             g.fillRect(keyRect.getX() + 2.0f, keyRect.getY(), keyRect.getWidth() - 4.0f, keyH * 0.15f);

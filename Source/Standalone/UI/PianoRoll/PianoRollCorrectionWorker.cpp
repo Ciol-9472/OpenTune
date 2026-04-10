@@ -133,10 +133,16 @@ void PianoRollCorrectionWorker::executeRequest(AsyncCorrectionRequest& request)
             
             PerfTimer timer("[PianoRollCorrectionWorker] AutoTuneGenerate execution");
 
+            const float* energyPtr = nullptr;
+            if (request.autoOriginalEnergyFull.size() == request.autoOriginalF0Full.size()
+                && !request.autoOriginalEnergyFull.empty()) {
+                energyPtr = request.autoOriginalEnergyFull.data();
+            }
+
             request.notes = NoteGenerator::generate(
                 request.autoOriginalF0Full.data(),
                 static_cast<int>(request.autoOriginalF0Full.size()),
-                nullptr,
+                energyPtr,
                 request.autoStartFrame,
                 request.autoEndFrame + 1,
                 request.autoHopSize,

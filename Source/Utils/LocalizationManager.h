@@ -202,6 +202,26 @@ constexpr const char* kLineAnchorTool = "Line Anchor Tool";
 constexpr const char* kHandDrawTool = "Hand Draw Tool";
 constexpr const char* kSplitNoteTool = "Split Note Tool";
 
+constexpr const char* kPianoRollHintSelect1 = "PR hint: select click";
+constexpr const char* kPianoRollHintSelect2 = "PR hint: select modifiers";
+constexpr const char* kPianoRollHintSelect3 = "PR hint: select resize";
+constexpr const char* kPianoRollHintSelect4 = "PR hint: select key";
+constexpr const char* kPianoRollHintDrawNote1 = "PR hint: draw click drag";
+constexpr const char* kPianoRollHintDrawNote2 = "PR hint: draw existing";
+constexpr const char* kPianoRollHintDrawNote3 = "PR hint: draw key";
+constexpr const char* kPianoRollHintAnchor1 = "PR hint: anchor place";
+constexpr const char* kPianoRollHintAnchor2 = "PR hint: anchor drag";
+constexpr const char* kPianoRollHintAnchor3 = "PR hint: anchor merge";
+constexpr const char* kPianoRollHintAnchor4 = "PR hint: anchor esc";
+constexpr const char* kPianoRollHintAnchor5 = "PR hint: anchor key";
+constexpr const char* kPianoRollHintHandDraw1 = "PR hint: hand drag";
+constexpr const char* kPianoRollHintHandDraw2 = "PR hint: hand note bound";
+constexpr const char* kPianoRollHintHandDraw3 = "PR hint: hand key";
+constexpr const char* kPianoRollHintSplit1 = "PR hint: split click";
+constexpr const char* kPianoRollHintSplit2 = "PR hint: split key";
+constexpr const char* kPianoRollHintAuto1 = "PR hint: auto click";
+constexpr const char* kPianoRollHintAuto2 = "PR hint: auto key";
+
 }
 
 inline juce::String get(Language lang, const char* key)
@@ -325,6 +345,26 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kLineAnchorTool, "Line Anchor Tool", "锚点工具", "ラインアンカーツール", "Инструмент якоря", "Herram. ancla" },
         { Keys::kHandDrawTool, "Hand Draw Tool", "手绘工具", "手描きツール", "Рисование", "Herram. libre" },
         { Keys::kSplitNoteTool, "Split Note Tool", "分割音符工具", "ノート分割ツール", "Инструмент разделения", "Herram. dividir" },
+
+        { Keys::kPianoRollHintSelect1, "Click a note to select; drag on empty area to box-select.", "单击音符可选中；在空白处拖拽可框选。", "ノートをクリックで選択；空き領域をドラッグで範囲選択。", "Клик по ноте — выбор; рамка на пустом месте.", "Clic en nota para seleccionar; arrastra en vacío para marco." },
+        { Keys::kPianoRollHintSelect2, "Ctrl/Cmd+click toggles; Shift+click extends selection between notes.", "Ctrl/Cmd+单击反选；Shift+单击在音符间扩展选区。", "Ctrl/Cmd+クリックで切替；Shift+クリックで範囲拡張。", "Ctrl/Cmd — переключить; Shift — диапазон.", "Ctrl/Cmd alterna; Shift extiende la selección." },
+        { Keys::kPianoRollHintSelect3, "Drag note left/right edges to resize; drag selected notes to move.", "拖拽音符左右边缘调整时长；拖拽已选音符可移动。", "左右端をドラッグで長さ変更；選択ノートをドラッグで移動。", "Тяните края ноты; перетаскивайте выбранные.", "Arrastra bordes para redimensionar; mueve notas seleccionadas." },
+        { Keys::kPianoRollHintSelect4, "Shortcut [1] Select tool.", "快捷键 [1] 选择工具。", "ショートカット [1] 選択ツール。", "Клавиша [1] — выбор.", "Atajo [1] herramienta Seleccionar." },
+        { Keys::kPianoRollHintDrawNote1, "Click empty area, then drag horizontally to draw a new note.", "在空白处按下并水平拖拽以绘制新音符。", "空きをクリックし横にドラッグで新規ノート。", "Клик по пустому месту и тяните вдоль времени.", "Clic en vacío y arrastra en horizontal para dibujar." },
+        { Keys::kPianoRollHintDrawNote2, "Click an existing note to select (Ctrl toggles multi-select).", "单击已有音符可选中（Ctrl 切换多选）。", "既存ノートをクリックで選択（Ctrlで複数）。", "Клик по ноте — выбор (Ctrl — несколько).", "Clic en nota existente para seleccionar (Ctrl multi)." },
+        { Keys::kPianoRollHintDrawNote3, "Shortcut [2] Draw Note tool.", "快捷键 [2] 绘制音符工具。", "[2] ノート描画ツール。", "[2] — рисование нот.", "Atajo [2] dibujar nota." },
+        { Keys::kPianoRollHintAnchor1, "Left-click to add anchors; the line is fitted through them.", "左键单击添加锚点；系统将拟合穿过锚点的音高线。", "左クリックでアンカー追加；滑らかな線をフィット。", "ЛКМ — якоря; кривая строится по ним.", "Clic izq. añade anclas; se ajusta la curva." },
+        { Keys::kPianoRollHintAnchor2, "Drag anchors to adjust; Ctrl+drag draws a box to select anchors.", "拖拽锚点调整；Ctrl+拖拽框选锚点。", "アンカーをドラッグ；Ctrl+ドラッグで範囲選択。", "Тяните якоря; Ctrl+рамка — выбор якорей.", "Arrastra anclas; Ctrl+arrastre caja de selección." },
+        { Keys::kPianoRollHintAnchor3, "Shift+click adds to selection; on same note, chains can merge.", "Shift+单击加入选区；同音符内可合并锚点链。", "Shift+クリックで追加選択；同一ノート内で結合可。", "Shift — добавить; на одной ноте цепочки сливаются.", "Shift añade a selección; fusiona cadenas en la misma nota." },
+        { Keys::kPianoRollHintAnchor4, "Esc cancels in-progress placement when applicable.", "适用时 Esc 可取消正在放置的锚点。", "配置中は Esc でキャンセル可。", "Esc — отмена размещения.", "Esc cancela la colocación en curso." },
+        { Keys::kPianoRollHintAnchor5, "Shortcut [3] Line Anchor tool.", "快捷键 [3] 锚点工具。", "[3] ラインアンカー。", "[3] — якоря.", "Atajo [3] ancla de línea." },
+        { Keys::kPianoRollHintHandDraw1, "Click-drag on the roll to hand-paint pitch (inside notes).", "在卷帘上按住拖拽手绘音高（限制在音符范围内）。", "ドラッグで手描きピッチ（ノート内のみ有効）。", "Рисуйте перетаскиванием (внутри нот).", "Arrastra para pintar tono (solo dentro de notas)." },
+        { Keys::kPianoRollHintHandDraw2, "Strokes outside any note are discarded automatically.", "音符外的笔划会被自动丢弃。", "ノート外のストロークは破棄されます。", "Вне нот штрихи отбрасываются.", "Fuera de notas el trazo se descarta." },
+        { Keys::kPianoRollHintHandDraw3, "Shortcut [4] Hand Draw tool.", "快捷键 [4] 手绘工具。", "[4] 手描きツール。", "[4] — ручное рисование.", "Atajo [4] dibujo libre." },
+        { Keys::kPianoRollHintSplit1, "Click a note at the mouse position to split it into two.", "在鼠标位置单击音符可将其一分为二。", "マウス位置でノートをクリックして分割。", "Клик по ноте под курсором — разрез.", "Clic en la nota bajo el cursor para partirla." },
+        { Keys::kPianoRollHintSplit2, "Shortcut [5] Split Note tool.", "快捷键 [5] 分割音符工具。", "[5] ノート分割。", "[5] — разрезать.", "Atajo [5] dividir nota." },
+        { Keys::kPianoRollHintAuto1, "Click to run Auto note generation for the current F0 range/selection.", "单击可根据当前 F0 与选区自动生成音符。", "クリックでF0範囲から自動ノート生成。", "Клик — авто-ноты по F0/выделению.", "Clic: generar notas automáticas según F0/selección." },
+        { Keys::kPianoRollHintAuto2, "Shortcut [6] when the piano roll has keyboard focus.", "钢琴窗拥有键盘焦点时快捷键 [6]。", "ピアノロールにフォーカスがあるとき [6]。", "Фокус на ролле — клавиша [6].", "Con foco en el piano roll, atajo [6]." },
     };
     
     for (const auto& t : translations)
