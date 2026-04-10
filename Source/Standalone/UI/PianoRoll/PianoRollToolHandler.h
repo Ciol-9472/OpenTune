@@ -128,6 +128,8 @@ public:
 
 private:
     void handleSelectTool(const juce::MouseEvent& e);
+    /** After selection is updated, populate note-drag state for moving selected notes (shared by Select and Draw Note tools). */
+    void prepareNoteDragForSelectedNotes(Note* primaryNote);
     void handleDrawCurveTool(const juce::MouseEvent& e);
     void handleDrawNoteTool(const juce::MouseEvent& e);
     void handleDrawNoteMouseDown(const juce::MouseEvent& e);

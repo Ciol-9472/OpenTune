@@ -481,6 +481,113 @@ void PianoRollToolHandler::cancelDrag()
     ctx_.getState().noteDrag.isDraggingNotes = false;
 }
 
+void PianoRollToolHandler::prepareNoteDragForSelectedNotes(Note* primaryNote)
+{
+    if (primaryNote == nullptr) {
+        return;
+    }
+
+    ctx_.getState().noteDrag.draggedNote = primaryNote;
+
+    ctx_.getState().noteDrag.initialNoteOffsets.clear();
+    auto selectedNotes = ctx_.getSelectedNotes();
+    for (auto* note : selectedNotes) {
+        ctx_.getState().noteDrag.initialNoteOffsets.push_back({ note, note->pitchOffset });
+    }
+
+    ctx_.setNoteDragManualStartTime(-1.0);
+    ctx_.setNoteDragManualEndTime(-1.0);
+    ctx_.getNoteDragInitialManualTargets().clear();
+
+    auto pitchCurve = ctx_.getPitchCurve();
+    if (pitchCurve && !ctx_.getState().noteDrag.initialNoteOffsets.empty()) {
+        double rangeStart = 1e30;
+        double rangeEnd = -1e30;
+        for (const auto& p : ctx_.getState().noteDrag.initialNoteOffsets) {
+            rangeStart = std::min(rangeStart, p.first->startTime);
+            rangeEnd = std::max(rangeEnd, p.first->endTime);
+        }
+
+        if (rangeStart < 0) {
+            rangeStart = 0;
+        }
+
+        auto* audioBuffer = ctx_.getAudioBuffer();
+        if (audioBuffer) {
+            double maxTime = static_cast<double>(audioBuffer->getNumSamples()) / ctx_.getAudioSampleRate();
+            rangeEnd = std::min(rangeEnd, maxTime);
+        }
+        if (rangeEnd < rangeStart) {
+            std::swap(rangeStart, rangeEnd);
+        }
+
+        const double frameDuration = static_cast<double>(ctx_.getCurveHopSize()) / ctx_.getCurveSampleRate();
+        int startFrame = static_cast<int>(rangeStart / frameDuration);
+        int endFrame = static_cast<int>(rangeEnd / frameDuration);
+        if (startFrame < 0) {
+            startFrame = 0;
+        }
+        if (endFrame < startFrame) {
+            endFrame = startFrame;
+        }
+
+        auto originalF0 = ctx_.getOriginalF0();
+        int maxFrame = static_cast<int>(originalF0.size());
+        if (maxFrame > 0) {
+            startFrame = std::max(0, std::min(startFrame, maxFrame));
+            endFrame = std::max(0, std::min(endFrame, maxFrame));
+
+            if (endFrame > startFrame && pitchCurve->hasCorrectionInRange(startFrame, endFrame)) {
+                int rangeSize = endFrame - startFrame;
+                std::vector<float> renderedF0(rangeSize, -1.0f);
+
+                pitchCurve->renderF0Range(startFrame, endFrame,
+                    [&](int frameIndex, const float* data, int length) {
+                        if (data == nullptr || length <= 0) {
+                            return;
+                        }
+
+                        int relStart = frameIndex - startFrame;
+                        int copyOffset = 0;
+                        if (relStart < 0) {
+                            copyOffset = -relStart;
+                            relStart = 0;
+                        }
+
+                        if (relStart >= rangeSize || copyOffset >= length) {
+                            return;
+                        }
+
+                        int copyLength = std::min(length - copyOffset, rangeSize - relStart);
+                        if (copyLength <= 0) {
+                            return;
+                        }
+
+                        std::copy_n(data + copyOffset, copyLength, renderedF0.begin() + relStart);
+                    });
+
+                ctx_.setNoteDragManualStartTime(static_cast<double>(startFrame) * frameDuration);
+                ctx_.setNoteDragManualEndTime(static_cast<double>(endFrame) * frameDuration);
+
+                auto& manualTargets = ctx_.getNoteDragInitialManualTargets();
+                for (int relIdx = 0; relIdx < rangeSize; ++relIdx) {
+                    int f = startFrame + relIdx;
+                    float v = renderedF0[relIdx];
+                    if (v <= 0.0f) {
+                        continue;
+                    }
+                    manualTargets.push_back({ static_cast<double>(f) * frameDuration, v });
+                }
+
+                if (manualTargets.empty()) {
+                    ctx_.setNoteDragManualStartTime(-1.0);
+                    ctx_.setNoteDragManualEndTime(-1.0);
+                }
+            }
+        }
+    }
+}
+
 void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
 // 选择工具鼠标按下处理：检测音符边缘调整、音符选中/取消选中、框选区域开始
 {
@@ -558,89 +665,7 @@ void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
         }
 
         if (clickedNote->selected) {
-            ctx_.getState().noteDrag.draggedNote = clickedNote;
-
-            ctx_.getState().noteDrag.initialNoteOffsets.clear();
-            auto selectedNotes = ctx_.getSelectedNotes();
-            for (auto* note : selectedNotes) {
-                ctx_.getState().noteDrag.initialNoteOffsets.push_back({ note, note->pitchOffset });
-            }
-
-            ctx_.setNoteDragManualStartTime(-1.0);
-            ctx_.setNoteDragManualEndTime(-1.0);
-            ctx_.getNoteDragInitialManualTargets().clear();
-
-            auto pitchCurve = ctx_.getPitchCurve();
-            if (pitchCurve && !ctx_.getState().noteDrag.initialNoteOffsets.empty()) {
-                double rangeStart = 1e30;
-                double rangeEnd = -1e30;
-                for (const auto& p : ctx_.getState().noteDrag.initialNoteOffsets) {
-                    rangeStart = std::min(rangeStart, p.first->startTime);
-                    rangeEnd = std::max(rangeEnd, p.first->endTime);
-                }
-
-                if (rangeStart < 0) rangeStart = 0;
-                
-                auto* audioBuffer = ctx_.getAudioBuffer();
-                if (audioBuffer) {
-                    double maxTime = static_cast<double>(audioBuffer->getNumSamples()) / ctx_.getAudioSampleRate();
-                    rangeEnd = std::min(rangeEnd, maxTime);
-                }
-                if (rangeEnd < rangeStart) std::swap(rangeStart, rangeEnd);
-
-                const double frameDuration = static_cast<double>(ctx_.getCurveHopSize()) / ctx_.getCurveSampleRate();
-                int startFrame = static_cast<int>(rangeStart / frameDuration);
-                int endFrame = static_cast<int>(rangeEnd / frameDuration);
-                if (startFrame < 0) startFrame = 0;
-                if (endFrame < startFrame) endFrame = startFrame;
-
-                auto originalF0 = ctx_.getOriginalF0();
-                int maxFrame = static_cast<int>(originalF0.size());
-                if (maxFrame > 0) {
-                    startFrame = std::max(0, std::min(startFrame, maxFrame));
-                    endFrame = std::max(0, std::min(endFrame, maxFrame));
-
-                    if (endFrame > startFrame && pitchCurve->hasCorrectionInRange(startFrame, endFrame)) {
-                        int rangeSize = endFrame - startFrame;
-                        std::vector<float> renderedF0(rangeSize, -1.0f);
-
-                        pitchCurve->renderF0Range(startFrame, endFrame,
-                            [&](int frameIndex, const float* data, int length) {
-                                if (data == nullptr || length <= 0) return;
-
-                                int relStart = frameIndex - startFrame;
-                                int copyOffset = 0;
-                                if (relStart < 0) {
-                                    copyOffset = -relStart;
-                                    relStart = 0;
-                                }
-
-                                if (relStart >= rangeSize || copyOffset >= length) return;
-
-                                int copyLength = std::min(length - copyOffset, rangeSize - relStart);
-                                if (copyLength <= 0) return;
-
-                                std::copy_n(data + copyOffset, copyLength, renderedF0.begin() + relStart);
-                            });
-
-                        ctx_.setNoteDragManualStartTime(static_cast<double>(startFrame) * frameDuration);
-                        ctx_.setNoteDragManualEndTime(static_cast<double>(endFrame) * frameDuration);
-
-                        auto& manualTargets = ctx_.getNoteDragInitialManualTargets();
-                        for (int relIdx = 0; relIdx < rangeSize; ++relIdx) {
-                            int f = startFrame + relIdx;
-                            float v = renderedF0[relIdx];
-                            if (v <= 0.0f) continue;
-                            manualTargets.push_back({ static_cast<double>(f) * frameDuration, v });
-                        }
-
-                        if (manualTargets.empty()) {
-                            ctx_.setNoteDragManualStartTime(-1.0);
-                            ctx_.setNoteDragManualEndTime(-1.0);
-                        }
-                    }
-                }
-            }
+            prepareNoteDragForSelectedNotes(clickedNote);
         } else {
             ctx_.getState().noteDrag.draggedNote = nullptr;
             ctx_.getState().noteDrag.initialNoteOffsets.clear();
@@ -754,42 +779,47 @@ void PianoRollToolHandler::handleDrawCurveTool(const juce::MouseEvent& e)
 }
 
 void PianoRollToolHandler::handleDrawNoteMouseDown(const juce::MouseEvent& e)
-// 绘制音符工具鼠标按下处理：检测是否点击已有音符进行选择，设置待拖拽状态
+// 绘制音符工具鼠标按下处理：点击已有音符时与选择工具一致进入纵向拖拽；空白处仍待拖阈值后画新音符
 {
     AppLogger::debug("[PianoRollToolHandler] handleDrawNoteMouseDown: pos=(" + juce::String(e.x) + "," + juce::String(e.y) + ")");
-    
-    auto& notes = ctx_.getNotes();
-    
+
+    ctx_.getState().noteDrag.isDraggingNotes = false;
+
+    const double clickedTime = ctx_.xToTime(e.x);
+    const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+    const double trackRelativeTime = clickedTime - offsetSeconds;
+    const float clickedPitch = ctx_.yToFreq(static_cast<float>(e.y));
+
     Note* existingNote = nullptr;
-    float clickedPitch = ctx_.yToFreq((float)e.y);
-    float mouseMidi = 69.0f + 12.0f * std::log2(clickedPitch / 440.0f) - 0.5f;
-    
-    double offsetSeconds = ctx_.getTrackOffsetSeconds();
-    
-    for (auto& note : notes) {
-        int x1 = ctx_.timeToX(note.startTime + offsetSeconds) + ctx_.getPianoKeyWidth();
-        int x2 = ctx_.timeToX(note.endTime + offsetSeconds) + ctx_.getPianoKeyWidth();
-        float noteMidi = 69.0f + 12.0f * std::log2(note.getAdjustedPitch() / 440.0f) - 0.5f;
-        
-        if (e.x >= x1 && e.x <= x2 && std::abs(mouseMidi - noteMidi) < 1.0f) {
-            existingNote = &note;
-            break;
-        }
+    if (trackRelativeTime >= 0.0 && e.x > ctx_.getPianoKeyWidth()) {
+        existingNote = ctx_.findNoteAt(trackRelativeTime, clickedPitch, 100.0f);
     }
-    
+
     if (existingNote != nullptr) {
-        bool isCtrlDown = e.mods.isCtrlDown() || e.mods.isCommandDown();
+        const bool isCtrlDown = e.mods.isCtrlDown() || e.mods.isCommandDown();
         if (isCtrlDown) {
             existingNote->selected = !existingNote->selected;
-        } else {
-            if (!existingNote->selected) {
-                ctx_.deselectAllNotes();
-                existingNote->selected = true;
-            }
+        } else if (!existingNote->selected) {
+            ctx_.deselectAllNotes();
+            existingNote->selected = true;
         }
+
+        updateF0SelectionFromNotes();
+
+        if (existingNote->selected) {
+            prepareNoteDragForSelectedNotes(existingNote);
+        } else {
+            ctx_.getState().noteDrag.draggedNote = nullptr;
+            ctx_.getState().noteDrag.initialNoteOffsets.clear();
+        }
+
+        ctx_.setDrawNoteToolPendingDrag(false);
         ctx_.requestRepaint();
+        return;
     }
-    
+
+    ctx_.getState().noteDrag.draggedNote = nullptr;
+    ctx_.getState().noteDrag.initialNoteOffsets.clear();
     ctx_.setDrawNoteToolPendingDrag(true);
     ctx_.setDrawNoteToolMouseDownPos(e.getPosition());
 }
@@ -1085,6 +1115,11 @@ void PianoRollToolHandler::handleDrawCurveDrag(const juce::MouseEvent& e)
 
 void PianoRollToolHandler::handleDrawNoteDrag(const juce::MouseEvent& e)
 {
+    if (ctx_.getState().noteDrag.draggedNote != nullptr && !ctx_.getState().drawing.isDrawingNote) {
+        handleSelectDrag(e);
+        return;
+    }
+
     if (ctx_.getDrawNoteToolPendingDrag()) {
         int dx = e.x - ctx_.getDrawNoteToolMouseDownPos().x;
         int dy = e.y - ctx_.getDrawNoteToolMouseDownPos().y;
@@ -1348,7 +1383,12 @@ void PianoRollToolHandler::handleDrawNoteUp(const juce::MouseEvent& e)
         ctx_.setDrawNoteToolPendingDrag(false);
         return;
     }
-    
+
+    if (ctx_.getState().noteDrag.draggedNote != nullptr || ctx_.getState().noteDrag.isDraggingNotes) {
+        handleSelectUp(e);
+        return;
+    }
+
     if (!ctx_.getState().drawing.isDrawingNote) {
         return;
     }
