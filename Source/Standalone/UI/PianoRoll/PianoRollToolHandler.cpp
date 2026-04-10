@@ -410,6 +410,7 @@ void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
 {
     AppLogger::debug("[PianoRollToolHandler] handleSelectTool: pos=(" + juce::String(e.x) + "," + juce::String(e.y) + ")");
     
+    ctx_.getState().noteDrag.isDraggingNotes = false;
     ctx_.getState().noteResize.isResizing = false;
     ctx_.getState().noteResize.note = nullptr;
     ctx_.getState().noteResize.edge = NoteResizeEdge::None;
@@ -1168,7 +1169,6 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
             for (auto* note : selectedNotes) {
                 ctx_.getState().noteDrag.initialNoteOffsets.push_back({ note, note->pitchOffset });
             }
-            ctx_.getState().noteDrag.isDraggingNotes = true;
         }
         updateF0SelectionFromNotes();
     }
