@@ -580,6 +580,9 @@ public:
     {
     }
 
+    /** 在 addAction / undo / redo 后调用（clear 不会触发） */
+    void setStackChangeCallback(std::function<void()> cb) { stackChangeCallback_ = std::move(cb); }
+
     void addAction(std::unique_ptr<UndoAction> action)
     {
         if (!actions_.empty() && currentIndex_ >= 0)
@@ -611,6 +614,8 @@ public:
             actions_.erase(actions_.begin());
             --currentIndex_;
         }
+
+        notifyStackChange();
     }
 
     bool canUndo() const
@@ -629,6 +634,7 @@ public:
         {
             actions_[static_cast<size_t>(currentIndex_)]->undo();
             --currentIndex_;
+            notifyStackChange();
         }
     }
 
@@ -638,6 +644,7 @@ public:
         {
             ++currentIndex_;
             actions_[static_cast<size_t>(currentIndex_)]->redo();
+            notifyStackChange();
         }
     }
 
@@ -671,9 +678,17 @@ public:
     }
 
 private:
+    void notifyStackChange()
+    {
+        if (stackChangeCallback_) {
+            stackChangeCallback_();
+        }
+    }
+
     std::vector<std::unique_ptr<UndoAction>> actions_;
     int currentIndex_{-1};
     int maxHistorySize_;
+    std::function<void()> stackChangeCallback_;
 };
 
 } // namespace OpenTune

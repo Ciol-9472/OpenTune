@@ -99,8 +99,33 @@ constexpr const char* kExportAudio = "Export Audio";
 constexpr const char* kExportSelectedClip = "Export Selected Clip";
 constexpr const char* kExportTrack = "Export Track";
 constexpr const char* kExportBus = "Export Bus (Master Mix)";
-constexpr const char* kSavePreset = "Save Preset...";
-constexpr const char* kLoadPreset = "Load Preset...";
+constexpr const char* kExportStems = "Export Stems...";
+constexpr const char* kExportStemsTitle = "Export Stems";
+constexpr const char* kExportStemsPrefixLabel = "File name prefix:";
+constexpr const char* kExportStemsTracksLabel = "Tracks:";
+constexpr const char* kExportStemsChooseFolder = "Select folder for stem export";
+constexpr const char* kExportStemsPickTrackWarning = "Please select at least one track that contains audio.";
+constexpr const char* kExportStemsCompleteTitle = "Export Complete";
+constexpr const char* kExportStemsCompleteMessage = "Exported {0} file(s) to:\n{1}";
+constexpr const char* kExportStemsFailedTitle = "Stem export failed";
+constexpr const char* kOk = "OK";
+constexpr const char* kSaveProject = "Save Project...";
+constexpr const char* kLoadProject = "Open Project...";
+constexpr const char* kNewProject = "New Project";
+constexpr const char* kUnsavedChangesTitle = "Unsaved changes";
+constexpr const char* kUnsavedChangesMessage = "Save changes to the current project before creating a new one?";
+constexpr const char* kSave = "Save";
+constexpr const char* kDontSave = "Don't Save";
+constexpr const char* kProjectSavedTitle = "Project Saved";
+constexpr const char* kProjectSavedMessage = "Project saved to:\n{0}";
+constexpr const char* kProjectSaveFailedTitle = "Save Failed";
+constexpr const char* kProjectSaveFailedMessage = "Failed to save project.";
+constexpr const char* kProjectLoadedTitle = "Project Loaded";
+constexpr const char* kProjectLoadedMessage = "Project loaded successfully.";
+constexpr const char* kProjectLoadFailedTitle = "Load Failed";
+constexpr const char* kProjectLoadFailedMessage = "Failed to load project or invalid file.";
+constexpr const char* kRecentProjects = "Recent Projects";
+constexpr const char* kRecentProjectsEmpty = "No recent projects";
 constexpr const char* kOptions = "Options";
 
 constexpr const char* kUndo = "Undo";
@@ -108,23 +133,10 @@ constexpr const char* kRedo = "Redo";
 
 constexpr const char* kShowWaveform = "Show Waveform";
 constexpr const char* kShowLanes = "Show Lanes";
-constexpr const char* kNoteNames = "Note Names";
-constexpr const char* kShowAllNotes = "Show All Notes";
-constexpr const char* kShowCOnly = "Show C Only";
-constexpr const char* kHideNoteNames = "Hide Note Names";
 constexpr const char* kTheme = "Theme";
 constexpr const char* kThemeBlueBreeze = "Blue Breeze";
 constexpr const char* kThemeDarkBlueGrey = "Dark Blue-Grey";
 constexpr const char* kThemeAurora = "Aurora Glass";
-constexpr const char* kMouseTrail = "Mouse Trail";
-constexpr const char* kOff = "Off";
-constexpr const char* kClassic = "Classic";
-constexpr const char* kNeon = "Neon";
-constexpr const char* kFire = "Fire";
-constexpr const char* kOcean = "Ocean";
-constexpr const char* kGalaxy = "Galaxy";
-constexpr const char* kCherryBlossom = "Cherry Blossom";
-constexpr const char* kMatrix = "Matrix";
 
 constexpr const char* kAudio = "Audio";
 constexpr const char* kMouse = "Mouse";
@@ -167,6 +179,7 @@ constexpr const char* kSelect = "Select";
 constexpr const char* kDrawNotes = "Draw notes";
 constexpr const char* kLineAnchor = "Line anchor";
 constexpr const char* kHandDraw = "Hand draw pitch";
+constexpr const char* kSplitNote = "Split note";
 
 constexpr const char* kPlay = "Play";
 constexpr const char* kPause = "Pause";
@@ -186,6 +199,7 @@ constexpr const char* kMouseSelectTool = "Mouse Select Tool";
 constexpr const char* kDrawNoteTool = "Draw Note Tool";
 constexpr const char* kLineAnchorTool = "Line Anchor Tool";
 constexpr const char* kHandDrawTool = "Hand Draw Tool";
+constexpr const char* kSplitNoteTool = "Split Note Tool";
 
 }
 
@@ -208,8 +222,33 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kExportSelectedClip, "Export Selected Clip", "导出选中的片段", "選択したクリップをエクスポート", "Экспорт клипа", "Exportar clip seleccionado" },
         { Keys::kExportTrack, "Export Track", "导出轨道", "トラックをエクスポート", "Экспорт дорожки", "Exportar pista" },
         { Keys::kExportBus, "Export Bus (Master Mix)", "导出总线混音", "バス（マスターミックス）をエクスポート", "Экспорт шины", "Exportar bus (mezcla maestra)" },
-        { Keys::kSavePreset, "Save Preset...", "保存预设...", "プリセットを保存...", "Сохранить...", "Guardar preset..." },
-        { Keys::kLoadPreset, "Load Preset...", "加载预设...", "プリセットを読み込む...", "Загрузить...", "Cargar preset..." },
+        { Keys::kExportStems, "Export Stems...", "分轨导出...", "ステムをエクスポート...", "Экспорт дорожек...", "Exportar pistas..." },
+        { Keys::kExportStemsTitle, "Export Stems", "分轨导出", "ステムをエクスポート", "Экспорт дорожек", "Exportar pistas" },
+        { Keys::kExportStemsPrefixLabel, "File name prefix:", "文件前缀：", "ファイルの接頭辞:", "Префикс:", "Prefijo:" },
+        { Keys::kExportStemsTracksLabel, "Tracks:", "音轨：", "トラック:", "Дорожки:", "Pistas:" },
+        { Keys::kExportStemsChooseFolder, "Select folder for stem export", "选择分轨导出目标文件夹", "エクスポート先フォルダを選択", "Папка для экспорта", "Carpeta de exportación" },
+        { Keys::kExportStemsPickTrackWarning, "Please select at least one track that contains audio.", "请至少选择一条包含音频的音轨。", "オーディオのあるトラックを1つ以上選んでください。", "Выберите дорожку с аудио.", "Seleccione al menos una pista con audio." },
+        { Keys::kExportStemsCompleteTitle, "Export Complete", "导出完成", "エクスポート完了", "Готово", "Exportación completada" },
+        { Keys::kExportStemsCompleteMessage, "Exported {0} file(s) to:\n{1}", "已导出 {0} 个文件到：\n{1}", "{0} ファイルを次にエクスポートしました:\n{1}", "Экспортировано файлов: {0}\n{1}", "Se exportaron {0} archivo(s) a:\n{1}" },
+        { Keys::kExportStemsFailedTitle, "Stem export failed", "分轨导出失败", "ステムのエクスポートに失敗", "Ошибка экспорта", "Error al exportar pistas" },
+        { Keys::kOk, "OK", "确定", "OK", "OK", "Aceptar" },
+        { Keys::kSaveProject, "Save Project...", "保存工程...", "プロジェクトを保存...", "Сохранить проект...", "Guardar proyecto..." },
+        { Keys::kLoadProject, "Open Project...", "打开工程...", "プロジェクトを開く...", "Открыть проект...", "Abrir proyecto..." },
+        { Keys::kNewProject, "New Project", "新建工程", "新規プロジェクト", "Новый проект", "Proyecto nuevo" },
+        { Keys::kUnsavedChangesTitle, "Unsaved changes", "未保存的更改", "未保存の変更", "Несохранённые изменения", "Cambios sin guardar" },
+        { Keys::kUnsavedChangesMessage, "Save changes to the current project before creating a new one?", "新建工程前是否保存当前工程？", "新しいプロジェクトを作成する前に保存しますか？", "Сохранить текущий проект перед созданием нового?", "¿Guardar el proyecto actual antes de crear uno nuevo?" },
+        { Keys::kSave, "Save", "保存", "保存", "Сохранить", "Guardar" },
+        { Keys::kDontSave, "Don't Save", "不保存", "保存しない", "Не сохранять", "No guardar" },
+        { Keys::kProjectSavedTitle, "Project Saved", "工程已保存", "保存しました", "Сохранено", "Proyecto guardado" },
+        { Keys::kProjectSavedMessage, "Project saved to:\n{0}", "工程已保存到：\n{0}", "保存先:\n{0}", "Сохранено:\n{0}", "Guardado en:\n{0}" },
+        { Keys::kProjectSaveFailedTitle, "Save Failed", "保存失败", "保存に失敗", "Ошибка", "Error al guardar" },
+        { Keys::kProjectSaveFailedMessage, "Failed to save project.", "无法保存工程。", "保存に失敗しました。", "Не удалось сохранить.", "No se pudo guardar." },
+        { Keys::kProjectLoadedTitle, "Project Loaded", "工程已加载", "読み込みました", "Загружено", "Proyecto cargado" },
+        { Keys::kProjectLoadedMessage, "Project loaded successfully.", "工程加载成功。", "読み込み成功。", "Готово.", "Carga correcta." },
+        { Keys::kProjectLoadFailedTitle, "Load Failed", "加载失败", "読み込み失敗", "Ошибка", "Error al abrir" },
+        { Keys::kProjectLoadFailedMessage, "Failed to load project or invalid file.", "无法加载工程或文件无效。", "読み込めません。", "Неверный файл.", "Archivo inválido." },
+        { Keys::kRecentProjects, "Recent Projects", "最近工程", "最近のプロジェクト", "Недавние проекты", "Recientes" },
+        { Keys::kRecentProjectsEmpty, "No recent projects", "暂无最近工程", "履歴なし", "Нет проектов", "Sin recientes" },
         { Keys::kOptions, "Options", "选项", "オプション", "Настройки", "Opciones" },
         
         { Keys::kUndo, "Undo", "撤销", "元に戻す", "Отменить", "Deshacer" },
@@ -217,23 +256,10 @@ inline juce::String get(Language lang, const char* key)
         
         { Keys::kShowWaveform, "Show Waveform", "显示波形", "波形を表示", "Волновая форма", "Ver forma de onda" },
         { Keys::kShowLanes, "Show Lanes", "显示音道", "レーンを表示", "Дорожки", "Ver carriles" },
-        { Keys::kNoteNames, "Note Names", "音名", "ノート名", "Названия нот", "Nombres de notas" },
-        { Keys::kShowAllNotes, "Show All Notes", "显示全部音名", "すべてのノート名を表示", "Все ноты", "Mostrar todas" },
-        { Keys::kShowCOnly, "Show C Only", "仅显示C", "Cのみ表示", "Только C", "Solo C" },
-        { Keys::kHideNoteNames, "Hide Note Names", "不显示音名", "ノート名を非表示", "Скрыть", "Ocultar nombres" },
         { Keys::kTheme, "Theme", "主题", "テーマ", "Тема", "Tema" },
         { Keys::kThemeBlueBreeze, "Blue Breeze", "蓝色清风", "ブルーブリーズ", "Голубой бриз", "Brisa azul" },
         { Keys::kThemeDarkBlueGrey, "Dark Blue-Grey", "深蓝灰", "ダークブルーグレー", "Тёмно-синий серый", "Azul-gris oscuro" },
         { Keys::kThemeAurora, "Aurora Glass", "极光玻璃", "オーロラグラス", "Аврора", "Aurora cristal" },
-        { Keys::kMouseTrail, "Mouse Trail", "鼠标轨迹", "マウストレイル", "След мыши", "Ratón" },
-        { Keys::kOff, "Off", "关闭", "オフ", "Выкл", "Apagado" },
-        { Keys::kClassic, "Classic", "经典", "クラシック", "Классика", "Clásico" },
-        { Keys::kNeon, "Neon", "霓虹", "ネオン", "Неон", "Neón" },
-        { Keys::kFire, "Fire", "火焰", "ファイア", "Огонь", "Fuego" },
-        { Keys::kOcean, "Ocean", "海洋", "オーシャン", "Океан", "Océano" },
-        { Keys::kGalaxy, "Galaxy", "星河", "ギャラクシー", "Галактика", "Galaxia" },
-        { Keys::kCherryBlossom, "Cherry Blossom", "樱花", "桜", "Сакура", "Flor de cerezo" },
-        { Keys::kMatrix, "Matrix", "矩阵", "マトリックス", "Матрица", "Matriz" },
         
         { Keys::kAudio, "Audio", "音频", "オーディオ", "Аудио", "Audio" },
         { Keys::kMouse, "Mouse", "鼠标", "マウス", "Мышь", "Ratón" },
@@ -276,6 +302,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kDrawNotes, "Draw notes", "绘制音符", "ノートを描画", "Рисовать ноты", "Dib. notas" },
         { Keys::kLineAnchor, "Line anchor", "锚点", "ラインアンカー", "Якорь", "Ancla línea" },
         { Keys::kHandDraw, "Hand draw pitch", "手绘音高", "手描きピッチ", "Рисование высоты", "Dib. tono" },
+        { Keys::kSplitNote, "Split note", "分割音符", "ノート分割", "Разделить ноту", "Dividir nota" },
         
         { Keys::kPlay, "Play", "播放", "再生", "Старт", "Reprod." },
         { Keys::kPause, "Pause", "暂停", "一時停止", "Пауза", "Pausar" },
@@ -295,6 +322,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kDrawNoteTool, "Draw Note Tool", "绘制音符工具", "ノート描画ツール", "Рисование нот", "Herram. dibujo" },
         { Keys::kLineAnchorTool, "Line Anchor Tool", "锚点工具", "ラインアンカーツール", "Инструмент якоря", "Herram. ancla" },
         { Keys::kHandDrawTool, "Hand Draw Tool", "手绘工具", "手描きツール", "Рисование", "Herram. libre" },
+        { Keys::kSplitNoteTool, "Split Note Tool", "分割音符工具", "ノート分割ツール", "Инструмент разделения", "Herram. dividir" },
     };
     
     for (const auto& t : translations)

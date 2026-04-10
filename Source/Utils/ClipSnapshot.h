@@ -4,7 +4,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <memory>
 #include <vector>
-#include "../DSP/ChromaKeyDetector.h"
+#include "../DSP/ScaleInference.h"
 #include "SilentGapDetector.h"
 
 namespace OpenTune {
@@ -32,6 +32,7 @@ struct ClipSnapshot {
     DetectedKey detectedKey;
     std::shared_ptr<RenderCache> renderCache;
     std::vector<SilentGap> silentGaps;
+    juce::String sourceAudioAbsolutePath;
 };
 
 } // namespace OpenTune
