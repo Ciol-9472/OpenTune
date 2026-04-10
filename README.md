@@ -119,7 +119,7 @@ Required DLLs and models will be automatically copied to the same directory.
 ## Dependencies (Included)
 
 - **JUCE** - Cross-platform audio framework
-- **ONNX Runtime 1.17.3** - ML inference engine
+- **ONNX Runtime 1.24.4** - ML inference engine (Windows: CPU + DirectML build from `CMakeLists.txt`)
 - **r8brain-free-src** - High-quality audio resampling library
 
 ## AI Models

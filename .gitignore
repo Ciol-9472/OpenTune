@@ -8,6 +8,7 @@ out/
 .vs/
 .vscode/
 .idea/
+.cursor/
 *.suo
 *.user
 *.sln.docstates
@@ -27,8 +28,12 @@ CMakeFiles/
 cmake_install.cmake
 compile_commands.json
 
+# CTest / Testing artifacts
+Testing/
+
 # Logs
 *.log
+Logs/
 
 # OS files
 .DS_Store

@@ -12,7 +12,7 @@ ONNX Runtime for formant-preserving vocal pitch shifting. Company: DAYA. License
 
 - CMake 3.22+
 - C++17 compiler (MSVC 2022 / Visual Studio 17 on Windows)
-- All dependencies are vendored (JUCE, ONNX Runtime 1.17.3, r8brain-free-src)
+- All dependencies are vendored (JUCE, ONNX Runtime 1.24.4, r8brain-free-src)
 - `.onnx` model files are tracked via Git LFS -- run `git lfs pull` after cloning
 
 ### Configure and Build (Windows)
@@ -27,11 +27,14 @@ Output: `build/OpenTune_artefacts/Release/Standalone/OpenTune.exe`
 
 Post-build automatically copies ONNX Runtime DLLs and model files to the output directory.
 
-### macOS / Linux
+### macOS
 
-Not officially supported yet. The CMakeLists.txt targets Windows/MSVC. A macOS or Linux
-build would require providing a platform-appropriate ONNX Runtime library and adjusting
-the linker configuration (currently hardcoded to `.lib` / `.dll`).
+CMake supports an experimental **macOS arm64** configuration (CoreML ONNX Runtime bundle).
+Windows remains the primary tested platform.
+
+### Linux
+
+Not supported in CMake (no ONNX Runtime root configured for Linux).
 
 ### LSP Support
 
@@ -40,13 +43,19 @@ is generated in the build directory for clangd / LSP integration.
 
 ## Tests
 
-There is **no test infrastructure**. Tests and CTest registration are commented out in
-CMakeLists.txt. No test source files exist in the repository.
+`OPENTUNE_BUILD_TESTS` (default **ON**) builds **`OpenTuneTests`** (`Tests/TestMain.cpp`)
+and registers **`OpenTuneCoreTests`** with CTest. Run:
+
+```bash
+ctest -C Release --output-on-failure
+```
+
+Or execute `OpenTuneTests` from the build directory.
 
 ## Linting / Formatting
 
-No `.clang-format`, `.clang-tidy`, or `.editorconfig` files are configured. No CI/CD
-pipelines exist. Follow the conventions documented below to maintain consistency.
+No `.clang-format`, `.clang-tidy`, or `.editorconfig` files are configured. Optional CI:
+see `.github/workflows/build-windows.yml`. Follow the conventions documented below.
 
 ## Project Structure
 
@@ -54,12 +63,14 @@ pipelines exist. Follow the conventions documented below to maintain consistency
 Source/
   PluginProcessor.cpp/h      # Core audio processor (multi-track, playback, mixing)
   Inference/                  # AI model layer (ONNX Runtime wrappers)
-    InferenceManager.h        # Singleton, Pimpl pattern
+    F0InferenceService.h      # F0 model session (shared_mutex)
+    VocoderInferenceService.h # Vocoder session (serialized Run calls for DML)
+    VocoderRenderScheduler.h  # Serial vocoder job queue
+    VocoderDomain.h           # Owns vocoder service + scheduler
     RMVPEExtractor.h          # F0 pitch extraction
-    HifiGANVocoder.h          # Neural vocoder
-    ModelFactory.h             # Static factory for model creation
-    RenderingManager.h        # Chunk-based render pipeline
-    RenderCache.h             # Cached render results
+    PCNSFHifiGANVocoder.h / DmlVocoder.h  # Neural vocoder backends
+    ModelFactory.h            # Static factory for model creation
+    RenderCache.h             # Cached render results (LRU-style eviction under cap)
   DSP/                        # Signal processing
     MelSpectrogram.h          # Mel spectrogram computation
     ResamplingManager.h       # Audio resampling (r8brain)
@@ -84,7 +95,9 @@ Source/
 ThirdParty/
   r8brain-free-src-master/    # Vendored resampling library
 JUCE-master/                  # Vendored JUCE framework
-onnxruntime-win-x64-1.17.3/  # Vendored ONNX Runtime (Windows x64)
+onnxruntime-win-x64-1.24.4/   # Vendored ONNX Runtime CPU (Windows x64)
+onnxruntime-dml-1.24.4/      # ONNX Runtime DirectML runtime (Windows x64)
+onnxruntime-osx-arm64-1.24.4/ # ONNX Runtime (macOS arm64, optional)
 models/                       # ONNX model files (Git LFS)
 Resources/                    # App icon, fonts
 ```
@@ -95,7 +108,7 @@ Resources/                    # App icon, fonts
 
 | Element              | Convention                          | Example                              |
 |----------------------|-------------------------------------|--------------------------------------|
-| Classes / Structs    | PascalCase                          | `InferenceManager`, `TrackState`     |
+| Classes / Structs    | PascalCase                          | `VocoderInferenceService`, `TrackState` |
 | Interfaces (ABC)     | `I` prefix + PascalCase             | `IF0Extractor`, `IVocoder`           |
 | Methods              | camelCase                           | `extractF0()`, `prepareToPlay()`     |
 | Member variables     | camelCase + trailing underscore     | `sampleRate_`, `inferenceReady_`     |
@@ -203,9 +216,8 @@ Use forward declarations to avoid unnecessary includes where possible.
 ### Common Design Patterns
 
 - **Listener / Observer**: Nested `Listener` class with virtual callbacks; `juce::ListenerList`
-- **Singleton**: `InferenceManager::getInstance()` with private constructor
-- **Pimpl**: `InferenceManager` hides implementation behind `std::unique_ptr<Impl>`
 - **Factory**: `ModelFactory::createF0Extractor(...)`, `ModelFactory::createVocoder(...)`
+- **Domain object**: `VocoderDomain` owns `VocoderInferenceService` + `VocoderRenderScheduler`
 - **Command (Undo/Redo)**: `UndoAction` base class with concrete actions like `NotesChangeAction`,
   `ClipMoveAction`; `CompoundUndoAction` for atomic multi-step ops
 - **RAII**: Lock guards, smart pointers, `OriginalF0ExtractionGuard`, `PerfTimer`
@@ -259,12 +271,11 @@ When user edits pitch (note drag, hand-draw, line-anchor, auto-tune):
 3. Interpolates F0 from 100 fps to mel frame rate (~86 fps at 44100/512 hop).
 4. Fills F0 gaps via `fillF0GapsForVocoder` (internal interpolation + boundary lookahead).
 5. Computes log-mel spectrogram: 128 mels, 2048 FFT, 512 hop, 44100 Hz, 40--16000 Hz.
-6. Packages `ChunkInputs{mel, f0, energy, targetSamples}` and submits to `RenderingManager`.
+6. Packages mel + F0 + energy and submits a job to `VocoderRenderScheduler`.
 
-`RenderingManager` worker pool (hardware_concurrency / 2 threads):
-1. Applies psychoacoustic calibration (`SimdPerceptualPitchEstimator::getPerceptualOffset`).
-2. Calls `InferenceManager::synthesizeAudioWithEnergy` --> ONNX vocoder inference.
-3. Crops output to exact `targetSamples`, stores in `RenderCache` at 44100 Hz +
+`VocoderRenderScheduler` (single worker thread, serial inference):
+1. Calls `VocoderInferenceService::synthesizeAudioWithEnergy` --> ONNX vocoder inference.
+2. Completion handler crops output to `targetSamples`, stores in `RenderCache` at 44100 Hz +
    resampled copy at device sample rate.
 
 ### Playback Phase
@@ -402,7 +413,7 @@ F0 frame range (`selectedF0StartFrame/EndFrame`). Deselection triggers: Escape k
 
 - **Purpose**: Extract fundamental frequency (F0) from vocal audio.
 - **Location**: `Source/Inference/RMVPEExtractor.h`
-- **Format**: ONNX, run via ONNX Runtime 1.17.3.
+- **Format**: ONNX, run via ONNX Runtime 1.24.4.
 - **Input**: mono audio resampled to 16 kHz `[1, num_samples]` + threshold `[1]`.
 - **Output**: F0 `[1, num_frames]` + UV (unvoiced) `[1, num_frames]`.
 - **Frame rate**: 100 fps (hop = 160 samples at 16 kHz = 10 ms per frame).
@@ -421,16 +432,8 @@ F0 frame range (`selectedF0StartFrame/EndFrame`). Deselection triggers: Escape k
   2. `HifiGANVocoder` (~14 MB) -- standard HiFiGAN. Fallback.
      Input: mel `[1,128,frames]` + f0 `[1,frames]`.
 - **Output**: audio at 44100 Hz, length = frames * 512 samples.
-- **Managed by**: `InferenceManager` (singleton, Pimpl), created via `ModelFactory`.
-- **When called**: during chunk rendering in `RenderingManager` worker threads.
-
-### Psychoacoustic Calibration
-
-`SimdPerceptualPitchEstimator::getPerceptualOffset` (`Source/Utils/SimdPerceptualPitchEstimator.h:92`):
-- Compensates for Fletcher-Munson equal-loudness contour effects.
-- < 1000 Hz and loud (> -12 dB): +2 cents.
-- \> 2500 Hz and loud (> -12 dB): -3 cents.
-- Applied to F0 before vocoder inference in `RenderingManager`.
+- **Managed by**: `VocoderInferenceService` (via `ModelFactory` / `VocoderDomain`).
+- **When called**: during chunk rendering on the `VocoderRenderScheduler` worker thread.
 
 ### Perceptual Intentional Pitch (PIP)
 
@@ -495,7 +498,7 @@ F0 frame range (`selectedF0StartFrame/EndFrame`). Deselection triggers: Escape k
 | Audio thread (`processBlock`) | 1 | Real-time mixing | Reads `drySignalBuffer_`, `RenderCache` (non-blocking try-lock), `positionAtomic_`. Holds `ScopedReadLock` on `tracksLock_`. |
 | UI / Message thread | 1 | User interaction, state mutation | Writes `PitchCurve`, `NoteSequence`. Calls `enqueuePartialRender`. Holds `ScopedWriteLock` on `tracksLock_` for clip mutations. |
 | `chunkRenderWorkerThread_` | 1 | Mel + F0 preparation for vocoder | Reads `tracksLock_` (read lock), `PitchCurveSnapshot` (immutable COW). Writes to chunk task queue. |
-| `RenderingManager` workers | N/2 | ONNX vocoder inference | Reads `ChunkInputs`. Writes to `RenderCache`. |
+| `VocoderRenderScheduler` worker | 1 | ONNX vocoder inference (serial) | Runs `VocoderInferenceService`; writes to `RenderCache`. |
 | `F0ExtractionService` workers | 2 | RMVPE inference | Reads clip audio (copy). Results committed on message thread. |
 | `PianoRollCorrectionWorker` | 1 | Pitch correction computation | Reads/writes `PitchCurve` snapshots. Results applied on message thread. |
 
@@ -507,4 +510,4 @@ F0 frame range (`selectedF0StartFrame/EndFrame`). Deselection triggers: Escape k
 - `RenderCache::lock_` (`juce::SpinLock`): audio thread uses `ScopedTryLock`.
 - `chunkQueueMutex_` + `chunkQueueCv_`: chunk render task queue coordination.
 - `pendingRequestMutex_` on `PianoRollCorrectionWorker`: guards request handoff.
-- `std::shared_mutex` on F0 extractor in `InferenceManager`.
+- `std::shared_mutex` on the F0 model in `F0InferenceService`.
