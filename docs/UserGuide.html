@@ -329,7 +329,7 @@
     <h1>OpenTune</h1>
     <div class="subtitle">AI 智能修音软件</div>
     <div class="tagline">保留共振峰，移调不失真</div>
-    <div class="version">用户指南 v1.1</div>
+    <div class="version">用户指南 v1.2</div>
     <div class="version" style="margin-top: 10px;">2026 年 4 月</div>
 </div>
 
@@ -513,6 +513,10 @@
         <td><strong>参数面板</strong></td>
         <td>音高校正参数、工具选择、颤音设置</td>
     </tr>
+    <tr>
+        <td><strong>首选项（Options）</strong></td>
+        <td>音频设备、鼠标滚轮/缩放灵敏度、快捷键自定义、界面语言（多语言）</td>
+    </tr>
 </table>
 
 <h3>4.2 视图切换</h3>
@@ -544,6 +548,25 @@
 </table>
 
 <p>通过菜单 <strong>View → Theme</strong> 可切换主题。</p>
+
+<h3>4.4 视图显示选项</h3>
+<p>在菜单 <strong>View</strong> 中可开关以下显示（与工程状态一同保存）：</p>
+<ul>
+    <li><strong>Show Waveform（显示波形）</strong>：在钢琴卷帘背景中叠加当前片段的波形，便于对齐乐句与音高。</li>
+    <li><strong>Show Lanes（显示音高分层）</strong>：以半音为行高亮钢琴卷帘中的音高区域，便于辨认音区。</li>
+</ul>
+
+<h3>4.5 首选项（Options）</h3>
+<p>通过菜单 <strong>File → Options</strong>（或等价入口）打开首选项对话框，包含多个标签页：</p>
+<ul>
+    <li><strong>Audio</strong>：音频输入/输出设备与缓冲区设置（独立运行时可用）。</li>
+    <li><strong>Mouse</strong>：水平/垂直缩放灵敏度、滚动速度；可一键恢复默认。</li>
+    <li><strong>快捷键</strong>：为播放、停止、撤销/重做、剪切/复制/粘贴、全选、删除、保存工程等项目绑定按键；支持多键组合、冲突检测与恢复默认。</li>
+    <li><strong>Language</strong>：界面语言，支持英语、简体中文、日语、俄语、西班牙语等；切换后立即生效。</li>
+</ul>
+
+<h3>4.6 时间轴单位（秒 / 小节）</h3>
+<p>在编曲视图与钢琴卷帘中，可通过时间轴附近的切换控件在<strong>秒</strong>与<strong>小节（Bars）</strong>显示之间切换（与当前 BPM、拍号共同决定小节刻度）。</p>
 
 <!-- 第5章：快速入门 -->
 <h2 id="quickstart">5. 快速入门</h2>
@@ -590,7 +613,7 @@
         <div class="step-number">6</div>
         <div class="step-content">
             <h4>预览与导出</h4>
-            <p>点击播放按钮预览效果，满意后通过 File → Export 导出处理后的音频。</p>
+            <p>点击播放按钮预览效果，满意后通过 <strong>File → Export Audio</strong> 选择导出范围并保存。</p>
         </div>
     </div>
 </div>
@@ -651,7 +674,11 @@
     </tr>
     <tr>
         <td><strong>锚点工具</strong></td>
-        <td>设置关键锚点，自动生成平滑过渡的音高线</td>
+        <td>设置关键锚点，在锚点之间用单调 Hermite 样条在 MIDI 空间插值生成平滑音高线；切换工具时可按当前渲染曲线自动拟合锚点</td>
+    </tr>
+    <tr>
+        <td><strong>分割音符</strong></td>
+        <td>在点击位置将音符一分为二，便于细化逐段校正</td>
     </tr>
 </table>
 
@@ -720,22 +747,35 @@
     <li>通过菜单 View → Theme 切换主题</li>
 </ul>
 
+<h3>6.11 工程文件（.otproject）</h3>
+<p>工程可保存为 <code>.otproject</code> 文件，用于下次继续编辑：</p>
+<ul>
+    <li><strong>新建工程</strong>：File → New Project</li>
+    <li><strong>保存 / 另存为</strong>：File → Save Project；若工程已有路径，也可用快捷键快速保存（见第 9 章）</li>
+    <li><strong>打开工程</strong>：File → Load Project</li>
+    <li><strong>近期工程</strong>：File → Recent Projects 子菜单中快速打开最近使用过的工程</li>
+</ul>
+<p>关闭或加载新工程前若存在未保存修改，软件会提示是否保存。</p>
+
 <!-- 第7章：编辑工具 -->
 <div class="page-break"></div>
 <h2 id="tools">7. 编辑工具</h2>
 
-<p>OpenTune 提供五种专业编辑工具，通过参数面板的工具选择区切换：</p>
+<p>OpenTune 提供六种专业编辑工具，通过参数面板的工具选择区切换。在钢琴卷帘上<strong>右键（或长按）</strong>也可弹出工具菜单快速切换。</p>
 
 <div class="tool-card">
     <h4>🎹 AutoTune - 自动修正工具</h4>
-    <p>根据当前调式自动将音高校正到最接近的目标音符。适合快速处理、批量修正。</p>
-    <p><strong>使用场景</strong>：当音频基本在调上，只需要微调时使用。</p>
+    <p>根据当前调式与原始 F0 自动生成音符并应用音高校正。适合快速打底、整段修正。</p>
+    <p><strong>使用场景</strong>：需要一键生成音符并量化到调性时；精细修音可再配合选择、分割与手绘等工具。</p>
+    <p><strong>快捷方式</strong>：钢琴卷帘处于焦点且未按修饰键时，按数字键 <strong>6</strong> 可触发与点击该工具相同的自动修正流程。</p>
 </div>
 
 <div class="tool-card">
     <h4>🖱️ Select - 选择工具</h4>
-    <p>选择音符或时间区域。选中后可进行移动、删除、参数调整等操作。</p>
-    <p><strong>操作</strong>：单击选择、拖动框选、Delete 删除选中内容。</p>
+    <p>选择音符或时间区域；选中后可删除、改参数，或在音符体上<strong>纵向拖动</strong>以半音为步进调整音高偏移（多选时一齐移动）。若选中范围内曾包含手绘等校正，拖音高时会尽量随音符一并移调。</p>
+    <p><strong>边缘缩放</strong>：鼠标移到音符左/右边缘附近（光标变为水平双向箭头）时拖动，可改变音符的起止时间；音符最短约 20 ms。</p>
+    <p><strong>修饰键</strong>：<strong>Ctrl</strong>（macOS 上为 Cmd）+ 单击可<strong>反选/切换</strong>单个音符是否选中；<strong>Shift</strong> + 单击可在<strong>上次选中的音符与当前音符之间</strong>按时间顺序整段选中。</p>
+    <p><strong>框选</strong>：在空白处按下拖动可矩形框选（时间与音高范围交叉的音符会被选中）。<strong>Delete / Backspace</strong> 删除选中内容。</p>
 </div>
 
 <div class="tool-card">
@@ -746,18 +786,33 @@
 
 <div class="tool-card">
     <h4>📍 LineAnchor - 线锚点工具</h4>
-    <p>在音高曲线上设置关键锚点，软件自动在锚点之间生成平滑过渡。</p>
-    <p><strong>优势</strong>：精确控制关键位置，适合处理滑音、转音。</p>
+    <p>在音符时间范围内放置锚点；锚点之间使用<strong>单调埃尔米特样条（Hermite）</strong>在 MIDI 音高空间插值，曲线平滑且通常不会出现不合理的“尖峰过冲”，适合滑音、乐句形状控制。</p>
+    <p><strong>自动拟合</strong>：切换到线锚点工具时，软件会按当前<strong>已渲染音高曲线</strong>（含已有校正）在每个音符上自动拟合一组锚点，便于在现有结果上继续细调。</p>
+    <p><strong>优势</strong>：关键帧式编辑，比纯手绘更易保持连贯形状。</p>
 </div>
 
 <div class="tool-card">
     <h4>🖌️ HandDraw - 手绘工具</h4>
-    <p>直接手绘 F0 曲线，完全自定义音高走向。适合精细的音高装饰。</p>
-    <p><strong>技巧</strong>：可绘制颤音、滑音、弯音等细节效果。</p>
+    <p>在音符范围内直接手绘 F0 曲线，自定义音高走向；落在音符外的笔触会被丢弃，每个与手绘相交的音符会生成独立的校正片段。</p>
+    <p><strong>技巧</strong>：轻微移动后再拖动可避免误点被识别为点击；绘制结束后相关音符会自动选中。</p>
+</div>
+
+<div class="tool-card">
+    <h4>✂️ SplitNote - 分割音符工具</h4>
+    <p>在音符上单击，于该时间点将音符分成两段，便于分段设置 Retune、颤音或后续编辑。</p>
+    <p><strong>光标</strong>：使用文本竖线形光标提示当前为分割模式。</p>
 </div>
 
 <h3>工具切换</h3>
-<p>在参数面板点击对应的工具按钮，或使用快捷键（见第 9 章）。</p>
+<p>在参数面板点击对应工具按钮、使用数字快捷键（见第 9 章），或通过钢琴卷帘右键菜单切换。</p>
+
+<h3>线锚点工具补充说明</h3>
+<ul>
+    <li>锚点按<strong>音符</strong>分组；至少两个锚点才会生成该段的线锚点校正。插值在<strong>MIDI 半音空间</strong>进行，与感知上的音高比例一致。</li>
+    <li><strong>Ctrl</strong>（macOS 上为 Cmd）+ 在空白处按下并拖动：进行锚点的<strong>矩形框选</strong>，松开后框内的锚点被选中，便于批量移动或删除。</li>
+    <li>可选中锚点后使用 <strong>Delete / Backspace</strong> 删除；<strong>Esc</strong> 可先清除锚点选中状态；切换至其他工具会结束当前锚点编辑会话。</li>
+    <li>校正结果仍受各音符的 <strong>Retune Speed</strong> 等参数影响（与手绘等工具一致，详见参数面板与内部算法说明）。</li>
+</ul>
 
 <!-- 第8章：参数详解 -->
 <h2 id="parameters">8. 参数详解</h2>
@@ -810,8 +865,8 @@
 
 <div class="param-item">
     <div class="param-name">BPM（每分钟节拍数）</div>
-    <div class="param-range">范围：20 - 300 BPM | 默认值：120</div>
-    <p>项目速度。影响时间轴网格和节拍标记。</p>
+    <div class="param-range">范围：约 1 - 480 BPM（传输栏输入并限幅）| 默认值：120</div>
+    <p>项目速度。影响 Tap Tempo、小节刻度以及与拍号相关的时间显示。</p>
 </div>
 
 <div class="param-item">
@@ -843,7 +898,7 @@
     </tr>
     <tr>
         <td>Escape</td>
-        <td>取消当前操作 / 停止</td>
+        <td>钢琴卷帘内：有选中音符时先取消选中；线锚点模式下先取消锚点选中；否则将事件交给上层（如关闭对话框等）</td>
     </tr>
 </table>
 
@@ -875,11 +930,23 @@
     </tr>
     <tr>
         <td>Ctrl + A</td>
-        <td>全选</td>
+        <td>全选（钢琴卷帘内为全选音符）</td>
     </tr>
     <tr>
-        <td>Delete / Backspace / 1</td>
-        <td>删除选中内容</td>
+        <td>Ctrl + 单击音符</td>
+        <td>切换该音符是否选中（选择工具下）</td>
+    </tr>
+    <tr>
+        <td>Shift + 单击音符</td>
+        <td>将上次选中音符至当前音符之间的音符整段选中（选择工具下）</td>
+    </tr>
+    <tr>
+        <td>Delete / Backspace</td>
+        <td>删除选中内容（音符、框选区域内的校正数据等）；线锚点工具下可删除选中的锚点</td>
+    </tr>
+    <tr>
+        <td>Ctrl + S</td>
+        <td>保存工程（若尚未指定路径则会提示选择保存位置）</td>
     </tr>
 </table>
 
@@ -903,11 +970,16 @@
     </tr>
 </table>
 
-<h3>9.4 工具切换</h3>
+<h3>9.4 工具切换（钢琴卷帘焦点下，无 Ctrl/Alt 修饰）</h3>
+<p>以下数字键用于<strong>切换工具</strong>；其中 <strong>6</strong> 为触发一次自动修正流程（与点击 AutoTune 工具等效），而非单独“第 7 种工具”。</p>
 <table class="shortcut-table">
     <tr>
         <th>快捷键</th>
-        <th>工具</th>
+        <th>工具 / 动作</th>
+    </tr>
+    <tr>
+        <td>1</td>
+        <td>Select - 选择</td>
     </tr>
     <tr>
         <td>2</td>
@@ -915,17 +987,22 @@
     </tr>
     <tr>
         <td>3</td>
-        <td>Select - 选择工具</td>
+        <td>LineAnchor - 线锚点</td>
     </tr>
     <tr>
         <td>4</td>
-        <td>LineAnchor - 锚点工具</td>
+        <td>HandDraw - 手绘音高</td>
+    </tr>
+    <tr>
+        <td>5</td>
+        <td>SplitNote - 分割音符</td>
     </tr>
     <tr>
         <td>6</td>
-        <td>AutoTune - 自动修正</td>
+        <td>根据当前片段与调式执行 AutoTune（一键生成/校正）</td>
     </tr>
 </table>
+<p><strong>Ctrl + A</strong> 在钢琴卷帘内为<strong>全选音符</strong>（与全局“全选”快捷键配置一致时）。</p>
 
 <!-- 第10章：导出音频 -->
 <h2 id="export">10. 导出音频</h2>
@@ -960,10 +1037,20 @@
     </tr>
 </table>
 
-<h3>10.3 导出步骤</h3>
+<h3>10.3 分轨导出（Export Stems）</h3>
+<p>适合混音前备份各轨处理结果，或分轨交付：</p>
+<ul>
+    <li>菜单路径：<strong>File → Export Audio → Export Stems</strong></li>
+    <li>在对话框中设置<strong>文件名前缀</strong>（可选；会写入每个输出文件名，非法字符会自动替换）</li>
+    <li>勾选需要导出的<strong>轨道</strong>（无音频的轨道不可选）</li>
+    <li>选择<strong>输出文件夹</strong>后，软件按轨道依次导出为 WAV（命名形如 <code>前缀-Track N.wav</code> 或 <code>Track N.wav</code>）</li>
+</ul>
+<p>分轨导出与单轨/总线导出一样，会基于当前修音与声码器渲染结果输出。</p>
+
+<h3>10.4 导出步骤（Clip / Track / Bus）</h3>
 <ol>
-    <li>在菜单中选择 <strong>File → Export</strong></li>
-    <li>选择导出范围（Clip / Track / Bus）</li>
+    <li>在菜单中选择 <strong>File → Export Audio</strong>，再选子项</li>
+    <li>选择导出范围（Selected Clip / Track / Bus）</li>
     <li>选择保存位置和文件名</li>
     <li>等待渲染完成</li>
 </ol>
@@ -981,11 +1068,11 @@
 <p><strong>A:</strong> 请确保 <code>models/rmvpe.onnx</code> 模型文件存在且完整。首次加载模型可能需要几秒钟。如果问题持续，请检查音频是否包含明显的人声内容。</p>
 
 <h3>Q2: 音频处理速度很慢？</h3>
-<p><strong>A:</strong> 当前版本主要依赖 CPU 进行 AI 推理。建议：</p>
+<p><strong>A:</strong> 在兼容环境下，声码器等推理可使用 <strong>GPU（如 DirectML / NVIDIA 相关路径）</strong> 加速；若未启用或仍偏慢，可尝试：</p>
 <ul>
-    <li>关闭其他占用 CPU 的程序</li>
-    <li>使用较短的分段进行处理</li>
-    <li>升级到更高性能的 CPU</li>
+    <li>关闭其他占用 CPU/GPU 的程序</li>
+    <li>先处理较短片段，或减少同时多轨重负载操作</li>
+    <li>升级 CPU；有独立显卡时确认驱动正常并留意软件是否回退到 CPU</li>
 </ul>
 
 <h3>Q3: 修正后的音质有异常？</h3>
@@ -1018,7 +1105,7 @@
 <footer>
     <p>OpenTune - AI 智能修音软件 | 开源免费 | AGPL v3.0 许可证</p>
     <p>感谢 DiffSinger 开源社区及所有贡献者</p>
-    <p>GitHub: https://github.com/anomalyco/opencode</p>
+    <p>源码与发布信息请参阅 OpenTune 官方仓库或发布页（以实际项目主页为准）。</p>
 </footer>
 
 </body>
