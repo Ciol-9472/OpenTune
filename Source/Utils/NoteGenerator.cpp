@@ -252,6 +252,16 @@ std::vector<Note> NoteGenerator::generate(
             out[k - 1].endTime = out[k].startTime;
     }
 
+    const double adjacentMaxGapSec =
+        static_cast<double>(params.policy.adjacentNextNoteMaxGapMs) / 1000.0;
+    if (adjacentMaxGapSec > 0.0) {
+        for (size_t k = 1; k < out.size(); ++k) {
+            const double gap = out[k].startTime - out[k - 1].endTime;
+            if (gap > 0.0 && gap <= adjacentMaxGapSec)
+                out[k - 1].endTime = out[k].startTime;
+        }
+    }
+
     out.erase(
         std::remove_if(out.begin(), out.end(),
                        [](const Note& n) {

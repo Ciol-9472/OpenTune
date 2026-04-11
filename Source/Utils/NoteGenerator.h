@@ -39,6 +39,8 @@ struct NoteSegmentationPolicy {
     float gapBridgeMs              = 10.0f;
     float minDurationMs            = 100.0f;
     float tailExtendMs             = 15.0f;
+    /** If > 0, pull each note's endTime up to the following note's startTime when the gap is within this many ms. */
+    float adjacentNextNoteMaxGapMs = 0.0f;
 };
 
 struct NoteGeneratorParams {
