@@ -262,6 +262,8 @@ target_sources(OpenTune
         Source/Host/HostIntegrationStandalone.cpp
         Source/Standalone/EditorFactoryStandalone.cpp
         Source/Standalone/PluginEditor.cpp
+        Source/Standalone/PluginEditor.MenuActions.cpp
+        Source/Standalone/PluginEditor.Transport.cpp
         Source/Standalone/PluginEditor.h
         Source/Services/F0ExtractionService.cpp
         Source/Services/F0ExtractionService.h
@@ -269,6 +271,9 @@ target_sources(OpenTune
 
         # Core Plugin Files
         Source/PluginProcessor.cpp
+        Source/PluginProcessor.Project.cpp
+        Source/PluginProcessor.TrackClip.cpp
+        Source/PluginProcessor.MediaIO.cpp
         Source/PluginProcessor.h
 
         # Inference Layer
@@ -327,11 +332,17 @@ target_sources(OpenTune
         Source/Standalone/UI/TimelineComponent.cpp
         Source/Standalone/UI/TimelineComponent.h
         Source/Standalone/UI/PianoRollComponent.cpp
+        Source/Standalone/UI/PianoRollComponent.Correction.cpp
+        Source/Standalone/UI/PianoRollComponent.Interaction.cpp
+        Source/Standalone/UI/PianoRollComponent.Rendering.cpp
         Source/Standalone/UI/PianoRollComponent.h
         Source/Standalone/UI/PianoRoll/PianoRollUndoSupport.cpp
         Source/Standalone/UI/PianoRoll/PianoRollUndoSupport.h
         Source/Standalone/UI/PianoRoll/PianoRollRenderer.cpp
         Source/Standalone/UI/PianoRoll/PianoRollRenderer.h
+        Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Anchor.cpp
+        Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Draw.cpp
+        Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Select.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.h
         Source/Standalone/UI/PianoRoll/PianoRollCorrectionWorker.cpp
@@ -352,6 +363,8 @@ target_sources(OpenTune
         Source/Standalone/UI/TopBarComponent.h
         Source/Standalone/UI/TrackPanelComponent.cpp
         Source/Standalone/UI/TrackPanelComponent.h
+        Source/Standalone/UI/ArrangementView.Interaction.cpp
+        Source/Standalone/UI/ArrangementView.Selection.cpp
         Source/Standalone/UI/ArrangementViewComponent.cpp
         Source/Standalone/UI/ArrangementViewComponent.h
         Source/Standalone/UI/WaveformMipmap.cpp

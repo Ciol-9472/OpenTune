@@ -1,4 +1,4 @@
-#include "PluginEditor.h"
+﻿#include "PluginEditor.h"
 #include "UI/UIColors.h"
 #include "UI/FrameScheduler.h"
 #include "UI/OptionsDialogComponent.h"
@@ -44,15 +44,8 @@ static juce::String getImportWildcardFilter()
     if (wildcard.isNotEmpty())
         return wildcard;
 
-    // 兜底：当底层未返回 wildcard 时仍提供基础格式
+    // 鍏滃簳锛氬綋搴曞眰鏈繑鍥?wildcard 鏃朵粛鎻愪緵鍩虹鏍煎紡
     return "*.wav;*.aiff;*.aif;*.flac;*.ogg;*.mp3";
-}
-
-static juce::File getDefaultOpenTuneProjectsDirectory()
-{
-    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-        .getChildFile("OpenTune")
-        .getChildFile("Projects");
 }
 
 static juce::String getImportExtensionSpec()
@@ -90,7 +83,7 @@ static RenderStatusUiState buildRenderStatusUiState(bool isTxnActive)
 
     if (state.showRendering)
     {
-        state.detailText = juce::String::fromUTF8(u8"音符渲染中");
+        state.detailText = "Rendering...";
     }
 
     return state;
@@ -109,7 +102,7 @@ static bool runDebugSelfTests() {
         if (!s0.showRendering || s0.uiPendingTasks != 1) {
             return false;
         }
-        if (!s0.detailText.contains(juce::String::fromUTF8(u8"音符渲染中"))) {
+        if (!s0.detailText.contains("Rendering...")) {
             return false;
         }
 
@@ -320,7 +313,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     LocalizationManager::getInstance().addListener(this);
 
     // Setup Transport Bar Menu Callbacks
-    // menuName 从运行时获取（语言切换后自动反映当前语言），与 getMenuForIndex 的索引匹配
+    // menuName 浠庤繍琛屾椂鑾峰彇锛堣瑷€鍒囨崲鍚庤嚜鍔ㄥ弽鏄犲綋鍓嶈瑷€锛夛紝涓?getMenuForIndex 鐨勭储寮曞尮閰?
     transportBar_.onFileMenuRequested = [this]() {
         auto menuNames = menuBar_.getMenuBarNames();
         juce::PopupMenu menu = menuBar_.getMenuForIndex(0, menuNames.isEmpty() ? juce::String() : menuNames[0]);
@@ -379,7 +372,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
 
     addAndMakeVisible(topBar_);
 
-    // 顶部条：侧边栏折叠开关
+    // 椤堕儴鏉★細渚ц竟鏍忔姌鍙犲紑鍏?
     topBar_.onToggleTrackPanel = [this]() {
         isTrackPanelVisible_ = !isTrackPanelVisible_;
         trackPanel_.setVisible(isTrackPanelVisible_);
@@ -400,9 +393,9 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
 
     trackPanel_.addListener(this);
     trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
-    // 初始化轨道高度（与ArrangementView同步）
+    // 鍒濆鍖栬建閬撻珮搴︼紙涓嶢rrangementView鍚屾锛?
     trackPanel_.setTrackHeight(processorRef_.getTrackHeight());
-    // 初始化所有12条轨道的状态
+    // 鍒濆鍖栨墍鏈?2鏉¤建閬撶殑鐘舵€?
     for (int i = 0; i < MAX_TRACKS; ++i)
     {
         trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
@@ -449,7 +442,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     pianoRoll_.setShowLanes(processorRef_.getShowLanes());
     pianoRoll_.setZoomLevel(processorRef_.getZoomLevel());
     
-    // 设置高性能播放头位置源 - 直接从 Processor 读取，绕过 60Hz Timer 瓶颈
+    // 璁剧疆楂樻€ц兘鎾斁澶翠綅缃簮 - 鐩存帴浠?Processor 璇诲彇锛岀粫杩?60Hz Timer 鐡堕
     pianoRoll_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
     arrangementView_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
     
@@ -470,7 +463,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     // Apply the purple theme to the window
     getLookAndFeel().setColour(juce::ResizableWindow::backgroundColourId, UIColors::backgroundDark);
 
-    // 启用原生标题栏（系统风格的最大化/最小化/关闭按钮）
+    // 鍚敤鍘熺敓鏍囬鏍忥紙绯荤粺椋庢牸鐨勬渶澶у寲/鏈€灏忓寲/鍏抽棴鎸夐挳锛?
     juce::Timer::callAfterDelay(60, [safeThis = juce::Component::SafePointer<OpenTuneAudioProcessorEditor>(this)]
     {
         if (safeThis == nullptr) return;
@@ -483,7 +476,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
         }
     });
 
-    // 播放头渲染走 VBlank 覆盖层，主编辑器同步心跳降到 30Hz 减轻消息线程压力
+    // 鎾斁澶存覆鏌撹蛋 VBlank 瑕嗙洊灞傦紝涓荤紪杈戝櫒鍚屾蹇冭烦闄嶅埌 30Hz 鍑忚交娑堟伅绾跨▼鍘嬪姏
     startTimerHz(kHeartbeatHzIdle);
 
     // VocoderRenderScheduler queue depth is polled via getVocoderScheduler()->getQueueDepth()
@@ -660,8 +653,8 @@ void OpenTuneAudioProcessorEditor::filesDropped(const juce::StringArray& files, 
     {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
-                juce::String::fromUTF8(u8"导入音频"),
-                juce::String::fromUTF8(u8"当前正在导入音频，请稍后再试。")
+                "Import Audio",
+                "An audio import is already in progress. Please try again in a moment."
             );
         return;
     }
@@ -679,8 +672,8 @@ void OpenTuneAudioProcessorEditor::filesDropped(const juce::StringArray& files, 
             const auto wildcard = getImportWildcardFilter().replaceCharacters("*", "");
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
-                juce::String::fromUTF8(u8"导入音频"),
-                juce::String::fromUTF8(u8"不支持的文件类型。\n当前版本支持：") + wildcard
+                "Import Audio",
+                "Unsupported file type.\nSupported types: " + wildcard
             );
         return;
     }
@@ -689,8 +682,8 @@ void OpenTuneAudioProcessorEditor::filesDropped(const juce::StringArray& files, 
     {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::InfoIcon,
-                juce::String::fromUTF8(u8"导入音频"),
-                juce::String::fromUTF8(u8"检测到多个文件，本次将仅导入第一个文件。")
+                "Import Audio",
+                "Multiple files were dropped. Only the first file will be imported."
             );
     }
 
@@ -739,22 +732,22 @@ void OpenTuneAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
 
-    // 阴影边距：为各面板预留阴影渲染空间
-    // 各组件 paint() 使用 reduced(shadowMargin) 绘制背景，阴影在边距内渲染
+    // 闃村奖杈硅窛锛氫负鍚勯潰鏉块鐣欓槾褰辨覆鏌撶┖闂?
+    // 鍚勭粍浠?paint() 浣跨敤 reduced(shadowMargin) 缁樺埗鑳屾櫙锛岄槾褰卞湪杈硅窛鍐呮覆鏌?
     const int shadowMargin = 12;
-    const int gap = 6;  // Gap between panels (视觉间距，不含阴影)
+    const int gap = 6;  // Gap between panels (瑙嗚闂磋窛锛屼笉鍚槾褰?
 
     bounds.reduce(gap, gap); // Global padding
 
-    // TopBar：高度 + 阴影边距（上下各12px）
+    // TopBar锛氶珮搴?+ 闃村奖杈硅窛锛堜笂涓嬪悇12px锛?
     const int topBarHeight = menuBar_.isVisible() ? (MENU_BAR_HEIGHT + TRANSPORT_BAR_HEIGHT) : TRANSPORT_BAR_HEIGHT;
     const int topBarHeightWithShadow = topBarHeight + shadowMargin * 2;
     topBar_.setBounds(bounds.removeFromTop(topBarHeightWithShadow));
-    // 视觉间距：gap 减去已被阴影占用的下边距
+    // 瑙嗚闂磋窛锛歡ap 鍑忓幓宸茶闃村奖鍗犵敤鐨勪笅杈硅窛
     bounds.removeFromTop(juce::jmax(0, gap - shadowMargin));
 
-    // 左侧 Track Inspector（可折叠）
-    // 宽度 + 阴影边距（左右各12px）
+    // 宸︿晶 Track Inspector锛堝彲鎶樺彔锛?
+    // 瀹藉害 + 闃村奖杈硅窛锛堝乏鍙冲悇12px锛?
     if (isTrackPanelVisible_)
     {
         trackPanel_.setVisible(true);
@@ -768,8 +761,8 @@ void OpenTuneAudioProcessorEditor::resized()
         trackPanel_.setBounds({});
     }
 
-    // 右侧 Properties Panel（可折叠）
-    // 宽度 + 阴影边距（左右各12px）
+    // 鍙充晶 Properties Panel锛堝彲鎶樺彔锛?
+    // 瀹藉害 + 闃村奖杈硅窛锛堝乏鍙冲悇12px锛?
     if (isParameterPanelVisible_)
     {
         parameterPanel_.setVisible(true);
@@ -783,12 +776,12 @@ void OpenTuneAudioProcessorEditor::resized()
         parameterPanel_.setBounds({});
     }
 
-    // 中央区域（PianoRoll / ArrangementView）
-    // PianoRoll 已经使用 reduced(12.0f) 绘制背景，bounds 保持不变
+    // 涓ぎ鍖哄煙锛圥ianoRoll / ArrangementView锛?
+    // PianoRoll 宸茬粡浣跨敤 reduced(12.0f) 缁樺埗鑳屾櫙锛宐ounds 淇濇寔涓嶅彉
     arrangementView_.setBounds(bounds);
     pianoRoll_.setBounds(bounds);
     
-    // AutoRenderOverlay 覆盖整个 PianoRoll 区域
+    // AutoRenderOverlay 瑕嗙洊鏁翠釜 PianoRoll 鍖哄煙
     autoRenderOverlay_.setBounds(bounds);
     autoRenderOverlay_.toFront(false);
 
@@ -827,7 +820,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
     if (arrangementView_.isShowing()) {
         arrangementView_.onHeartbeatTick();
     }
-    // 钢琴卷帘在工程台视图下不可见，但仍需消耗异步修音结果并触发分块渲染
+    // 閽㈢惔鍗峰笜鍦ㄥ伐绋嬪彴瑙嗗浘涓嬩笉鍙锛屼絾浠嶉渶娑堣€楀紓姝ヤ慨闊崇粨鏋滃苟瑙﹀彂鍒嗗潡娓叉煋
     pianoRoll_.onHeartbeatTick();
 
     processDeferredImportPostProcessQueue();
@@ -886,7 +879,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
         }
     }
 
-    // 播放头位置由各组件通过 positionSource_ 直接从 Processor 读取
+    // 鎾斁澶翠綅缃敱鍚勭粍浠堕€氳繃 positionSource_ 鐩存帴浠?Processor 璇诲彇
     transportBar_.setPositionSeconds(currentPositionSeconds);
 
     // Sync Rendering Progress
@@ -904,7 +897,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
             autoOverlayTargetExists = (activeClip >= 0);
         }
 
-        // 从目标 Clip 的 RenderCache 获取 Chunk 状态
+        // 浠庣洰鏍?Clip 鐨?RenderCache 鑾峰彇 Chunk 鐘舵€?
         const auto chunkStats = processorRef_.getClipChunkStats(activeTrack, activeClip);
         const bool isTxnActive = chunkStats.hasActiveWork();
         const auto renderState = buildRenderStatusUiState(isTxnActive);
@@ -912,7 +905,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
         
         const bool isAutoProcessing = pianoRoll_.isAutoTuneProcessing();
 
-        // RMVPE overlay 释放判定：F0 Ready + 上下文匹配 + F0可见
+        // RMVPE overlay 閲婃斁鍒ゅ畾锛欶0 Ready + 涓婁笅鏂囧尮閰?+ F0鍙
         if (rmvpeOverlayLatched_) {
             const int targetTrackId = rmvpeOverlayTargetTrackId_;
             const uint64_t targetClipId = rmvpeOverlayTargetClipId_;
@@ -944,13 +937,13 @@ void OpenTuneAudioProcessorEditor::timerCallback()
             }
         }
 
-        // AUTO overlay 释放判定：渲染完成
+        // AUTO overlay 閲婃斁鍒ゅ畾锛氭覆鏌撳畬鎴?
         if (autoOverlayLatched_) {
             bool shouldUnlatch = false;
             if (!autoOverlayTargetExists) {
                 shouldUnlatch = true;
             } else {
-                // 检查 Chunk 是否全部完成（无 Pending/Running）
+                // 妫€鏌?Chunk 鏄惁鍏ㄩ儴瀹屾垚锛堟棤 Pending/Running锛?
                 const bool txnFinished = !chunkStats.hasActiveWork() && chunkStats.total() > 0;
                 
                 if (!isAutoProcessing && txnFinished) {
@@ -969,9 +962,9 @@ void OpenTuneAudioProcessorEditor::timerCallback()
             }
         }
 
-        // 统一更新 overlay 可见性
+        // 缁熶竴鏇存柊 overlay 鍙鎬?
         if (autoOverlayLatched_) {
-            autoRenderOverlay_.setMessageText(juce::String::fromUTF8("正在渲染中"));
+            autoRenderOverlay_.setMessageText("Rendering...");
             autoRenderOverlay_.setVisible(true);
         } else if (rmvpeOverlayLatched_ && !isWorkspaceView_) {
             const bool isCurrentClipExtracting = 
@@ -980,8 +973,8 @@ void OpenTuneAudioProcessorEditor::timerCallback()
             
             if (isCurrentClipExtracting) {
                 autoRenderOverlay_.setMessageText(
-                    juce::String::fromUTF8("调式检测中......"),
-                    juce::String::fromUTF8("正在提取音高曲线...")
+                    juce::String::fromUTF8("璋冨紡妫€娴嬩腑......"),
+                    juce::String::fromUTF8("姝ｅ湪鎻愬彇闊抽珮鏇茬嚎...")
                 );
                 autoRenderOverlay_.setVisible(true);
             } else {
@@ -991,7 +984,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
             autoRenderOverlay_.setVisible(false);
         }
         
-        // [渲染弹窗] 仅在 AUTO overlay 未锁定时更新右上角状态栏。
+        // [娓叉煋寮圭獥] 浠呭湪 AUTO overlay 鏈攣瀹氭椂鏇存柊鍙充笂瑙掔姸鎬佹爮銆?
         if (!autoOverlayLatched_) {
             pianoRoll_.setRenderingProgress(progress, renderState.uiPendingTasks);
         }
@@ -1057,7 +1050,7 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     auto curve = processorRef_.getClipPitchCurve(trackId, clipIndex);
     pianoRoll_.setPitchCurve(curve);
 
-    // clip 切换只应用该 clip 的生效调式（无跨 clip 回退）
+    // clip 鍒囨崲鍙簲鐢ㄨ clip 鐨勭敓鏁堣皟寮忥紙鏃犺法 clip 鍥為€€锛?
     applyResolvedScaleForClip(trackId, clipIndex);
 
     // Restore Notes
@@ -1073,7 +1066,7 @@ void OpenTuneAudioProcessorEditor::toolSelected(int toolId)
     auto tool = static_cast<ToolId>(toolId);
     if (tool == ToolId::AutoTune)
     {
-        // 合并重复逻辑：调用统一 helper
+        // 鍚堝苟閲嶅閫昏緫锛氳皟鐢ㄧ粺涓€ helper
         startAutoTuneAsUnifiedEdit();
         pianoRoll_.setCurrentTool(ToolId::Select);
         parameterPanel_.setActiveTool(1);
@@ -1126,1630 +1119,6 @@ void OpenTuneAudioProcessorEditor::noteSplitChanged(float value)
 
 void OpenTuneAudioProcessorEditor::parameterDragEnded(int paramId, float oldValue, float newValue)
 {
-}
-
-// ============================================================================
-// MenuBarComponent::Listener Implementation
-// ============================================================================
-
-// 导入模式枚举
-enum class ImportMode
-{
-    SameTrack,      // 按顺序导入到同一个轨道
-    SeparateTracks  // 分别导入到多个轨道（齐头）
-};
-
-void OpenTuneAudioProcessorEditor::importAudioRequested()
-{
-    // 菜单导入：导入到第一条空轨道；无空轨时扩展“+轨”后再导入
-    DBG("OpenTuneAudioProcessorEditor::importAudioRequested called");
-
-    if (isImportInProgress_)
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            juce::String::fromUTF8(u8"导入音频"),
-            juce::String::fromUTF8(u8"当前正在导入音频，请稍后再试。")
-        );
-        return;
-    }
-
-    const auto wildcardFilter = getImportWildcardFilter();
-    const juce::File importStartDir = LastFileDialogPaths::directoryForOpen(
-        FileDialogKind::ImportAudio,
-        juce::File::getSpecialLocation(juce::File::userHomeDirectory));
-    auto chooser = std::make_shared<juce::FileChooser>(
-        juce::String::fromUTF8(u8"选择要导入的音频文件"),
-        importStartDir,
-        wildcardFilter
-    );
-
-    // 支持多选
-    auto chooserFlags = juce::FileBrowserComponent::openMode 
-                      | juce::FileBrowserComponent::canSelectFiles 
-                      | juce::FileBrowserComponent::canSelectMultipleItems;
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    chooser->launchAsync(chooserFlags, [safeThis, chooser](const juce::FileChooser& fc)
-    {
-        if (safeThis == nullptr)
-            return;
-
-        const juce::Array<juce::File>& selectedFiles = fc.getResults();
-        
-        if (selectedFiles.isEmpty())
-        {
-            DBG("No files selected");
-            return;
-        }
-
-        LastFileDialogPaths::rememberOpenSelection(FileDialogKind::ImportAudio,
-                                                   selectedFiles.getReference(0));
-
-        int baseTrack = safeThis->findFirstEmptyTrackIndexForMenuImport();
-        if (baseTrack < 0)
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                juce::String::fromUTF8(u8"导入音频"),
-                juce::String::fromUTF8(u8"所有轨道均已包含音频片段。\n请先删除或清空部分轨道后再导入。")
-            );
-            return;
-        }
-
-        int visibleTracks = safeThis->trackPanel_.getVisibleTrackCount();
-
-        if (selectedFiles.size() == 1)
-        {
-            safeThis->importAudioFileToTrack(baseTrack, selectedFiles[0]);
-        }
-        else
-        {
-            // 多文件：检查数量限制（最多12个）
-            constexpr int MAX_IMPORT_FILES = 12;
-            if (selectedFiles.size() > MAX_IMPORT_FILES)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    juce::String::fromUTF8(u8"导入数量超限"),
-                    juce::String::fromUTF8(u8"最多同时导入12个音频文件。\n") +
-                    juce::String::fromUTF8(u8"您选择了 ") + juce::String(selectedFiles.size()) + 
-                    juce::String::fromUTF8(u8" 个文件。")
-                );
-                return;
-            }
-
-            // 多文件：弹窗询问导入模式
-            auto* alert = new juce::AlertWindow(
-        juce::String::fromUTF8(u8"选择导入模式"),
-        juce::String::fromUTF8(u8"您选择了 ") + juce::String(selectedFiles.size()) + juce::String::fromUTF8(u8" 个音频文件，请选择导入方式："),
-        juce::AlertWindow::QuestionIcon
-    );
-
-            alert->addButton(juce::String::fromUTF8(u8"顺序导入到同一轨道"), 1);
-            alert->addButton(juce::String::fromUTF8(u8"分别导入到多个轨道"), 2);
-            alert->addButton(juce::String::fromUTF8(u8"取消"), 0);
-
-            // 保存文件列表供回调使用
-            auto filesPtr = std::make_shared<juce::Array<juce::File>>(selectedFiles);
-
-            alert->enterModalState(
-                true,
-                juce::ModalCallbackFunction::create([safeThis, filesPtr, baseTrack, visibleTracks](int result)
-                {
-                    if (safeThis == nullptr)
-                        return;
-
-                    if (result == 0)
-                    {
-                        // 用户取消
-                        return;
-                    }
-                    else if (result == 1)
-                    {
-                        // 顺序导入到同一空轨道（追加多个 Clip）
-                        for (int i = 0; i < filesPtr->size(); ++i)
-                        {
-                            safeThis->importAudioFileToTrack(baseTrack, (*filesPtr)[i]);
-                        }
-                    }
-                    else if (result == 2)
-                    {
-                        // 从第一条空轨道起，依次导入到后续轨道
-                        int numFiles = filesPtr->size();
-
-                        const int requiredLastIndex = baseTrack + numFiles - 1;
-                        if (requiredLastIndex >= OpenTuneAudioProcessor::MAX_TRACKS)
-                        {
-                            juce::AlertWindow::showMessageBoxAsync(
-                                juce::AlertWindow::WarningIcon,
-                                juce::String::fromUTF8(u8"导入音频"),
-                                juce::String::fromUTF8(u8"轨道数量不足，无法为每个文件分配独立轨道。")
-                            );
-                            return;
-                        }
-
-                        const int newVisible = juce::jmax(visibleTracks, requiredLastIndex + 1);
-                        if (newVisible > visibleTracks)
-                            safeThis->trackPanel_.setVisibleTrackCount(newVisible);
-
-                        for (int i = 0; i < numFiles; ++i)
-                        {
-                            int targetTrack = baseTrack + i;
-                            safeThis->importAudioFileToTrackWithOverwritePrompt(
-                                targetTrack, (*filesPtr)[i], true);
-                        }
-                    }
-                }),
-                true  // 自动删除AlertWindow
-            );
-        }
-    });
-}
-
-int OpenTuneAudioProcessorEditor::resolveTrackIndexForAudioDrop(int editorX, int editorY) const
-{
-    juce::Point<int> p(editorX, editorY);
-
-    if (isWorkspaceView_ && arrangementView_.isVisible() && arrangementView_.getBounds().contains(p))
-    {
-        const auto local = arrangementView_.getLocalPoint(this, p);
-        return arrangementView_.getTrackIndexAtPoint(local);
-    }
-
-    if (trackPanel_.isVisible() && trackPanel_.getBounds().contains(p))
-    {
-        const auto local = trackPanel_.getLocalPoint(this, p);
-        const int h = trackPanel_.getTrackHeight();
-        if (h <= 0)
-            return -1;
-        const int yOff = trackPanel_.getTrackStartYOffset();
-        const int scroll = trackPanel_.getVerticalScrollOffset();
-        const int t = (local.y - yOff + scroll) / h;
-        if (t >= 0 && t < trackPanel_.getVisibleTrackCount())
-            return t;
-        return -1;
-    }
-
-    if (!isWorkspaceView_ && pianoRoll_.isVisible() && pianoRoll_.getBounds().contains(p))
-        return processorRef_.getActiveTrackId();
-
-    return -1;
-}
-
-int OpenTuneAudioProcessorEditor::findFirstEmptyTrackIndexForMenuImport()
-{
-    for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t)
-    {
-        if (processorRef_.getNumClips(t) == 0)
-        {
-            const int visible = trackPanel_.getVisibleTrackCount();
-            if (t >= visible)
-                trackPanel_.setVisibleTrackCount(t + 1);
-            return t;
-        }
-    }
-    return -1;
-}
-
-void OpenTuneAudioProcessorEditor::clearAllClipsOnTrack(int trackId)
-{
-    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS)
-        return;
-    while (processorRef_.getNumClips(trackId) > 0)
-        processorRef_.deleteClip(trackId, 0);
-}
-
-void OpenTuneAudioProcessorEditor::importAudioFileToTrackWithOverwritePrompt(int trackId, const juce::File& file, bool replaceExisting)
-{
-    if (!replaceExisting || processorRef_.getNumClips(trackId) == 0)
-    {
-        importAudioFileToTrack(trackId, file);
-        return;
-    }
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    auto* alert = new juce::AlertWindow(
-        juce::String::fromUTF8(u8"导入音频"),
-        juce::String::fromUTF8(u8"该轨道已有音频片段，是否覆盖？\n选择「覆盖」将删除该轨道上现有片段。"),
-        juce::AlertWindow::WarningIcon);
-    alert->addButton(juce::String::fromUTF8(u8"覆盖"), 1);
-    alert->addButton(juce::String::fromUTF8(u8"取消"), 0);
-    alert->enterModalState(
-        true,
-        juce::ModalCallbackFunction::create([safeThis, trackId, file](int result)
-        {
-            if (safeThis == nullptr || result != 1)
-                return;
-            safeThis->clearAllClipsOnTrack(trackId);
-            safeThis->importAudioFileToTrack(trackId, file);
-        }),
-        true);
-}
-
-void OpenTuneAudioProcessorEditor::importAudioFileToTrack(int trackId, const juce::File& file)
-{
-    // 如果正在导入，将请求加入队列
-    if (isImportInProgress_)
-    {
-        importQueue_.push_back({trackId, file});
-        return;
-    }
-
-    isImportInProgress_ = true;
-
-    juce::ignoreUnused(trackId);
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    asyncAudioLoader_.loadAudioFile(
-        file,
-        {},
-        [safeThis, trackId, fileName = file.getFileName(), sourcePath = file.getFullPathName()](AsyncAudioLoader::LoadResult result)
-        {
-            if (safeThis == nullptr)
-                return;
-
-            if (!result.success)
-            {
-                safeThis->isImportInProgress_ = false;
-                safeThis->processNextImportInQueue();
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    juce::String::fromUTF8(u8"导入失败"),
-                    result.errorMessage
-                );
-                return;
-            }
-
-            // 关键修复：prepare 阶段必须在后台线程执行，不能阻塞消息线程
-            safeThis->launchBackgroundUiTask([safeThis,
-                                              trackId,
-                                              fileName,
-                                              sourcePath,
-                                              sampleRate = result.sampleRate,
-                                              audioBuffer = std::move(result.audioBuffer)]() mutable
-            {
-                if (safeThis == nullptr)
-                    return;
-
-                OpenTuneAudioProcessor::PreparedImportClip prepared;
-                {
-                    PerfTimer perfPrepare("import_prepare_phase_background");
-                    if (!safeThis->processorRef_.prepareImportClip(trackId, std::move(audioBuffer), sampleRate, fileName, prepared))
-                    {
-                        juce::MessageManager::callAsync([safeThis]()
-                        {
-                            if (safeThis == nullptr)
-                                return;
-                            safeThis->isImportInProgress_ = false;
-                            safeThis->processNextImportInQueue();
-                            juce::AlertWindow::showMessageBoxAsync(
-                                juce::AlertWindow::WarningIcon,
-                                juce::String::fromUTF8(u8"导入失败"),
-                                juce::String::fromUTF8(u8"导入预处理失败，请重试。")
-                            );
-                        });
-                        return;
-                    }
-                    prepared.sourceAudioAbsolutePath = sourcePath;
-                }
-
-                juce::MessageManager::callAsync([safeThis, trackId, prepared = std::move(prepared)]() mutable
-                {
-                    if (safeThis == nullptr)
-                        return;
-
-                    PerfTimer perfCommit("import_commit_phase");
-
-                    if (!safeThis->processorRef_.commitPreparedImportClip(std::move(prepared)))
-                    {
-                        safeThis->isImportInProgress_ = false;
-                        safeThis->processNextImportInQueue();
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::WarningIcon,
-                            juce::String::fromUTF8(u8"导入失败"),
-                            juce::String::fromUTF8(u8"导入提交失败，请重试。")
-                        );
-                        return;
-                    }
-
-                    // 获取新创建的 clip ID 并创建 Undo Action
-                    int newClipIndex = safeThis->processorRef_.getNumClips(trackId) - 1;
-                    uint64_t newClipId = 0;
-                    if (newClipIndex >= 0) {
-                        newClipId = safeThis->processorRef_.getClipId(trackId, newClipIndex);
-                        safeThis->processorRef_.getUndoManager().addAction(
-                            std::make_unique<ClipCreateAction>(safeThis->processorRef_, trackId, newClipId)
-                        );
-                    }
-
-                    // 标记当前导入完成
-                    safeThis->isImportInProgress_ = false;
-
-                    // 设置键盘焦点到 ArrangementView，确保 Ctrl+Z/Y 快捷键能正常工作
-                    safeThis->arrangementView_.grabKeyboardFocus();
-
-                    safeThis->processorRef_.setActiveTrack(trackId);
-                    safeThis->trackPanel_.setActiveTrack(trackId);
-
-                    int clipIndex = safeThis->processorRef_.getNumClips(trackId) - 1;
-                    if (clipIndex < 0) {
-                        clipIndex = 0;
-                    }
-                    safeThis->processorRef_.setSelectedClip(trackId, clipIndex);
-                    clipIndex = safeThis->processorRef_.getSelectedClip(trackId);
-                    int numClips = safeThis->processorRef_.getNumClips(trackId);
-                    if (numClips > 0) {
-                        jassert(clipIndex == numClips - 1);
-                    }
-
-
-                    // 统一使用 syncPianoRollFromClipSelection 设置 PianoRoll 状态
-                    // 包括 setActiveTrackId、setCurrentClipContext、setAudioBuffer 等
-                    safeThis->syncPianoRollFromClipSelection(trackId, clipIndex);
-
-                    // 导入刚完成时 F0 数据尚不存在，覆盖 sync 中可能恢复的旧数据
-                    safeThis->pianoRoll_.setPitchCurve(nullptr);
-                    safeThis->pianoRoll_.setNotes({});
-
-                    if (newClipId != 0) {
-                        safeThis->arrangementView_.prioritizeWaveformBuildForClip(trackId, newClipId);
-                        safeThis->deferredImportPostProcessQueue_.push_back({trackId, newClipId});
-                    }
-
-                    // 导入完成 - 单次 UI 刷新
-                    safeThis->arrangementView_.resetUserZoomFlag();
-                    safeThis->pianoRoll_.resetUserZoomFlag();
-
-                    FrameScheduler::instance().requestInvalidate(safeThis->arrangementView_, FrameScheduler::Priority::Interactive);
-                    FrameScheduler::instance().requestInvalidate(safeThis->pianoRoll_, FrameScheduler::Priority::Interactive);
-
-                    juce::Timer::callAfterDelay(100, [safeThis]() {
-                        if (safeThis != nullptr && !safeThis->arrangementView_.hasUserManuallyZoomed()) {
-                            safeThis->arrangementView_.fitToContent();
-                        }
-                    });
-
-                    safeThis->processNextImportInQueue();
-                });
-            });
-        }
-    );
-}
-
-// 处理导入队列中的下一个文件
-void OpenTuneAudioProcessorEditor::processNextImportInQueue()
-{
-    if (importQueue_.empty())
-        return;
-    
-    // 取出队列中的第一个待导入项
-    auto next = importQueue_.front();
-    importQueue_.erase(importQueue_.begin());
-    
-    // 递归调用导入函数（此时 isImportInProgress_ 已经是 false）
-    importAudioFileToTrack(next.trackId, next.file);
-}
-
-void OpenTuneAudioProcessorEditor::processDeferredImportPostProcessQueue()
-{
-    if (deferredImportPostProcessQueue_.empty()) {
-        return;
-    }
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    for (int i = static_cast<int>(deferredImportPostProcessQueue_.size()) - 1; i >= 0; --i)
-    {
-        const auto request = deferredImportPostProcessQueue_[static_cast<std::size_t>(i)];
-        if (request.trackId < 0 || request.clipId == 0) {
-            deferredImportPostProcessQueue_.erase(deferredImportPostProcessQueue_.begin() + i);
-            continue;
-        }
-
-        deferredImportPostProcessQueue_.erase(deferredImportPostProcessQueue_.begin() + i);
-
-        launchBackgroundUiTask([safeThis, request]() mutable
-        {
-            if (safeThis == nullptr) {
-                return;
-            }
-
-            OpenTuneAudioProcessor::PreparedClipPostProcess prepared;
-            if (!safeThis->processorRef_.prepareDeferredClipPostProcess(request.trackId, request.clipId, prepared)) {
-                return;
-            }
-
-            juce::MessageManager::callAsync([safeThis, request, prepared = std::move(prepared)]() mutable
-            {
-                if (safeThis == nullptr) {
-                    return;
-                }
-
-                if (!safeThis->processorRef_.commitDeferredClipPostProcess(request.trackId, request.clipId, std::move(prepared))) {
-                    return;
-                }
-
-                const int clipIndex = safeThis->processorRef_.findClipIndexById(request.trackId, request.clipId);
-                if (clipIndex >= 0) {
-                    safeThis->requestOriginalF0ExtractionForImport(request.trackId, clipIndex);
-                }
-            });
-        });
-    }
-}
-
-void OpenTuneAudioProcessorEditor::exportAudioRequested(MenuBarComponent::ExportType exportType)
-{
-    using ExportType = MenuBarComponent::ExportType;
-    
-    // Check if export is already in progress
-    if (exportInProgress_.load())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            juce::String::fromUTF8("导出音频"),
-            juce::String::fromUTF8("已有导出任务正在进行中，请稍后再试。"));
-        return;
-    }
-    
-    // 根据导出类型确定默认文件名
-    juce::String defaultFileName;
-    switch (exportType)
-    {
-        case ExportType::SelectedClip:
-            defaultFileName = "selected_clip.wav";
-            break;
-        case ExportType::Track:
-            defaultFileName = "track_" + juce::String(processorRef_.getActiveTrackId() + 1) + ".wav";
-            break;
-        case ExportType::Bus:
-            defaultFileName = "master_mix.wav";
-            break;
-    }
-
-    const juce::File exportDefaultFile =
-        juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile(defaultFileName);
-    const juce::File exportStartFile =
-        LastFileDialogPaths::startingFileForSave(FileDialogKind::ExportAudioWav, exportDefaultFile);
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Export Audio File",
-        exportStartFile,
-        "*.wav");
-
-    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    chooser->launchAsync(chooserFlags, [safeThis, exportType, chooser](const juce::FileChooser& fc)
-    {
-        if (safeThis == nullptr)
-            return;
-
-        auto file = fc.getResult();
-        if (file == juce::File{})
-            return;
-
-        LastFileDialogPaths::rememberSaveSelection(FileDialogKind::ExportAudioWav, file);
-
-        struct ExportRequest final
-        {
-            ExportType type{ ExportType::Bus };
-            int trackId{ -1 };
-            int clipIndex{ -1 };
-            juce::String targetName;
-        };
-
-        ExportRequest request;
-        request.type = exportType;
-
-        switch (exportType)
-        {
-            case ExportType::SelectedClip:
-            {
-                request.trackId = safeThis->processorRef_.getActiveTrackId();
-                request.clipIndex = safeThis->processorRef_.getSelectedClip(request.trackId);
-
-                if (request.clipIndex < 0)
-                {
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        juce::String::fromUTF8("导出失败"),
-                        juce::String::fromUTF8("没有选中的音频片段。请先在轨道上选择一个Clip。"));
-                    return;
-                }
-
-                request.targetName = "Selected Clip (Track "
-                    + juce::String(request.trackId + 1)
-                    + ", Clip " + juce::String(request.clipIndex + 1) + ")";
-                break;
-            }
-
-            case ExportType::Track:
-            {
-                request.trackId = safeThis->processorRef_.getActiveTrackId();
-                request.targetName = "Track " + juce::String(request.trackId + 1);
-                break;
-            }
-
-            case ExportType::Bus:
-            {
-                request.targetName = "Bus (Master Mix)";
-                break;
-            }
-        }
-
-        auto* processor = &safeThis->processorRef_;
-        const auto outFile = file;
-        const auto outRequest = request;
-        const juce::Component::SafePointer<OpenTuneAudioProcessorEditor> uiSafe = safeThis;
-
-        // Join previous export thread if it exists
-        if (safeThis->exportWorker_.joinable())
-        {
-            safeThis->exportWorker_.join();
-        }
-
-        // Set export in progress flag
-        safeThis->exportInProgress_.store(true);
-
-        // Create new controlled export thread
-        safeThis->exportWorker_ = std::thread([processor, outFile, outRequest, uiSafe]()
-            {
-                bool ok = false;
-                juce::String errorText;
-
-                switch (outRequest.type)
-                {
-                    case ExportType::SelectedClip:
-                        ok = processor->exportClipAudio(outRequest.trackId, outRequest.clipIndex, outFile);
-                        break;
-                    case ExportType::Track:
-                        ok = processor->exportTrackAudio(outRequest.trackId, outFile);
-                        break;
-                    case ExportType::Bus:
-                        ok = processor->exportMasterMixAudio(outFile);
-                        break;
-                }
-
-                if (!ok)
-                {
-                    errorText = processor->getLastExportError();
-                }
-
-                juce::MessageManager::callAsync([ok, outFile, outRequest, errorText, uiSafe]()
-                {
-                    // Check if editor is still alive
-                    if (uiSafe == nullptr)
-                        return;
-
-                    // Clear export in progress flag
-                    uiSafe->exportInProgress_.store(false);
-
-                    if (ok)
-                    {
-                        DBG("Successfully exported " + outRequest.targetName);
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::AlertWindow::InfoIcon,
-                            juce::String::fromUTF8("导出完成"),
-                            outRequest.targetName + juce::String::fromUTF8(" 已导出到: ") + outFile.getFullPathName());
-                        return;
-                    }
-
-                    juce::String failText = juce::String::fromUTF8("无法导出音频到: ") + outFile.getFullPathName();
-                    if (errorText.isNotEmpty())
-                    {
-                        failText += juce::String::fromUTF8("\n原因: ") + errorText;
-                    }
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::AlertWindow::WarningIcon,
-                        juce::String::fromUTF8("导出失败"),
-                        failText);
-                });
-            });
-    });
-}
-
-void OpenTuneAudioProcessorEditor::exportStemsRequested()
-{
-    if (exportInProgress_.load())
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::InfoIcon,
-            juce::String::fromUTF8("导出音频"),
-            juce::String::fromUTF8("已有导出任务正在进行中，请稍后再试。"));
-        return;
-    }
-
-    juce::String defaultPrefix;
-    if (sessionProjectFile_.getFullPathName().isNotEmpty())
-        defaultPrefix = sessionProjectFile_.getFileNameWithoutExtension();
-
-    auto* content = new StemExportDialogContent(processorRef_, defaultPrefix);
-    content->setSize(440, 400);
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    content->setOnAccepted([safeThis](juce::String prefix, juce::Array<int> trackIds)
-    {
-        if (safeThis == nullptr)
-            return;
-
-        safeThis->launchStemExportFolderChooser(std::move(prefix), std::move(trackIds));
-    });
-
-    juce::DialogWindow::LaunchOptions options;
-    options.dialogTitle = LOC(kExportStemsTitle);
-    options.dialogBackgroundColour = UIColors::backgroundDark;
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.content.setOwned(content);
-    options.componentToCentreAround = this;
-    options.launchAsync();
-}
-
-void OpenTuneAudioProcessorEditor::launchStemExportFolderChooser(juce::String prefix, juce::Array<int> trackIds)
-{
-    const juce::File stemsStartDir = LastFileDialogPaths::directoryForOpen(
-        FileDialogKind::ExportStemsFolder,
-        juce::File::getSpecialLocation(juce::File::userMusicDirectory));
-    auto chooser = std::make_shared<juce::FileChooser>(
-        LOC(kExportStemsChooseFolder),
-        stemsStartDir,
-        juce::String());
-
-    const auto chooserFlags = juce::FileBrowserComponent::openMode
-                     | juce::FileBrowserComponent::canSelectDirectories
-                     | juce::FileBrowserComponent::filenameBoxIsReadOnly;
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-
-    chooser->launchAsync(chooserFlags, [safeThis, chooser, prefix = std::move(prefix), trackIds = std::move(trackIds)](
-                                  const juce::FileChooser& fc) mutable
-    {
-        if (safeThis == nullptr)
-            return;
-
-        const juce::File dir = fc.getResult();
-        if (dir == juce::File{})
-            return;
-
-        if (!dir.isDirectory())
-            return;
-
-        LastFileDialogPaths::rememberDirectory(FileDialogKind::ExportStemsFolder, dir);
-
-        safeThis->startStemExportWorker(std::move(prefix), std::move(trackIds), dir);
-    });
-}
-
-void OpenTuneAudioProcessorEditor::startStemExportWorker(juce::String prefix, juce::Array<int> trackIds, juce::File outputDir)
-{
-    trackIds.sort();
-
-    if (exportWorker_.joinable())
-        exportWorker_.join();
-
-    exportInProgress_.store(true);
-
-    auto* audioProcessor = &processorRef_;
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> uiSafe(this);
-
-    exportWorker_ = std::thread([audioProcessor, prefix = std::move(prefix), trackIds, outputDir, uiSafe]() mutable
-    {
-        int okCount = 0;
-        juce::String lastError;
-
-        for (int tid : trackIds)
-        {
-            juce::String fileName;
-            if (prefix.isEmpty())
-                fileName = "Track " + juce::String(tid + 1) + ".wav";
-            else
-                fileName = prefix + "-Track " + juce::String(tid + 1) + ".wav";
-
-            const juce::File outFile = outputDir.getChildFile(fileName);
-            if (audioProcessor->exportTrackAudio(tid, outFile))
-            {
-                ++okCount;
-            }
-            else if (lastError.isEmpty())
-            {
-                lastError = audioProcessor->getLastExportError();
-            }
-        }
-
-        const int total = trackIds.size();
-        const juce::String folderPath = outputDir.getFullPathName();
-
-        juce::MessageManager::callAsync([uiSafe, okCount, total, folderPath, lastError]()
-        {
-            if (uiSafe == nullptr)
-                return;
-
-            uiSafe->exportInProgress_.store(false);
-
-            if (okCount == total)
-            {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::InfoIcon,
-                    LOC(kExportStemsCompleteTitle),
-                    Loc::format(LOC(kExportStemsCompleteMessage), juce::String(okCount), folderPath));
-            }
-            else if (okCount > 0)
-            {
-                juce::String msg = Loc::format(LOC(kExportStemsCompleteMessage), juce::String(okCount), folderPath);
-                if (lastError.isNotEmpty())
-                    msg << juce::String::fromUTF8("\n") << lastError;
-
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    LOC(kExportStemsCompleteTitle),
-                    msg);
-            }
-            else
-            {
-                const juce::String msg = lastError.isNotEmpty()
-                                              ? lastError
-                                              : juce::String::fromUTF8("Unknown error");
-
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    LOC(kExportStemsFailedTitle),
-                    msg);
-            }
-        });
-    });
-}
-
-void OpenTuneAudioProcessorEditor::markSessionNeedsSave()
-{
-    if (suppressSessionNeedsSave_) {
-        return;
-    }
-    sessionNeedsSave_ = true;
-}
-
-void OpenTuneAudioProcessorEditor::clearSessionNeedsSave()
-{
-    sessionNeedsSave_ = false;
-}
-
-void OpenTuneAudioProcessorEditor::finishNewProject()
-{
-    processorRef_.resetToNewEmptyProject();
-    sessionProjectFile_ = {};
-    clearSessionNeedsSave();
-    syncUiAfterProjectLoad();
-    menuBar_.menuItemsChanged();
-}
-
-void OpenTuneAudioProcessorEditor::checkUnsavedChangesThen(std::function<void()> onProceed)
-{
-    if (!sessionNeedsSave_) {
-        onProceed();
-        return;
-    }
-
-    auto options = juce::MessageBoxOptions::makeOptionsYesNoCancel(
-        juce::MessageBoxIconType::QuestionIcon,
-        LOC(kUnsavedChangesTitle),
-        LOC(kUnsavedChangesLoadMessage),
-        LOC(kSave),
-        LOC(kDontSave),
-        LOC(kCancel),
-        this);
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::AlertWindow::showAsync(options, [safeThis, proceed = std::move(onProceed)](int result) mutable {
-        if (safeThis == nullptr) {
-            return;
-        }
-
-        if (result == 0 || result == 3) {
-            return;
-        }
-
-        if (result == 2) {
-            proceed();
-            return;
-        }
-
-        if (result != 1) {
-            return;
-        }
-
-        if (safeThis->sessionProjectFile_.existsAsFile()) {
-            if (!safeThis->processorRef_.saveProjectToFile(safeThis->sessionProjectFile_)) {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    LOC(kProjectSaveFailedTitle),
-                    LOC(kProjectSaveFailedMessage));
-                return;
-            }
-            safeThis->recentProjects_.add(safeThis->sessionProjectFile_);
-            safeThis->menuBar_.menuItemsChanged();
-            safeThis->clearSessionNeedsSave();
-            proceed();
-            return;
-        }
-
-        safeThis->runSaveProjectDialogThen([proceed = std::move(proceed)]() {
-            proceed();
-        });
-    });
-}
-
-void OpenTuneAudioProcessorEditor::runSaveProjectDialogThen(std::function<void()> onSavedToDisk)
-{
-    juce::File dir = getDefaultOpenTuneProjectsDirectory();
-    if (!dir.exists()) {
-        (void)dir.createDirectory();
-    }
-
-    const juce::File projectSaveStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::SaveProject, dir);
-
-    auto chooser = std::make_shared<juce::FileChooser>(
-        LOC(kSaveProject),
-        projectSaveStart,
-        "*.otproject");
-
-    const auto chooserFlags =
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
-
-    chooser->launchAsync(chooserFlags, [this, chooser, onSaved = std::move(onSavedToDisk)](const juce::FileChooser& fc) mutable {
-        juce::File file = fc.getResult();
-        if (file == juce::File{}) {
-            return;
-        }
-        if (!file.hasFileExtension(".otproject")) {
-            file = file.withFileExtension(".otproject");
-        }
-
-        LastFileDialogPaths::rememberSaveSelection(FileDialogKind::SaveProject, file);
-
-        if (!processorRef_.saveProjectToFile(file)) {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                LOC(kProjectSaveFailedTitle),
-                LOC(kProjectSaveFailedMessage));
-            return;
-        }
-
-        sessionProjectFile_ = file;
-        recentProjects_.add(file);
-        menuBar_.menuItemsChanged();
-        clearSessionNeedsSave();
-        onSaved();
-    });
-}
-
-void OpenTuneAudioProcessorEditor::newProjectRequested()
-{
-    if (!sessionNeedsSave_) {
-        finishNewProject();
-        return;
-    }
-
-    auto options = juce::MessageBoxOptions::makeOptionsYesNoCancel(
-        juce::MessageBoxIconType::QuestionIcon,
-        LOC(kUnsavedChangesTitle),
-        LOC(kUnsavedChangesMessage),
-        LOC(kSave),
-        LOC(kDontSave),
-        LOC(kCancel),
-        this);
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::AlertWindow::showAsync(options, [safeThis](int result) {
-        if (safeThis == nullptr) {
-            return;
-        }
-
-        if (result == 0 || result == 3) {
-            return;
-        }
-
-        if (result == 2) {
-            safeThis->finishNewProject();
-            return;
-        }
-
-        if (result != 1) {
-            return;
-        }
-
-        if (safeThis->sessionProjectFile_.existsAsFile()) {
-            if (!safeThis->processorRef_.saveProjectToFile(safeThis->sessionProjectFile_)) {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon,
-                    LOC(kProjectSaveFailedTitle),
-                    LOC(kProjectSaveFailedMessage));
-                return;
-            }
-            safeThis->recentProjects_.add(safeThis->sessionProjectFile_);
-            safeThis->menuBar_.menuItemsChanged();
-            safeThis->clearSessionNeedsSave();
-            safeThis->finishNewProject();
-            return;
-        }
-
-        safeThis->runSaveProjectDialogThen([safeThis]() {
-            if (safeThis != nullptr) {
-                safeThis->finishNewProject();
-            }
-        });
-    });
-}
-
-void OpenTuneAudioProcessorEditor::quickSaveProject()
-{
-    if (sessionProjectFile_.existsAsFile()) {
-        if (processorRef_.saveProjectToFile(sessionProjectFile_)) {
-            recentProjects_.add(sessionProjectFile_);
-            menuBar_.menuItemsChanged();
-            clearSessionNeedsSave();
-        } else {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                LOC(kProjectSaveFailedTitle),
-                LOC(kProjectSaveFailedMessage));
-        }
-        return;
-    }
-
-    saveProjectRequested();
-}
-
-void OpenTuneAudioProcessorEditor::saveProjectRequested()
-{
-    if (sessionProjectFile_.existsAsFile()) {
-        quickSaveProject();
-        return;
-    }
-
-    juce::File dir = getDefaultOpenTuneProjectsDirectory();
-    if (!dir.exists()) {
-        (void)dir.createDirectory();
-    }
-
-    const juce::File projectSaveStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::SaveProject, dir);
-
-    auto chooser = std::make_shared<juce::FileChooser>(
-        LOC(kSaveProject),
-        projectSaveStart,
-        "*.otproject");
-
-    const auto chooserFlags =
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
-
-    chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
-        juce::File file = fc.getResult();
-        if (file == juce::File{}) {
-            return;
-        }
-        if (!file.hasFileExtension(".otproject")) {
-            file = file.withFileExtension(".otproject");
-        }
-
-        LastFileDialogPaths::rememberSaveSelection(FileDialogKind::SaveProject, file);
-
-        if (processorRef_.saveProjectToFile(file)) {
-            sessionProjectFile_ = file;
-            recentProjects_.add(file);
-            menuBar_.menuItemsChanged();
-            clearSessionNeedsSave();
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::InfoIcon,
-                LOC(kProjectSavedTitle),
-                Loc::format(LOC(kProjectSavedMessage), file.getFullPathName()));
-        } else {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::AlertWindow::WarningIcon,
-                LOC(kProjectSaveFailedTitle),
-                LOC(kProjectSaveFailedMessage));
-        }
-    });
-}
-
-void OpenTuneAudioProcessorEditor::loadProjectRequested()
-{
-    auto doLoad = [this]() {
-        juce::File dir = getDefaultOpenTuneProjectsDirectory();
-        if (!dir.exists()) {
-            (void)dir.createDirectory();
-        }
-
-        const juce::File projectLoadStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::LoadProject, dir);
-
-        auto chooser = std::make_shared<juce::FileChooser>(
-            LOC(kLoadProject),
-            projectLoadStart,
-            "*.otproject");
-
-        const auto chooserFlags =
-            juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-
-        chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
-            juce::File file = fc.getResult();
-            if (file == juce::File{}) {
-                return;
-            }
-            LastFileDialogPaths::rememberOpenSelection(FileDialogKind::LoadProject, file);
-            openProjectFromFileWithUiFeedback(file);
-        });
-    };
-
-    checkUnsavedChangesThen(std::move(doLoad));
-}
-
-void OpenTuneAudioProcessorEditor::recentProjectOpenRequested(const juce::File& file)
-{
-    checkUnsavedChangesThen([this, file]() {
-        openProjectFromFileWithUiFeedback(file);
-    });
-}
-
-void OpenTuneAudioProcessorEditor::openProjectFromFileWithUiFeedback(const juce::File& file)
-{
-    if (!processorRef_.loadProjectFromFile(file)) {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            LOC(kProjectLoadFailedTitle),
-            LOC(kProjectLoadFailedMessage));
-        return;
-    }
-
-    sessionProjectFile_ = file;
-    recentProjects_.add(file);
-    menuBar_.menuItemsChanged();
-    clearSessionNeedsSave();
-    syncUiAfterProjectLoad();
-}
-
-void OpenTuneAudioProcessorEditor::preferencesRequested()
-{
-    auto* dialogContent = new OptionsDialogComponent();
-    dialogContent->setSize(520, 540);
-    
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned(dialogContent);
-    options.dialogTitle = "Options";
-    options.dialogBackgroundColour = UIColors::backgroundDark;
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    
-    options.launchAsync();
-}
-
-void OpenTuneAudioProcessorEditor::helpRequested()
-{
-    auto exeFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-    auto exeDir = exeFile.getParentDirectory();
-#if JUCE_MAC
-    // macOS: docs are in Contents/Resources/docs/ (executable is in Contents/MacOS/)
-    auto helpFile = exeDir.getParentDirectory().getChildFile("Resources").getChildFile("docs").getChildFile("UserGuide.html");
-#else
-    // Windows: docs are alongside the executable
-    auto helpFile = exeDir.getChildFile("docs").getChildFile("UserGuide.html");
-#endif
-    
-    if (helpFile.exists())
-    {
-        helpFile.startAsProcess();
-    }
-    else
-    {
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon,
-            LOC(kClose),
-            juce::String::fromUTF8(u8"无法找到帮助文档：") + helpFile.getFullPathName()
-        );
-    }
-}
-
-void OpenTuneAudioProcessorEditor::showWaveformToggled(bool shouldShow)
-{
-    pianoRoll_.setShowWaveform(shouldShow);
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::showLanesToggled(bool shouldShow)
-{
-    pianoRoll_.setShowLanes(shouldShow);
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme)
-{
-    MouseTrailConfig::setTheme(theme);
-    repaint();
-}
-
-void OpenTuneAudioProcessorEditor::themeChanged(ThemeId themeId)
-{
-    Theme::setActiveTheme(themeId);
-    UIColors::applyTheme(Theme::getActiveTokens());
-
-    if (themeId == ThemeId::Aurora)
-    {
-        setLookAndFeel(&auroraLookAndFeel_);
-    }
-    else
-    {
-        setLookAndFeel(&openTuneLookAndFeel_);
-        openTuneLookAndFeel_.setColour(juce::TextButton::buttonColourId, UIColors::buttonNormal);
-        openTuneLookAndFeel_.setColour(juce::TextButton::buttonOnColourId, UIColors::accent);
-        openTuneLookAndFeel_.setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
-        openTuneLookAndFeel_.setColour(juce::TextButton::textColourOnId, UIColors::textPrimary);
-    }
-
-    getLookAndFeel().setColour(juce::ResizableWindow::backgroundColourId, UIColors::backgroundDark);
-
-    if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
-    {
-        window->setColour(juce::DocumentWindow::backgroundColourId, UIColors::backgroundMedium);
-        window->repaint();
-    }
-
-    topBar_.applyTheme();
-    topBar_.setSidePanelsVisible(isTrackPanelVisible_, isParameterPanelVisible_);
-    trackPanel_.applyTheme();
-    parameterPanel_.applyTheme();
-
-    // 同步播放头颜色到高性能播放头覆盖层
-    pianoRoll_.setPlayheadColour(UIColors::playhead);
-    arrangementView_.setPlayheadColour(UIColors::playhead);
-
-    menuBar_.repaint();
-    topBar_.repaint();
-    trackPanel_.repaint();
-    parameterPanel_.repaint();
-    arrangementView_.repaint();
-    pianoRoll_.repaint();
-
-    sendLookAndFeelChange();
-    repaint();
-}
-
-void OpenTuneAudioProcessorEditor::undoRequested()
-{
-    performUndoWithRangeTracking();
-}
-
-void OpenTuneAudioProcessorEditor::redoRequested()
-{
-    performRedoWithRangeTracking();
-}
-
-void OpenTuneAudioProcessorEditor::noteNameModeChanged(int mode)
-{
-    pianoRoll_.setNoteNameDisplayMode(mode);
-}
-
-void OpenTuneAudioProcessorEditor::showNoteBlockNoteNamesToggled(bool shouldShow)
-{
-    pianoRoll_.setShowNoteBlockNoteNames(shouldShow);
-}
-
-void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
-{
-    juce::ignoreUnused(newLanguage);
-    
-    // 刷新菜单栏 - JUCE 需要调用 menuItemsChanged() 重建菜单
-    menuBar_.menuItemsChanged();
-    menuBar_.repaint();
-    
-    // 刷新顶部工具栏
-    transportBar_.refreshLocalizedText();
-    topBar_.refreshLocalizedText();
-    
-    // 刷新参数面板
-    parameterPanel_.refreshLocalizedText();
-    
-    // 刷新整个界面
-    repaint();
-}
-
-void OpenTuneAudioProcessorEditor::refreshAfterUndoRedo()
-{
-    pianoRoll_.refreshAfterUndoRedo();
-    arrangementView_.repaint();
-    trackPanel_.repaint();
-}
-
-void OpenTuneAudioProcessorEditor::syncUiAfterProjectLoad()
-{
-    struct SuppressDirty {
-        bool& flag;
-        explicit SuppressDirty(bool& f) : flag(f) { flag = true; }
-        ~SuppressDirty() { flag = false; }
-    } guard(suppressSessionNeedsSave_);
-
-    processorRef_.setPlaying(false);
-    processorRef_.setPosition(0.0);
-    transportBar_.setPlaying(false);
-    transportBar_.setLooping(processorRef_.isLoopEnabled());
-    transportBar_.setBpm(processorRef_.getBpm());
-    pianoRoll_.setIsPlaying(false);
-    arrangementView_.setIsPlaying(false);
-
-    trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
-    trackPanel_.setTrackHeight(processorRef_.getTrackHeight());
-    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i) {
-        trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
-        trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
-        trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
-        lastTrackVolumes_[static_cast<size_t>(i)] = processorRef_.getTrackVolume(i);
-    }
-
-    arrangementView_.setZoomLevel(processorRef_.getZoomLevel());
-    pianoRoll_.setShowWaveform(processorRef_.getShowWaveform());
-    pianoRoll_.setShowLanes(processorRef_.getShowLanes());
-    pianoRoll_.setZoomLevel(processorRef_.getZoomLevel());
-    pianoRoll_.setBpm(processorRef_.getBpm());
-
-    const int activeTrack = processorRef_.getActiveTrackId();
-    const int clipIndex = processorRef_.getSelectedClip(activeTrack);
-    const uint64_t clipId = processorRef_.getClipId(activeTrack, clipIndex);
-    pianoRoll_.setCurrentClipContext(activeTrack, clipId);
-
-    std::shared_ptr<const juce::AudioBuffer<float>> clipBuffer =
-        processorRef_.getClipAudioBuffer(activeTrack, clipIndex);
-    pianoRoll_.setAudioBuffer(clipBuffer, static_cast<int>(processorRef_.getSampleRate()));
-
-    applyResolvedScaleForClip(activeTrack, clipIndex);
-    syncPianoRollFromClipSelection(activeTrack, clipIndex);
-    syncParameterPanelFromSelection();
-    menuBar_.menuItemsChanged();
-    refreshAfterUndoRedo();
-
-    lastSyncedBpm_ = processorRef_.getBpm();
-}
-
-void OpenTuneAudioProcessorEditor::performUndoWithRangeTracking()
-{
-    CorrectedSegmentsChangeAction::resetLastAffectedRange();
-    processorRef_.performUndo();
-    
-    int start = CorrectedSegmentsChangeAction::getLastAffectedStartFrame();
-    int end = CorrectedSegmentsChangeAction::getLastAffectedEndFrame();
-    
-    AppLogger::log("performUndoWithRangeTracking: diffRange=[" + juce::String(start) + "," + juce::String(end) + "]");
-    
-    pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
-    arrangementView_.repaint();
-    trackPanel_.repaint();
-}
-
-void OpenTuneAudioProcessorEditor::performRedoWithRangeTracking()
-{
-    CorrectedSegmentsChangeAction::resetLastAffectedRange();
-    processorRef_.performRedo();
-    
-    int start = CorrectedSegmentsChangeAction::getLastAffectedStartFrame();
-    int end = CorrectedSegmentsChangeAction::getLastAffectedEndFrame();
-    
-    AppLogger::log("performRedoWithRangeTracking: diffRange=[" + juce::String(start) + "," + juce::String(end) + "]");
-    
-    pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
-    arrangementView_.repaint();
-    trackPanel_.repaint();
-}
-
-// ============================================================================
-// TransportBarComponent::Listener Implementation
-// ============================================================================
-
-void OpenTuneAudioProcessorEditor::playRequested()
-{
-    processorRef_.setPlaying(true);
-    transportBar_.setPlaying(true);
-    pianoRoll_.setIsPlaying(true);  // Notify PianoRoll for auto-scroll
-    arrangementView_.setIsPlaying(true);  // Notify ArrangementView for overlay sync
-}
-
-void OpenTuneAudioProcessorEditor::pauseRequested()
-{
-    processorRef_.setPlaying(false);
-    transportBar_.setPlaying(false);
-    pianoRoll_.setIsPlaying(false);  // Notify PianoRoll to stop auto-scroll
-    arrangementView_.setIsPlaying(false);  // Notify ArrangementView to stop overlay updates
-}
-
-void OpenTuneAudioProcessorEditor::stopRequested()
-{
-    processorRef_.setPlaying(false);
-    processorRef_.setPosition(0);
-    transportBar_.setPlaying(false);
-    pianoRoll_.setIsPlaying(false);  // Notify PianoRoll to stop auto-scroll
-    arrangementView_.setIsPlaying(false);  // Notify ArrangementView to stop overlay updates
-}
-
-void OpenTuneAudioProcessorEditor::loopToggled(bool enabled)
-{
-    processorRef_.setLoopEnabled(enabled);
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::bpmChanged(double newBpm)
-{
-    processorRef_.setBpm(newBpm);
-    pianoRoll_.setBpm(newBpm);  // Update piano roll to redraw time grid
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::scaleChanged(int rootNote, int scaleType)
-{
-    if (suppressScaleChangedCallback_) {
-        return;
-    }
-
-    const int activeTrack = processorRef_.getActiveTrackId();
-    const int activeClip = processorRef_.getSelectedClip(activeTrack);
-    const uint64_t activeClipId = processorRef_.getClipId(activeTrack, activeClip);
-
-    const int newRoot = juce::jlimit(0, 11, rootNote);
-    const int newScaleType = juce::jlimit(1, 8, scaleType);
-
-    const DetectedKey oldResolved = resolveScaleForClip(activeTrack, activeClip, nullptr);
-    const int oldRootNote = static_cast<int>(oldResolved.root);
-    const int oldScaleType = scaleToUiScaleType(oldResolved.scale);
-
-    if (oldRootNote == newRoot && oldScaleType == newScaleType) {
-        applyScaleToUi(newRoot, newScaleType);
-        return;
-    }
-
-    const DetectedKey newKey = makeDetectedKeyFromUi(newRoot, newScaleType, 1.0f);
-
-    if (activeClip >= 0) {
-        processorRef_.setClipDetectedKey(activeTrack, activeClip, newKey);
-    }
-    applyScaleToUi(newRoot, newScaleType);
-
-    DBG("ScaleSyncTrace: source=manual trackId=" + juce::String(activeTrack)
-        + " clipIndex=" + juce::String(activeClip)
-        + " clipId=" + juce::String(static_cast<juce::int64>(activeClipId))
-        + " root=" + juce::String(newRoot)
-        + " scale=" + juce::String(newScaleType));
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    processorRef_.getUndoManager().addAction(
-        std::make_unique<ClipScaleKeyChangeAction>(
-            activeTrack,
-            activeClipId,
-            oldRootNote,
-            oldScaleType,
-            newRoot,
-            newScaleType,
-            [safeThis](int trackId, uint64_t clipId, int r, int s) {
-                if (safeThis == nullptr) return;
-
-                const int resolvedClipIndex = (clipId != 0)
-                    ? safeThis->processorRef_.findClipIndexById(trackId, clipId)
-                    : safeThis->processorRef_.getSelectedClip(trackId);
-
-                const DetectedKey dk = OpenTuneAudioProcessorEditor::makeDetectedKeyFromUi(r, s, 1.0f);
-                if (resolvedClipIndex >= 0) {
-                    safeThis->processorRef_.setClipDetectedKey(trackId, resolvedClipIndex, dk);
-                }
-
-                const int activeTrackNow = safeThis->processorRef_.getActiveTrackId();
-                const int activeClipNow = safeThis->processorRef_.getSelectedClip(activeTrackNow);
-                const uint64_t activeClipIdNow = safeThis->processorRef_.getClipId(activeTrackNow, activeClipNow);
-                const bool sameVisibleClip = (clipId != 0)
-                    ? (activeTrackNow == trackId && activeClipIdNow == clipId)
-                    : (activeTrackNow == trackId && activeClipNow == resolvedClipIndex);
-
-                if (sameVisibleClip) {
-                    safeThis->applyScaleToUi(r, s);
-                }
-
-                DBG("UndoTrace: ClipScaleKeyChangeAction trackId=" + juce::String(trackId)
-                    + " clipId=" + juce::String(static_cast<juce::int64>(clipId))
-                    + " root=" + juce::String(r)
-                    + " scale=" + juce::String(s));
-            })
-    );
-}
-
-void OpenTuneAudioProcessorEditor::viewToggled(bool workspaceView)
-{
-    isWorkspaceView_ = workspaceView;
-    arrangementView_.setVisible(isWorkspaceView_);
-    pianoRoll_.setVisible(!isWorkspaceView_);
-    
-    // Explicitly grab focus for the active view to ensure keyboard shortcuts work immediately
-    if (isWorkspaceView_)
-        arrangementView_.grabKeyboardFocus();
-    else
-        pianoRoll_.grabKeyboardFocus();
-
-    resized();
-    repaint();
-
-    // 延迟调用自动缩放，确保resized()完成后执行
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::Timer::callAfterDelay(50, [safeThis, workspaceView]() {
-        if (safeThis == nullptr) return;
-
-        if (workspaceView) {
-            // 切换到ArrangementView
-            if (!safeThis->arrangementView_.hasUserManuallyZoomed()) {
-                safeThis->arrangementView_.fitToContent();
-            }
-        } else {
-            // 切换到PianoRoll
-            if (!safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        }
-    });
-
-}
-
-// ============================================================================
-// TrackPanelComponent::Listener Implementation
-// ============================================================================
-
-void OpenTuneAudioProcessorEditor::trackSelected(int trackId)
-{
-    processorRef_.setActiveTrack(trackId);
-    processorRef_.setSelectedClip(trackId, processorRef_.getSelectedClip(trackId));
-    int clipIndex = processorRef_.getSelectedClip(trackId);
-    syncPianoRollFromClipSelection(trackId, clipIndex);
-    
-    pianoRoll_.repaint();
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::trackMuteToggled(int trackId, bool muted)
-{
-    bool oldMuted = processorRef_.isTrackMuted(trackId);
-    processorRef_.setTrackMuted(trackId, muted);
-    
-    // 创建 Undo Action
-    if (oldMuted != muted) {
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        processorRef_.getUndoManager().addAction(
-            std::make_unique<TrackMuteAction>(
-                processorRef_, trackId, oldMuted, muted,
-                [safeThis](int tid, bool m) {
-                    if (safeThis) safeThis->trackPanel_.setTrackMuted(tid, m);
-                }
-            )
-        );
-    }
-}
-
-void OpenTuneAudioProcessorEditor::trackSoloToggled(int trackId, bool solo)
-{
-    bool oldSolo = processorRef_.isTrackSolo(trackId);
-    processorRef_.setTrackSolo(trackId, solo);
-    
-    // 创建 Undo Action
-    if (oldSolo != solo) {
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        processorRef_.getUndoManager().addAction(
-            std::make_unique<TrackSoloAction>(
-                processorRef_, trackId, oldSolo, solo,
-                [safeThis](int tid, bool s) {
-                    if (safeThis) safeThis->trackPanel_.setTrackSolo(tid, s);
-                }
-            )
-        );
-    }
-}
-
-void OpenTuneAudioProcessorEditor::trackVolumeChanged(int trackId, float volume)
-{
-    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS) return;
-    
-    float oldVolume = lastTrackVolumes_[static_cast<size_t>(trackId)];
-    processorRef_.setTrackVolume(trackId, volume);
-    lastTrackVolumes_[static_cast<size_t>(trackId)] = volume;
-    
-    // 只有值变化超过阈值时才创建 Undo Action（避免拖动时产生过多 Action）
-    // 使用 0.01 作为阈值，约等于 0.1dB
-    if (std::abs(oldVolume - volume) > 0.01f) {
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        processorRef_.getUndoManager().addAction(
-            std::make_unique<TrackVolumeAction>(
-                processorRef_, trackId, oldVolume, volume,
-                [safeThis](int tid, float v) {
-                    if (safeThis) {
-                        safeThis->trackPanel_.setTrackVolume(tid, v);
-                        safeThis->lastTrackVolumes_[static_cast<size_t>(tid)] = v;
-                    }
-                }
-            )
-        );
-    }
-}
-
-// Y轴缩放同步：当TrackPanel或ArrangementView通过Ctrl+滚轮缩放时，同步另一个组件
-void OpenTuneAudioProcessorEditor::trackHeightChanged(int newHeight)
-{
-    // 更新processor中的轨道高度
-    processorRef_.setTrackHeight(newHeight);
-    
-    // 同步TrackPanel（如果不是由它触发的）
-    if (trackPanel_.getTrackHeight() != newHeight)
-    {
-        trackPanel_.setTrackHeight(newHeight);
-    }
-    
-    // 刷新ArrangementView
-    arrangementView_.repaint();
-    markSessionNeedsSave();
-}
-
-void OpenTuneAudioProcessorEditor::clipSelectionChanged(int trackId, int clipIndex)
-{
-    processorRef_.setActiveTrack(trackId);
-    processorRef_.setSelectedClip(trackId, clipIndex);
-    trackPanel_.setActiveTrack(trackId);
-
-    syncPianoRollFromClipSelection(trackId, clipIndex);
-    markSessionNeedsSave();
-
-    // 如果当前在PianoRoll视图，且用户没有手动缩放过，自动适配新clip
-    if (!isWorkspaceView_) {
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(100, [safeThis]() {
-            if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        });
-    }
-}
-
-void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
-{
-    // Update PianoRoll if this clip is active
-    if (processorRef_.getActiveTrackId() == trackId && processorRef_.getSelectedClip(trackId) == clipIndex)
-    {
-        pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, clipIndex));
-    }
-}
-
-// Y轴滚动同步：ArrangementView或TrackPanel滚动时通知另一个组件跟随
-void OpenTuneAudioProcessorEditor::verticalScrollChanged(int newOffset)
-{
-    // 同步TrackPanel
-    trackPanel_.setVerticalScrollOffset(newOffset);
-    // 同步ArrangementView
-    arrangementView_.setVerticalScrollOffset(newOffset);
-}
-
-void OpenTuneAudioProcessorEditor::clipDoubleClicked(int trackId, int clipIndex)
-{
-    // 1. Switch to Piano Roll View
-    if (isWorkspaceView_)
-    {
-        transportBar_.setWorkspaceView(false);
-        viewToggled(false); // 会触发自动缩放
-    }
-    else
-    {
-        // 如果已经在PianoRoll视图，也需要调用fitToScreen
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(50, [safeThis]() {
-            if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        });
-    }
-
-    // 2. Select the clip
-    clipSelectionChanged(trackId, clipIndex);
-
 }
 
 void OpenTuneAudioProcessorEditor::performScaleInferenceForClip(int trackId, int clipIndex)
@@ -2810,7 +1179,7 @@ void OpenTuneAudioProcessorEditor::performScaleInferenceForClip(int trackId, int
     DBG("Detected Key: " + DetectedKey::keyToString(key.root) + " " + DetectedKey::scaleToString(key.scale));
 }
 
-// Eager-first：仅导入完成时触发一次 OriginalF0 预提取
+// Eager-first锛氫粎瀵煎叆瀹屾垚鏃惰Е鍙戜竴娆?OriginalF0 棰勬彁鍙?
 void OpenTuneAudioProcessorEditor::requestOriginalF0ExtractionForImport(int trackId, int clipIndex)
 {
     const uint64_t clipId = processorRef_.getClipId(trackId, clipIndex);
@@ -3095,7 +1464,7 @@ void OpenTuneAudioProcessorEditor::requestOriginalF0ExtractionForImport(int trac
         return;
     }
 
-    // RMVPE 提取 overlay latch（仅 Accepted 才进入）
+    // RMVPE 鎻愬彇 overlay latch锛堜粎 Accepted 鎵嶈繘鍏ワ級
     if (clipId != 0) {
         rmvpeOverlayLatched_ = true;
         rmvpeOverlayTargetTrackId_ = trackId;
@@ -3148,7 +1517,7 @@ void OpenTuneAudioProcessorEditor::playFromStartToggleRequested()
 
 void OpenTuneAudioProcessorEditor::autoTuneRequested()
 {
-    // 合并重复逻辑：调用统一 helper
+    // 鍚堝苟閲嶅閫昏緫锛氳皟鐢ㄧ粺涓€ helper
     startAutoTuneAsUnifiedEdit();
     pianoRoll_.setCurrentTool(ToolId::Select);
     parameterPanel_.setActiveTool(1);
@@ -3193,7 +1562,7 @@ void OpenTuneAudioProcessorEditor::audioSettingsRequested()
     processorRef_.showAudioSettingsDialog(*this);
 }
 
-// AUTO 启动统一 helper：合并 toolSelected(AutoTune) 与 autoTuneRequested() 的重复逻辑
+// AUTO 鍚姩缁熶竴 helper锛氬悎骞?toolSelected(AutoTune) 涓?autoTuneRequested() 鐨勯噸澶嶉€昏緫
 void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit()
 {
     const int trackId = processorRef_.getActiveTrackId();
@@ -3228,13 +1597,13 @@ void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit()
         return;
     }
 
-    // 尝试启动 AUTO 处理
+    // 灏濊瘯鍚姩 AUTO 澶勭悊
     bool success = pianoRoll_.applyAutoTuneToSelection();
     if (success) {
         autoOverlayLatched_ = true;
         autoOverlayTargetTrackId_ = trackId;
         autoOverlayTargetClipId_ = processorRef_.getClipId(trackId, clipIndex);
-        autoRenderOverlay_.setMessageText(juce::String::fromUTF8("正在渲染中"));
+        autoRenderOverlay_.setMessageText("Rendering...");
         autoRenderOverlay_.setVisible(true);
     }
 }
