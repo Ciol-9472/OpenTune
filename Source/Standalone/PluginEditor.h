@@ -80,6 +80,7 @@ public:
     void undoRequested() override;
     void redoRequested() override;
     void noteNameModeChanged(int mode) override;
+    void showNoteBlockNoteNamesToggled(bool shouldShow) override;
 
     // TransportBarComponent::Listener
     void playRequested() override;

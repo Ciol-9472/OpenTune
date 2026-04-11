@@ -1760,6 +1760,7 @@ PianoRollRenderer::RenderContext PianoRollComponent::buildRenderContext() const
     ctx.scaleRootNote = scaleRootNote_;
     ctx.scaleType = scaleType_;
     ctx.noteNameMode = noteNameDisplayMode_;
+    ctx.showNoteBlockNoteNames = showNoteBlockNoteNames_;
     ctx.showWaveform = showWaveform_;
     ctx.showLanes = showLanes_;
     ctx.showOriginalF0 = showOriginalF0_;
@@ -1810,6 +1811,12 @@ void PianoRollComponent::setScale(int rootNote, int scaleType)
 void PianoRollComponent::setNoteNameDisplayMode(int mode)
 {
     noteNameDisplayMode_ = juce::jlimit(0, 2, mode);
+    repaint();
+}
+
+void PianoRollComponent::setShowNoteBlockNoteNames(bool show)
+{
+    showNoteBlockNoteNames_ = show;
     repaint();
 }
 

@@ -121,6 +121,7 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
         {
             menu.addItem(ShowWaveform, LOC(kShowWaveform), true, processor_.getShowWaveform());
             menu.addItem(ShowLanes, LOC(kShowLanes), true, processor_.getShowLanes());
+            menu.addItem(ShowNoteBlockNoteNames, LOC(kShowNoteBlockNoteNames), true, showNoteBlockNoteNames_);
 
             {
                 juce::PopupMenu noteNamesMenu;
@@ -215,6 +216,14 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             bool newState = !processor_.getShowLanes();
             processor_.setShowLanes(newState);
             listeners_.call([newState](Listener& l) { l.showLanesToggled(newState); });
+            menuItemsChanged();
+            break;
+        }
+        case ShowNoteBlockNoteNames:
+        {
+            showNoteBlockNoteNames_ = !showNoteBlockNoteNames_;
+            const bool s = showNoteBlockNoteNames_;
+            listeners_.call([s](Listener& l) { l.showNoteBlockNoteNamesToggled(s); });
             menuItemsChanged();
             break;
         }

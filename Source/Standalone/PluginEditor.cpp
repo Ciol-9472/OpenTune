@@ -2332,6 +2332,11 @@ void OpenTuneAudioProcessorEditor::noteNameModeChanged(int mode)
     pianoRoll_.setNoteNameDisplayMode(mode);
 }
 
+void OpenTuneAudioProcessorEditor::showNoteBlockNoteNamesToggled(bool shouldShow)
+{
+    pianoRoll_.setShowNoteBlockNoteNames(shouldShow);
+}
+
 void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
 {
     juce::ignoreUnused(newLanguage);

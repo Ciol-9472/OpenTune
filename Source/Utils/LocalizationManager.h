@@ -138,6 +138,7 @@ constexpr const char* kNoteNames = "Note Names";
 constexpr const char* kShowAllNotes = "Show All Notes";
 constexpr const char* kShowCOnly = "Show C Only";
 constexpr const char* kHideNoteNames = "Hide Note Names";
+constexpr const char* kShowNoteBlockNoteNames = "Note Names on Blocks";
 constexpr const char* kTheme = "Theme";
 constexpr const char* kThemeBlueBreeze = "Blue Breeze";
 constexpr const char* kThemeDarkBlueGrey = "Dark Blue-Grey";
@@ -296,6 +297,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kShowAllNotes, "Show All Notes", "显示全部音名", "すべてのノート名を表示", "Все ноты", "Mostrar todas" },
         { Keys::kShowCOnly, "Show C Only", "仅显示C", "Cのみ表示", "Только C", "Solo C" },
         { Keys::kHideNoteNames, "Hide Note Names", "不显示音名", "ノート名を非表示", "Скрыть", "Ocultar nombres" },
+        { Keys::kShowNoteBlockNoteNames, "Note Names on Blocks", "音符音名", "ブロック上の音名", "Названия на нотах", "Nombres en notas" },
         { Keys::kTheme, "Theme", "主题", "テーマ", "Тема", "Tema" },
         { Keys::kThemeBlueBreeze, "Blue Breeze", "蓝色清风", "ブルーブリーズ", "Голубой бриз", "Brisa azul" },
         { Keys::kThemeDarkBlueGrey, "Dark Blue-Grey", "深蓝灰", "ダークブルーグレー", "Тёмно-синий серый", "Azul-gris oscuro" },

@@ -6,7 +6,7 @@
  * 实现 JUCE MenuBarModel 接口，提供应用程序菜单：
  * - File（导入、导出、工程等）
  * - Edit（撤销、重做等）
- * - View（波形显示、音名、主题等）
+ * - View（波形、音道、音符块音名、左侧音名、主题等）
  */
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -45,10 +45,12 @@ public:
         virtual void helpRequested() = 0;
         virtual void showWaveformToggled(bool shouldShow) = 0;
         virtual void showLanesToggled(bool shouldShow) = 0;
+        /** 钢琴卷帘音符块上是否绘制音名（与左侧琴键音名子菜单无关） */
+        virtual void showNoteBlockNoteNamesToggled(bool shouldShow) {}
         virtual void themeChanged(ThemeId themeId) = 0;
         virtual void undoRequested() = 0;
         virtual void redoRequested() = 0;
-        /** 0=ShowAll, 1=COnly, 2=Hide — 与钢琴卷帘左侧音名显示一致 */
+        /** 0=ShowAll, 1=COnly, 2=Hide — 仅钢琴卷帘左侧琴键音名 */
         virtual void noteNameModeChanged(int mode) {}
         virtual void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) {}
     };
@@ -76,6 +78,7 @@ private:
     juce::ListenerList<Listener> listeners_;
     RecentProjectsManager* recentProjects_{nullptr};
     int currentNoteNameMode_ = 1;
+    bool showNoteBlockNoteNames_ = true;
 
     enum MenuItemIDs
     {
@@ -98,6 +101,7 @@ private:
         ThemeBlueBreeze,
         ThemeDarkBlueGrey,
         ThemeAurora,
+        ShowNoteBlockNoteNames = 105,
 
         NoteNamesAll = 110,
         NoteNamesCOnly,

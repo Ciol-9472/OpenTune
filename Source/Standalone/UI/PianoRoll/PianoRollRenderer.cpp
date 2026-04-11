@@ -688,7 +688,8 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
                                        double trackOffsetSeconds)
 {
     PerfTimer timer("[PianoRollRenderer] drawNoteLabels");
-    if (notes.empty()) return;
+    if (notes.empty() || !ctx.showNoteBlockNoteNames)
+        return;
 
     static constexpr int kScaleTypeChromatic = 3;
     static const char* kSharpNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -699,14 +700,8 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
         ? kUseFlatsByRoot[juce::jlimit(0, 11, ctx.scaleRootNote)]
         : false;
 
-    constexpr float kShowAllMinPps = 14.0f;
-    constexpr float kShowCOnlyMinPps = 8.0f;
-    int effectiveMode = ctx.noteNameMode;
-    if (effectiveMode == 0 && ctx.pixelsPerSemitone < kShowAllMinPps)
-        effectiveMode = 1;
-    if (effectiveMode <= 1 && ctx.pixelsPerSemitone < kShowCOnlyMinPps)
-        effectiveMode = 2;
-    if (effectiveMode == 2)
+    constexpr float kMinPpsForBlockLabels = 8.0f;
+    if (ctx.pixelsPerSemitone < kMinPpsForBlockLabels)
         return;
 
     for (const auto& note : notes)
@@ -729,9 +724,6 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
         if (midiLabel < 0 || h < 8.0f || w < 12.0f) continue;
 
         const int pc = ((midiLabel % 12) + 12) % 12;
-        if (effectiveMode == 1 && pc != 0)
-            continue;
-
         const int octave = (midiLabel / 12) - 1;
         const char* name = useFlats ? kFlatNames[pc] : kSharpNames[pc];
         const juce::String label = juce::String(name) + juce::String(octave);
@@ -744,12 +736,6 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
         const juce::Rectangle<float> textR(static_cast<float>(x1) + 2.0f, y, w - 4.0f, h);
         juce::Graphics::ScopedSaveState ss(g);
         g.reduceClipRegion(textR.toNearestIntEdges());
-
-        g.setColour(juce::Colours::black.withAlpha(0.55f));
-        for (int ox = -1; ox <= 1; ++ox)
-            for (int oy = -1; oy <= 1; ++oy)
-                if (ox != 0 || oy != 0)
-                    g.drawText(label, textR.translated((float)ox, (float)oy), juce::Justification::centredLeft);
 
         g.setColour(note.selected ? juce::Colours::white.withAlpha(0.95f)
                                  : juce::Colours::black.withAlpha(0.88f));
