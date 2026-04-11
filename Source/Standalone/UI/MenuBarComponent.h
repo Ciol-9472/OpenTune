@@ -2,15 +2,17 @@
 
 /**
  * 菜单栏组件
- * 
+ *
  * 实现 JUCE MenuBarModel 接口，提供应用程序菜单：
  * - File（导入、导出、工程等）
  * - Edit（撤销、重做等）
- * - View（波形显示、调式、主题等）
+ * - View（波形显示、音名、主题等）
  */
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "ThemeTokens.h"
+#include "../../Utils/MouseTrailConfig.h"
+
 namespace OpenTune {
 
 class OpenTuneAudioProcessor;
@@ -46,6 +48,9 @@ public:
         virtual void themeChanged(ThemeId themeId) = 0;
         virtual void undoRequested() = 0;
         virtual void redoRequested() = 0;
+        /** 0=ShowAll, 1=COnly, 2=Hide — 与钢琴卷帘左侧音名显示一致 */
+        virtual void noteNameModeChanged(int mode) {}
+        virtual void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) {}
     };
 
     explicit MenuBarComponent(OpenTuneAudioProcessor& processor);
@@ -57,9 +62,9 @@ public:
     void addListener(Listener* listener);
     void removeListener(Listener* listener);
 
-    void refreshLocalizedText();  // 刷新本地化文本
+    void refreshLocalizedText();
 
-    void setRecentProjectsManager(RecentProjectsManager* manager);
+    void setRecentProjectsManager(RecentProjectsManager* mgr);
 
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
@@ -70,6 +75,7 @@ private:
     juce::MenuBarComponent menuBar_;
     juce::ListenerList<Listener> listeners_;
     RecentProjectsManager* recentProjects_{nullptr};
+    int currentNoteNameMode_ = 1;
 
     enum MenuItemIDs
     {
@@ -92,6 +98,19 @@ private:
         ThemeBlueBreeze,
         ThemeDarkBlueGrey,
         ThemeAurora,
+
+        NoteNamesAll = 110,
+        NoteNamesCOnly,
+        NoteNamesHide,
+
+        MouseTrailNone = 150,
+        MouseTrailClassic,
+        MouseTrailNeon,
+        MouseTrailFire,
+        MouseTrailOcean,
+        MouseTrailGalaxy,
+        MouseTrailCherryBlossom,
+        MouseTrailMatrix,
 
         OpenPreferences = 200,
         OpenHelp

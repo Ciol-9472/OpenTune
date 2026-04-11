@@ -18,7 +18,7 @@ enum class TrailTheme
 
 inline TrailTheme& getCurrentTheme()
 {
-    static TrailTheme currentTheme = TrailTheme::Classic;
+    static TrailTheme currentTheme = TrailTheme::None;
     return currentTheme;
 }
 

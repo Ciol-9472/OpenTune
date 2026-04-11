@@ -41,13 +41,12 @@ void MenuBarComponent::removeListener(Listener* listener)
 
 void MenuBarComponent::refreshLocalizedText()
 {
-    // JUCE 会自动重新调用 getMenuBarNames() 和 getMenuForIndex()
     menuItemsChanged();
 }
 
-void MenuBarComponent::setRecentProjectsManager(RecentProjectsManager* manager)
+void MenuBarComponent::setRecentProjectsManager(RecentProjectsManager* mgr)
 {
-    recentProjects_ = manager;
+    recentProjects_ = mgr;
     menuItemsChanged();
 }
 
@@ -62,7 +61,7 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
 
     switch (topLevelMenuIndex)
     {
-        case 0:  // File
+        case 0:
         {
             menu.addItem(ImportAudio, LOC(kImportAudio));
 
@@ -106,7 +105,7 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             menu.addItem(OpenHelp, LOC(kHelp));
             break;
         }
-        case 1:  // Edit
+        case 1:
         {
             {
                 auto undoBinding = KeyShortcutConfig::getShortcutBinding(KeyShortcutConfig::ShortcutId::Undo);
@@ -118,10 +117,18 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             }
             break;
         }
-        case 2:  // View
+        case 2:
         {
             menu.addItem(ShowWaveform, LOC(kShowWaveform), true, processor_.getShowWaveform());
             menu.addItem(ShowLanes, LOC(kShowLanes), true, processor_.getShowLanes());
+
+            {
+                juce::PopupMenu noteNamesMenu;
+                noteNamesMenu.addItem(NoteNamesAll, LOC(kShowAllNotes), true, currentNoteNameMode_ == 0);
+                noteNamesMenu.addItem(NoteNamesCOnly, LOC(kShowCOnly), true, currentNoteNameMode_ == 1);
+                noteNamesMenu.addItem(NoteNamesHide, LOC(kHideNoteNames), true, currentNoteNameMode_ == 2);
+                menu.addSubMenu(LOC(kNoteNames), noteNamesMenu);
+            }
 
             juce::PopupMenu themeMenu;
             themeMenu.addItem(ThemeBlueBreeze, LOC(kThemeBlueBreeze), true, Theme::getActiveTheme() == ThemeId::BlueBreeze);
@@ -129,6 +136,22 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             themeMenu.addItem(ThemeAurora, LOC(kThemeAurora), true, Theme::getActiveTheme() == ThemeId::Aurora);
             menu.addSeparator();
             menu.addSubMenu(LOC(kTheme), themeMenu);
+
+            {
+                const auto currentTrail = MouseTrailConfig::getTheme();
+                juce::PopupMenu mouseTrailMenu;
+                mouseTrailMenu.addItem(MouseTrailNone, LOC(kOff), true, currentTrail == MouseTrailConfig::TrailTheme::None);
+                mouseTrailMenu.addSeparator();
+                mouseTrailMenu.addItem(MouseTrailClassic, LOC(kClassic), true, currentTrail == MouseTrailConfig::TrailTheme::Classic);
+                mouseTrailMenu.addItem(MouseTrailNeon, LOC(kNeon), true, currentTrail == MouseTrailConfig::TrailTheme::Neon);
+                mouseTrailMenu.addItem(MouseTrailFire, LOC(kFire), true, currentTrail == MouseTrailConfig::TrailTheme::Fire);
+                mouseTrailMenu.addItem(MouseTrailOcean, LOC(kOcean), true, currentTrail == MouseTrailConfig::TrailTheme::Ocean);
+                mouseTrailMenu.addItem(MouseTrailGalaxy, LOC(kGalaxy), true, currentTrail == MouseTrailConfig::TrailTheme::Galaxy);
+                mouseTrailMenu.addItem(MouseTrailCherryBlossom, LOC(kCherryBlossom), true, currentTrail == MouseTrailConfig::TrailTheme::CherryBlossom);
+                mouseTrailMenu.addItem(MouseTrailMatrix, LOC(kMatrix), true, currentTrail == MouseTrailConfig::TrailTheme::Matrix);
+                menu.addSeparator();
+                menu.addSubMenu(LOC(kMouseTrail), mouseTrailMenu);
+            }
             break;
         }
         default:
@@ -146,12 +169,9 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
     switch (menuItemID)
     {
         case ImportAudio:
-            // 触发导入音频，由PluginEditor处理文件选择、多选支持和导入模式询问
-            DBG("ImportAudio selected, calling listeners");
             listeners_.call([](Listener& l) { l.importAudioRequested(); });
             break;
 
-        // 导出选项 - 使用ExportType枚举
         case ExportSelectedClip:
             listeners_.call([](Listener& l) { l.exportAudioRequested(ExportType::SelectedClip); });
             break;
@@ -168,7 +188,6 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         case NewProject:
             listeners_.call([](Listener& l) { l.newProjectRequested(); });
             break;
-
         case SaveProject:
             listeners_.call([](Listener& l) { l.saveProjectRequested(); });
             break;
@@ -179,7 +198,6 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         case OpenPreferences:
             listeners_.call([](Listener& l) { l.preferencesRequested(); });
             break;
-
         case OpenHelp:
             listeners_.call([](Listener& l) { l.helpRequested(); });
             break;
@@ -200,6 +218,22 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             menuItemsChanged();
             break;
         }
+        case NoteNamesAll:
+            currentNoteNameMode_ = 0;
+            listeners_.call([](Listener& l) { l.noteNameModeChanged(0); });
+            menuItemsChanged();
+            break;
+        case NoteNamesCOnly:
+            currentNoteNameMode_ = 1;
+            listeners_.call([](Listener& l) { l.noteNameModeChanged(1); });
+            menuItemsChanged();
+            break;
+        case NoteNamesHide:
+            currentNoteNameMode_ = 2;
+            listeners_.call([](Listener& l) { l.noteNameModeChanged(2); });
+            menuItemsChanged();
+            break;
+
         case ThemeBlueBreeze:
             listeners_.call([](Listener& l) { l.themeChanged(ThemeId::BlueBreeze); });
             menuItemsChanged();
@@ -213,10 +247,42 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             menuItemsChanged();
             break;
 
+        case MouseTrailNone:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::None); });
+            menuItemsChanged();
+            break;
+        case MouseTrailClassic:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Classic); });
+            menuItemsChanged();
+            break;
+        case MouseTrailNeon:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Neon); });
+            menuItemsChanged();
+            break;
+        case MouseTrailFire:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Fire); });
+            menuItemsChanged();
+            break;
+        case MouseTrailOcean:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Ocean); });
+            menuItemsChanged();
+            break;
+        case MouseTrailGalaxy:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Galaxy); });
+            menuItemsChanged();
+            break;
+        case MouseTrailCherryBlossom:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::CherryBlossom); });
+            menuItemsChanged();
+            break;
+        case MouseTrailMatrix:
+            listeners_.call([](Listener& l) { l.mouseTrailThemeChanged(MouseTrailConfig::TrailTheme::Matrix); });
+            menuItemsChanged();
+            break;
+
         case EditUndo:
             listeners_.call([](Listener& l) { l.undoRequested(); });
             break;
-
         case EditRedo:
             listeners_.call([](Listener& l) { l.redoRequested(); });
             break;

@@ -49,6 +49,7 @@ public:
         double f0SampleRate = 16000.0;
         int scaleRootNote = 0;
         int scaleType = 1;
+        int noteNameMode = 1; // 0=ShowAll, 1=COnly, 2=Hide
         bool showWaveform = true;
         bool showLanes = true;
         bool showOriginalF0 = true;
@@ -81,7 +82,6 @@ public:
     void drawNotes(juce::Graphics& g, const RenderContext& ctx,
                    const std::vector<Note>& notes,
                    double trackOffsetSeconds);
-    /** 仅绘制音名文字；应在 F0 曲线之后调用，使字叠在曲线上方。 */
     void drawNoteLabels(juce::Graphics& g, const RenderContext& ctx,
                         const std::vector<Note>& notes,
                         double trackOffsetSeconds);

@@ -126,6 +126,8 @@ public:
     void setF0SampleRate(double rate) { f0SampleRate_ = rate; }
     void setHasUserAudio(bool hasAudio);
     void setScale(int rootNote, int scaleType);
+    /** 左侧琴键音名：0=全部 1=仅C 2=隐藏（与 View 菜单一致） */
+    void setNoteNameDisplayMode(int mode);
 
     void resetUserZoomFlag() { userHasManuallyZoomed_ = false; }
     bool hasUserManuallyZoomed() const { return userHasManuallyZoomed_; }
@@ -327,6 +329,7 @@ private:
 
     int scaleRootNote_ = 0;
     int scaleType_ = 1;
+    int noteNameDisplayMode_ = 1;
 
     static constexpr float minMidi_ = 24.0f;
     static constexpr float maxMidi_ = 108.0f;

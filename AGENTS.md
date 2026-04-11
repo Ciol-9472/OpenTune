@@ -74,7 +74,7 @@ Source/
   DSP/                        # Signal processing
     MelSpectrogram.h          # Mel spectrogram computation
     ResamplingManager.h       # Audio resampling (r8brain)
-    ScaleInference.h          # Musical scale/key detection
+    ChromaKeyDetector.h       # PCM chroma + template key detection (Key/Scale/DetectedKey types)
   Services/                   # Background services
     F0ExtractionService.h     # Async F0 extraction with worker threads
   Standalone/                 # Standalone app UI

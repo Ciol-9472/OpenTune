@@ -3,7 +3,6 @@
 #include "../Utils/AppLogger.h"
 #include <algorithm>
 #include <cmath>
-#include "../DSP/ScaleInference.h"
 #include "../Utils/NoteGenerator.h"
 #include "../Utils/SimdPerceptualPitchEstimator.h"
 #include "../Utils/ZoomSensitivityConfig.h"
@@ -20,6 +19,22 @@ constexpr int kRightToolMenuLongPressMs = 200;
 } // namespace
 
 namespace OpenTune {
+
+namespace {
+ScaleMode scaleModeFromTransportScaleType(int scaleType) noexcept
+{
+    switch (scaleType) {
+        case 1: return ScaleMode::Major;
+        case 2: return ScaleMode::Minor;
+        case 4: return ScaleMode::HarmonicMinor;
+        case 5: return ScaleMode::Dorian;
+        case 6: return ScaleMode::Mixolydian;
+        case 7: return ScaleMode::PentatonicMajor;
+        case 8: return ScaleMode::PentatonicMinor;
+        default: return ScaleMode::Major;
+    }
+}
+} // namespace
 
 void PianoRollComponent::initializeUIComponents() {
     setWantsKeyboardFocus(true);
@@ -1669,22 +1684,32 @@ void PianoRollComponent::handleHorizontalZoomWheel(const juce::MouseEvent& e, fl
 }
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) {
-    if (wheel.deltaY == 0.0f && wheel.deltaX == 0.0f) return;
+    float deltaX = wheel.deltaX;
+    float deltaY = wheel.deltaY;
+
+#if JUCE_MAC
+    if (e.mods.isShiftDown() && deltaY == 0.0f && deltaX != 0.0f) {
+        deltaY = deltaX;
+        deltaX = 0.0f;
+    }
+#endif
+
+    if (deltaY == 0.0f && deltaX == 0.0f) return;
 
     const bool ctrl = e.mods.isCtrlDown() || e.mods.isCommandDown();
     const bool shift = e.mods.isShiftDown();
 
     if (ctrl && shift) {
-        handleHorizontalZoomWheel(e, wheel.deltaY);
-        handleVerticalZoomWheel(e, wheel.deltaY);
+        handleHorizontalZoomWheel(e, deltaY);
+        handleVerticalZoomWheel(e, deltaY);
     } else if (shift) {
-        handleVerticalZoomWheel(e, wheel.deltaY);
+        handleVerticalZoomWheel(e, deltaY);
     } else if (ctrl) {
-        handleHorizontalZoomWheel(e, wheel.deltaY);
+        handleHorizontalZoomWheel(e, deltaY);
     } else if (e.mods.isAltDown()) {
-        handleHorizontalScrollWheel(wheel.deltaX, wheel.deltaY);
+        handleHorizontalScrollWheel(deltaX, deltaY);
     } else {
-        handleVerticalScrollWheel(wheel.deltaY);
+        handleVerticalScrollWheel(deltaY);
     }
 }
 
@@ -1734,6 +1759,7 @@ PianoRollRenderer::RenderContext PianoRollComponent::buildRenderContext() const
     ctx.f0SampleRate = f0SampleRate_;
     ctx.scaleRootNote = scaleRootNote_;
     ctx.scaleType = scaleType_;
+    ctx.noteNameMode = noteNameDisplayMode_;
     ctx.showWaveform = showWaveform_;
     ctx.showLanes = showLanes_;
     ctx.showOriginalF0 = showOriginalF0_;
@@ -1777,7 +1803,13 @@ void PianoRollComponent::setHasUserAudio(bool hasAudio) {
 void PianoRollComponent::setScale(int rootNote, int scaleType)
 {
     scaleRootNote_ = juce::jlimit(0, 11, rootNote);
-    scaleType_ = juce::jlimit(1, 3, scaleType);
+    scaleType_ = juce::jlimit(1, 8, scaleType);
+    repaint();
+}
+
+void PianoRollComponent::setNoteNameDisplayMode(int mode)
+{
+    noteNameDisplayMode_ = juce::jlimit(0, 2, mode);
     repaint();
 }
 
@@ -1999,10 +2031,6 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     }
 
     const bool useScaleSnap = (scaleType_ != 3);
-    Scale snapScale = Scale::Major;
-    if (scaleType_ == 2) {
-        snapScale = Scale::Minor;
-    }
 
     DBG("AutoTuneTrace: trackId=" + juce::String(currentTrackId_)
         + " clipId=" + juce::String(static_cast<juce::int64>(currentClipId_))
@@ -2019,7 +2047,7 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     if (useScaleSnap) {
         ScaleSnapConfig snapCfg;
         snapCfg.root = scaleRootNote_ % 12;
-        snapCfg.mode = (snapScale == Scale::Minor) ? ScaleMode::Minor : ScaleMode::Major;
+        snapCfg.mode = scaleModeFromTransportScaleType(scaleType_);
         genParams.scaleSnap = snapCfg;
     }
 

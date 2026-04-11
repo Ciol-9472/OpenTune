@@ -76,8 +76,10 @@ public:
     void showWaveformToggled(bool shouldShow) override;
     void showLanesToggled(bool shouldShow) override;
     void themeChanged(ThemeId themeId) override;
+    void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) override;
     void undoRequested() override;
     void redoRequested() override;
+    void noteNameModeChanged(int mode) override;
 
     // TransportBarComponent::Listener
     void playRequested() override;
