@@ -5,10 +5,140 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 namespace OpenTune {
 
 using ManualOp = PianoRollToolHandler::ManualCorrectionOp;
+
+namespace {
+
+juce::MouseCursor createBracketShapedCursor(bool leftBracketShape)
+{
+    constexpr int w = 24;
+    constexpr int h = 24;
+    juce::Image img(juce::Image::ARGB, w, h, true);
+    juce::Graphics g(img);
+    g.fillAll(juce::Colours::transparentBlack);
+    auto stroke = [&](float x1, float y1, float x2, float y2) {
+        g.setColour(juce::Colours::black);
+        g.drawLine(x1, y1, x2, y2, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.drawLine(x1, y1, x2, y2, 1.4f);
+    };
+    if (leftBracketShape) {
+        stroke(7.0f, 5.0f, 7.0f, 19.0f);
+        stroke(7.0f, 5.0f, 12.0f, 5.0f);
+        stroke(7.0f, 19.0f, 12.0f, 19.0f);
+        return juce::MouseCursor(img, 6, 12);
+    }
+    stroke(17.0f, 5.0f, 17.0f, 19.0f);
+    stroke(12.0f, 5.0f, 17.0f, 5.0f);
+    stroke(12.0f, 19.0f, 17.0f, 19.0f);
+    return juce::MouseCursor(img, 18, 12);
+}
+
+const juce::MouseCursor& getDrawNoteLeftEdgeCursor()
+{
+    static const juce::MouseCursor c = createBracketShapedCursor(true);
+    return c;
+}
+
+const juce::MouseCursor& getDrawNoteRightEdgeCursor()
+{
+    static const juce::MouseCursor c = createBracketShapedCursor(false);
+    return c;
+}
+
+std::vector<size_t> sortedNoteIndicesByStart(const std::vector<Note>& notes)
+{
+    std::vector<size_t> idx(notes.size());
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
+        if (notes[a].startTime != notes[b].startTime)
+            return notes[a].startTime < notes[b].startTime;
+        return notes[a].endTime < notes[b].endTime;
+    });
+    return idx;
+}
+
+float noteRowMidi(const Note& n)
+{
+    const float p = n.getAdjustedPitch();
+    if (p <= 0.0f)
+        return 0.0f;
+    return 69.0f + 12.0f * std::log2(p / 440.0f) - 0.5f;
+}
+
+void applyDrawNoteToolEdgeResize(
+    std::vector<Note>& notes,
+    Note* target,
+    NoteResizeEdge edge,
+    double rawTimeSeconds,
+    double minDurationSeconds)
+{
+    if (target == nullptr || notes.empty())
+        return;
+
+    const size_t selfN = static_cast<size_t>(
+        std::find_if(notes.begin(), notes.end(), [target](const Note& n) { return &n == target; })
+        - notes.begin());
+    if (selfN >= notes.size())
+        return;
+
+    const std::vector<size_t> idx = sortedNoteIndicesByStart(notes);
+    const float targetMidi = noteRowMidi(*target);
+
+    std::vector<size_t> sameRow;
+    sameRow.reserve(idx.size());
+    for (size_t k : idx) {
+        if (k == selfN)
+            continue;
+        if (std::abs(noteRowMidi(notes[k]) - targetMidi) < 1.0f)
+            sameRow.push_back(k);
+    }
+    sameRow.push_back(selfN);
+    std::sort(sameRow.begin(), sameRow.end(), [&](size_t a, size_t b) {
+        if (notes[a].startTime != notes[b].startTime)
+            return notes[a].startTime < notes[b].startTime;
+        return notes[a].endTime < notes[b].endTime;
+    });
+
+    size_t posRow = sameRow.size();
+    for (size_t k = 0; k < sameRow.size(); ++k) {
+        if (sameRow[k] == selfN) {
+            posRow = k;
+            break;
+        }
+    }
+    if (posRow >= sameRow.size())
+        return;
+
+    if (edge == NoteResizeEdge::Left) {
+        double newStart = std::min(rawTimeSeconds, target->endTime - minDurationSeconds);
+        newStart = std::max(0.0, newStart);
+        if (posRow > 0) {
+            Note& prev = notes[sameRow[posRow - 1]];
+            if (newStart < prev.endTime)
+                prev.endTime = newStart;
+            prev.dirty = true;
+        }
+        target->startTime = newStart;
+        target->dirty = true;
+    } else if (edge == NoteResizeEdge::Right) {
+        double newEnd = std::max(rawTimeSeconds, target->startTime + minDurationSeconds);
+        if (posRow + 1 < sameRow.size()) {
+            Note& next = notes[sameRow[posRow + 1]];
+            if (newEnd > next.startTime)
+                next.startTime = newEnd;
+            next.dirty = true;
+        }
+        target->endTime = newEnd;
+        target->dirty = true;
+    }
+}
+
+} // namespace
 
 // ============================================================================
 // PianoRollToolHandler - 钢琴卷帘工具处理器实现
@@ -35,40 +165,44 @@ void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
         return;
     }
 
-    if (currentTool_ != ToolId::Select) {
-        return;
-    }
+    if (currentTool_ == ToolId::Select || currentTool_ == ToolId::DrawNote) {
+        const int edgeThreshold = 6;
+        const double offsetSeconds = ctx_.getTrackOffsetSeconds();
 
-    int edgeThreshold = 6;
-    double offsetSeconds = ctx_.getTrackOffsetSeconds();
-    
-    bool cursorSet = false;
-    float mousePitch = ctx_.yToFreq((float)e.y);
-    float mouseMidiVal = 69.0f + 12.0f * std::log2(mousePitch / 440.0f) - 0.5f;
+        bool cursorSet = false;
+        const float mousePitch = ctx_.yToFreq((float)e.y);
+        const float mouseMidiVal = 69.0f + 12.0f * std::log2(mousePitch / 440.0f) - 0.5f;
 
-    for (const auto& note : ctx_.getNotes()) {
-        int x1 = ctx_.timeToX(note.startTime + offsetSeconds) + ctx_.getPianoKeyWidth();
-        int x2 = ctx_.timeToX(note.endTime + offsetSeconds) + ctx_.getPianoKeyWidth();
-        
-        bool nearLeft = std::abs(e.x - x1) <= edgeThreshold;
-        bool nearRight = std::abs(e.x - x2) <= edgeThreshold;
-        
-        float noteMidi = 69.0f + 12.0f * std::log2(note.getAdjustedPitch() / 440.0f) - 0.5f;
-        bool onNote = std::abs(mouseMidiVal - noteMidi) < 1.0f;
-        
-        if ((nearLeft || nearRight) && onNote) {
-            ctx_.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-            cursorSet = true;
-            break;
-        } else if (e.x >= x1 && e.x <= x2 && onNote) {
-            ctx_.setMouseCursor(juce::MouseCursor::UpDownLeftRightResizeCursor);
-            cursorSet = true;
-            break;
+        for (const auto& note : ctx_.getNotes()) {
+            const int x1 = ctx_.timeToX(note.startTime + offsetSeconds) + ctx_.getPianoKeyWidth();
+            const int x2 = ctx_.timeToX(note.endTime + offsetSeconds) + ctx_.getPianoKeyWidth();
+
+            const bool nearLeft = std::abs(e.x - x1) <= edgeThreshold;
+            const bool nearRight = std::abs(e.x - x2) <= edgeThreshold;
+
+            const float noteMidi = 69.0f + 12.0f * std::log2(note.getAdjustedPitch() / 440.0f) - 0.5f;
+            const bool onNote = std::abs(mouseMidiVal - noteMidi) < 1.0f;
+
+            if ((nearLeft || nearRight) && onNote) {
+                if (currentTool_ == ToolId::DrawNote) {
+                    ctx_.setMouseCursor(nearLeft ? getDrawNoteLeftEdgeCursor() : getDrawNoteRightEdgeCursor());
+                } else {
+                    ctx_.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+                }
+                cursorSet = true;
+                break;
+            }
+            if (e.x >= x1 && e.x <= x2 && onNote) {
+                ctx_.setMouseCursor(juce::MouseCursor::UpDownLeftRightResizeCursor);
+                cursorSet = true;
+                break;
+            }
         }
-    }
 
-    if (!cursorSet) {
-        ctx_.setMouseCursor(juce::MouseCursor::NormalCursor);
+        if (!cursorSet) {
+            ctx_.setMouseCursor(juce::MouseCursor::NormalCursor);
+        }
+        return;
     }
 }
 
@@ -784,6 +918,10 @@ void PianoRollToolHandler::handleDrawNoteMouseDown(const juce::MouseEvent& e)
     AppLogger::debug("[PianoRollToolHandler] handleDrawNoteMouseDown: pos=(" + juce::String(e.x) + "," + juce::String(e.y) + ")");
 
     ctx_.getState().noteDrag.isDraggingNotes = false;
+    ctx_.getState().noteResize.isResizing = false;
+    ctx_.getState().noteResize.isDirty = false;
+    ctx_.getState().noteResize.note = nullptr;
+    ctx_.getState().noteResize.edge = NoteResizeEdge::None;
 
     const double clickedTime = ctx_.xToTime(e.x);
     const double offsetSeconds = ctx_.getTrackOffsetSeconds();
@@ -797,6 +935,43 @@ void PianoRollToolHandler::handleDrawNoteMouseDown(const juce::MouseEvent& e)
 
     if (existingNote != nullptr) {
         const bool isCtrlDown = e.mods.isCtrlDown() || e.mods.isCommandDown();
+        const bool isShiftDown = e.mods.isShiftDown();
+        constexpr int edgeThreshold = 6;
+        const float mouseMidi = 69.0f + 12.0f * std::log2(clickedPitch / 440.0f) - 0.5f;
+
+        auto& notes = ctx_.getNotes();
+        for (auto& note : notes) {
+            const int x1 = ctx_.timeToX(note.startTime + offsetSeconds) + ctx_.getPianoKeyWidth();
+            const int x2 = ctx_.timeToX(note.endTime + offsetSeconds) + ctx_.getPianoKeyWidth();
+            const bool nearLeft = std::abs(e.x - x1) <= edgeThreshold;
+            const bool nearRight = std::abs(e.x - x2) <= edgeThreshold;
+            if (!nearLeft && !nearRight)
+                continue;
+
+            const float noteMidi = 69.0f + 12.0f * std::log2(note.getAdjustedPitch() / 440.0f) - 0.5f;
+            if (std::abs(mouseMidi - noteMidi) >= 1.0f)
+                continue;
+
+            ctx_.getState().noteResize.isResizing = true;
+            ctx_.getState().noteResize.isDirty = false;
+            ctx_.getState().noteResize.note = &note;
+            ctx_.getState().noteResize.edge = nearLeft ? NoteResizeEdge::Left : NoteResizeEdge::Right;
+            ctx_.getState().noteResize.originalStartTime = note.startTime;
+            ctx_.getState().noteResize.originalEndTime = note.endTime;
+
+            if (!note.selected && !isCtrlDown && !isShiftDown)
+                ctx_.deselectAllNotes();
+            note.selected = true;
+
+            ctx_.getState().noteDrag.draggedNote = nullptr;
+            ctx_.getState().noteDrag.initialNoteOffsets.clear();
+            ctx_.getState().noteDrag.isDraggingNotes = false;
+            ctx_.setDrawNoteToolPendingDrag(false);
+            updateF0SelectionFromNotes();
+            ctx_.requestRepaint();
+            return;
+        }
+
         if (isCtrlDown) {
             existingNote->selected = !existingNote->selected;
         } else if (!existingNote->selected) {
@@ -1115,6 +1290,25 @@ void PianoRollToolHandler::handleDrawCurveDrag(const juce::MouseEvent& e)
 
 void PianoRollToolHandler::handleDrawNoteDrag(const juce::MouseEvent& e)
 {
+    if (ctx_.getState().noteResize.isResizing && ctx_.getState().noteResize.note != nullptr) {
+        if (!ctx_.getState().noteResize.isDirty) {
+            ctx_.getState().noteResize.isDirty = true;
+            ctx_.beginEditTransaction("Resize Note");
+        }
+        const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+        double currentTime = ctx_.xToTime(e.x) - offsetSeconds;
+        currentTime = std::max(0.0, currentTime);
+        constexpr double kMinNoteDuration = 0.02;
+        auto& notes = ctx_.getNotes();
+        applyDrawNoteToolEdgeResize(
+            notes,
+            ctx_.getState().noteResize.note,
+            ctx_.getState().noteResize.edge,
+            currentTime,
+            kMinNoteDuration);
+        return;
+    }
+
     if (ctx_.getState().noteDrag.draggedNote != nullptr && !ctx_.getState().drawing.isDrawingNote) {
         handleSelectDrag(e);
         return;
@@ -1384,7 +1578,9 @@ void PianoRollToolHandler::handleDrawNoteUp(const juce::MouseEvent& e)
         return;
     }
 
-    if (ctx_.getState().noteDrag.draggedNote != nullptr || ctx_.getState().noteDrag.isDraggingNotes) {
+    if (ctx_.getState().noteResize.isResizing
+        || ctx_.getState().noteDrag.draggedNote != nullptr
+        || ctx_.getState().noteDrag.isDraggingNotes) {
         handleSelectUp(e);
         return;
     }
