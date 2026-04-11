@@ -2048,6 +2048,7 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     NoteGeneratorParams genParams;
     genParams.policy = segmentationPolicy_;
     genParams.policy.energyValleySplitEnabled = true;
+    genParams.policy.adjacentNextNoteMaxGapMs = 150.0f;
     genParams.retuneSpeed = currentRetuneSpeed_;
     genParams.vibratoDepth = currentVibratoDepth_;
     genParams.vibratoRate = currentVibratoRate_;

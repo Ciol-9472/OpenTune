@@ -53,6 +53,8 @@ struct NoteSegmentationPolicy {
     float energyValleyMaxRatio     = 0.18f;
     int   energyValleyMinFrames    = 3;
     int   energyValleyMinPitchesEachSide = 4;
+    /** If > 0, pull each note's endTime up to the following note's startTime when the gap is within this many ms. */
+    float adjacentNextNoteMaxGapMs = 0.0f;
 };
 
 struct NoteGeneratorParams {
