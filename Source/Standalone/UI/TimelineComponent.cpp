@@ -1,4 +1,5 @@
 #include "TimelineComponent.h"
+#include "../Utils/ZoomSensitivityConfig.h"
 
 namespace OpenTune {
 
@@ -58,16 +59,56 @@ void TimelineComponent::mouseDrag(const juce::MouseEvent& event)
 
 void TimelineComponent::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
 {
-    // Horizontal zoom with wheel
-    if (event.mods.isCtrlDown())
-    {
-        double newZoom = zoomLevel_ * (1.0 + wheel.deltaY * 0.5);
-        // 限制缩放范围：0.02~10.0（允许缩小到更大范围）
-        newZoom = juce::jlimit(0.02, 10.0, newZoom);
+    const auto& settings = ZoomSensitivityConfig::getSettings();
+    const bool ctrl = event.mods.isCtrlDown() || event.mods.isCommandDown();
+    const bool alt = event.mods.isAltDown();
+    const bool shift = event.mods.isShiftDown();
 
+    if (alt && ctrl)
+    {
+        if (wheel.deltaY != 0.0f)
+        {
+            const double factor = 1.0 + static_cast<double>(wheel.deltaY)
+                * (static_cast<double>(settings.horizontalZoomFactor)
+                   + static_cast<double>(settings.verticalZoomFactor));
+            double newZoom = juce::jlimit(0.02, 10.0, zoomLevel_ * factor);
+            setZoomLevel(newZoom);
+            listeners_.call([newZoom](Listener& l) { l.zoomLevelChanged(newZoom); });
+            repaint();
+        }
+        return;
+    }
+
+    if (shift)
+    {
+        const float scrollDelta = (wheel.deltaX != 0.0f ? wheel.deltaX : wheel.deltaY);
+        if (scrollDelta != 0.0f)
+        {
+            viewportScrollX_ -= static_cast<int>(scrollDelta * settings.scrollSpeed * 10.0f);
+            repaint();
+        }
+        return;
+    }
+
+    if (alt)
+    {
+        if (wheel.deltaY != 0.0f)
+        {
+            double newZoom = zoomLevel_ * (1.0 + static_cast<double>(wheel.deltaY) * static_cast<double>(settings.verticalZoomFactor) * 1.5);
+            newZoom = juce::jlimit(0.02, 10.0, newZoom);
+            setZoomLevel(newZoom);
+            listeners_.call([newZoom](Listener& l) { l.zoomLevelChanged(newZoom); });
+            repaint();
+        }
+        return;
+    }
+
+    if (ctrl && wheel.deltaY != 0.0f)
+    {
+        double newZoom = zoomLevel_ * (1.0 + static_cast<double>(wheel.deltaY) * static_cast<double>(settings.horizontalZoomFactor) * 1.5);
+        newZoom = juce::jlimit(0.02, 10.0, newZoom);
         setZoomLevel(newZoom);
         listeners_.call([newZoom](Listener& l) { l.zoomLevelChanged(newZoom); });
-
         repaint();
     }
 }

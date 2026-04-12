@@ -129,7 +129,7 @@ bool pickBestNoteEdgeHit(
         const int startX = timeToX(note.startTime + offsetSeconds);
         const int endX = timeToX(note.endTime + offsetSeconds);
         const float noteMidi = midiBandForNote(note);
-        if (std::abs(mouseMidiVal - noteMidi) >= 1.0f)
+        if (std::abs(mouseMidiVal - noteMidi) > kPianoRollNoteHitHalfWidthSemis)
             continue;
 
         const int leftDist = std::abs(mouseX - startX);

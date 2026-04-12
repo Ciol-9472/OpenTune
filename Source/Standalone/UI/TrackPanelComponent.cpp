@@ -369,26 +369,35 @@ void TrackPanelComponent::mouseDown(const juce::MouseEvent& event)
     }
 }
 
-// Shift + 鼠标滚轮：Y轴缩放（与ArrangementView同步）
+// Shift+滚轮：排列区水平滚动；Alt+滚轮：轨道高度；Alt+Ctrl+滚轮：横向缩放+轨道高度
 // 普通滚轮：垂直滚动（与ArrangementView同步）
 void TrackPanelComponent::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
 {
-    // Shift + 滚轮 = Y轴缩放
-    if (event.mods.isShiftDown() && wheel.deltaY != 0.0f)
+    const bool ctrl = event.mods.isCtrlDown() || event.mods.isCommandDown();
+    const bool alt = event.mods.isAltDown();
+    const bool shift = event.mods.isShiftDown();
+
+    if (alt && ctrl)
     {
-        // 计算新高度
-        int change = (wheel.deltaY > 0.0f) ? 50 : -50;  // 垂直缩放步长50px
-        int newHeight = juce::jlimit(MIN_TRACK_HEIGHT, MAX_TRACK_HEIGHT, trackHeight_ + change);
-        
-        if (newHeight != trackHeight_)
-        {
-            setTrackHeight(newHeight);
-            // 通知监听器高度变化（PluginEditor会同步到ArrangementView）
-            listeners_.call([newHeight](Listener& l) { l.trackHeightChanged(newHeight); });
-        }
+        if (wheel.deltaY != 0.0f)
+            listeners_.call([&](Listener& l) { l.arrangementAltCtrlWheel(wheel.deltaY); });
         return;
     }
-    
+
+    if (shift)
+    {
+        if (wheel.deltaX != 0.0f || wheel.deltaY != 0.0f)
+            listeners_.call([&](Listener& l) { l.arrangementHorizontalPanWheel(wheel.deltaX, wheel.deltaY); });
+        return;
+    }
+
+    if (alt)
+    {
+        if (wheel.deltaY != 0.0f)
+            listeners_.call([&](Listener& l) { l.arrangementTrackHeightWheel(wheel.deltaY); });
+        return;
+    }
+
     // 普通滚轮 = 垂直滚动（与ArrangementView同步）
     if (wheel.deltaY != 0.0f)
     {

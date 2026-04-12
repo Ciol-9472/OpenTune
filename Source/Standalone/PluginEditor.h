@@ -97,6 +97,9 @@ public:
     void trackSoloToggled(int trackId, bool solo) override;
     void trackVolumeChanged(int trackId, float volume) override;
     void trackHeightChanged(int newHeight) override;  // 与 ArrangementView 的 trackHeight 同步
+    void arrangementHorizontalPanWheel(float deltaX, float deltaY) override;
+    void arrangementTrackHeightWheel(float deltaY) override;
+    void arrangementAltCtrlWheel(float deltaY) override;
 
     // ArrangementViewComponent::Listener
     void clipSelectionChanged(int trackId, int clipIndex) override;
@@ -161,6 +164,8 @@ private:
     void finishNewProject();
     void quickSaveProject();
     void checkUnsavedChangesThen(std::function<void()> onProceed);
+    /** 是否弹出“未保存”确认：无已保存工程文件且无片段时不提示（空白草稿） */
+    bool shouldPromptForUnsavedSession() const;
     void runSaveProjectDialogThen(std::function<void()> onSavedToDisk);
     void launchStemExportFolderChooser(juce::String prefix, juce::Array<int> trackIds);
     void startStemExportWorker(juce::String prefix, juce::Array<int> trackIds, juce::File outputDir);

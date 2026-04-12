@@ -236,6 +236,23 @@ void OpenTuneAudioProcessorEditor::trackVolumeChanged(int trackId, float volume)
 }
 
 // Y杞寸缉鏀惧悓姝ワ細褰揟rackPanel鎴朅rrangementView閫氳繃Ctrl+婊氳疆缂╂斁鏃讹紝鍚屾鍙︿竴涓粍浠?
+void OpenTuneAudioProcessorEditor::arrangementHorizontalPanWheel(float deltaX, float deltaY)
+{
+    arrangementView_.applyWheelHorizontalPan(deltaX, deltaY);
+}
+
+void OpenTuneAudioProcessorEditor::arrangementTrackHeightWheel(float deltaY)
+{
+    arrangementView_.applyWheelTrackHeightChange(deltaY);
+}
+
+void OpenTuneAudioProcessorEditor::arrangementAltCtrlWheel(float deltaY)
+{
+    arrangementView_.applyWheelTrackHeightChange(deltaY);
+    const int anchorX = juce::jmax(0, arrangementView_.getWidth() / 2);
+    arrangementView_.applyWheelTimelineZoom(deltaY, anchorX);
+}
+
 void OpenTuneAudioProcessorEditor::trackHeightChanged(int newHeight)
 {
     // 鏇存柊processor涓殑杞ㄩ亾楂樺害

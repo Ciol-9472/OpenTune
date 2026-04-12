@@ -13,6 +13,9 @@
 
 namespace OpenTune {
 
+/** 音符本体/边缘在钢琴卷帘上的垂直命中半宽（MIDI 行单位，与 freqToMidi / yToMidi 一致）。 */
+inline constexpr float kPianoRollNoteHitHalfWidthSemis = 0.7f;
+
 class PianoRollToolHandler
 {
 public:
@@ -36,6 +39,7 @@ public:
 
         std::function<std::vector<Note>&()> getNotes;
         std::function<std::vector<Note*>()> getSelectedNotes;
+        /** time, targetPitchHz, pitchToleranceHz — 第三参数已弃用，命中宽度固定为 kPianoRollNoteHitHalfWidthSemis。 */
         std::function<Note*(double, float, float)> findNoteAt;
         std::function<void()> deselectAllNotes;
         std::function<void()> selectAllNotes;
@@ -108,6 +112,8 @@ public:
         std::function<void(std::vector<ManualCorrectionOp>, int, int, bool)> applyManualCorrection;
         std::function<void(int, int, float, float, float)> enqueueNoteBasedCorrection;
         std::function<std::vector<float>()> getOriginalF0;
+
+        std::function<void(bool, float)> setPitchPreview;
     };
 
     explicit PianoRollToolHandler(Context context);

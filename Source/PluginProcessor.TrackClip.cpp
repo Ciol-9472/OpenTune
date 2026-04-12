@@ -112,6 +112,17 @@ int OpenTuneAudioProcessor::getNumClips(int trackId) const
     return 0;
 }
 
+bool OpenTuneAudioProcessor::hasAnyClipOnAnyTrack() const
+{
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    for (int i = 0; i < MAX_TRACKS; ++i)
+    {
+        if (!tracks_[static_cast<size_t>(i)].clips.empty())
+            return true;
+    }
+    return false;
+}
+
 int OpenTuneAudioProcessor::getSelectedClip(int trackId) const
 {
     if (trackId >= 0 && trackId < MAX_TRACKS) {

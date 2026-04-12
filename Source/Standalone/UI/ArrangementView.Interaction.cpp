@@ -511,60 +511,96 @@ void ArrangementViewComponent::mouseDoubleClick(const juce::MouseEvent& e)
         listeners_.call([&](Listener& l) { l.clipDoubleClicked(hit.trackId, hit.clipIndex); });
 }
 
+void ArrangementViewComponent::applyWheelHorizontalPan(float deltaX, float deltaY)
+{
+    const auto& settings = ZoomSensitivityConfig::getSettings();
+    float scrollDelta = (deltaX != 0.0f ? deltaX : deltaY);
+    if (scrollDelta == 0.0f)
+        return;
+
+    setScrollOffset(scrollOffset_ - static_cast<int>(scrollDelta * settings.scrollSpeed * 10.0f));
+}
+
+void ArrangementViewComponent::applyWheelTrackHeightChange(float deltaY)
+{
+    if (deltaY == 0.0f)
+        return;
+
+    const auto& settings = ZoomSensitivityConfig::getSettings();
+    int currentHeight = processor_.getTrackHeight();
+    int change = static_cast<int>(deltaY * settings.verticalZoomFactor * 150);
+    change = (change == 0) ? ((deltaY > 0) ? 10 : -10) : change;
+
+    int newHeight = juce::jlimit(70, 300, currentHeight + change);
+
+    if (newHeight != currentHeight)
+    {
+        processor_.setTrackHeight(newHeight);
+        listeners_.call([newHeight](Listener& l) { l.trackHeightChanged(newHeight); });
+        repaint();
+    }
+}
+
+void ArrangementViewComponent::applyWheelTimelineZoom(float deltaY, int anchorContentX)
+{
+    if (deltaY == 0.0f)
+        return;
+
+    const auto& settings = ZoomSensitivityConfig::getSettings();
+    double zoomFactor = 1.0 + deltaY * settings.horizontalZoomFactor * 1.7;
+    zoomFactor = juce::jlimit(0.5, 1.5, zoomFactor);
+    double newZoom = juce::jlimit(0.02, 10.0, zoomLevel_ * zoomFactor);
+
+    if (std::abs(newZoom - zoomLevel_) <= 0.001)
+        return;
+
+    double timeAtMouse = xToTime(anchorContentX);
+
+    setZoomLevel(newZoom);
+    userHasManuallyZoomed_ = true;
+
+    double pps = 100.0 * newZoom;
+    int newOffset = static_cast<int>(timeAtMouse * pps) + 8 - anchorContentX;
+    setScrollOffset(newOffset);
+
+    FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
+}
+
 void ArrangementViewComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
     const auto& settings = ZoomSensitivityConfig::getSettings();
+    const bool ctrl = e.mods.isCtrlDown() || e.mods.isCommandDown();
+    const bool alt = e.mods.isAltDown();
+    const bool shift = e.mods.isShiftDown();
 
-    if (e.mods.isShiftDown())
+    if (alt && ctrl)
     {
         if (wheel.deltaY != 0.0f)
         {
-            int currentHeight = processor_.getTrackHeight();
-            int change = static_cast<int>(wheel.deltaY * settings.verticalZoomFactor * 150);
-            change = (change == 0) ? ((wheel.deltaY > 0) ? 10 : -10) : change;
-
-            int newHeight = juce::jlimit(70, 300, currentHeight + change);
-
-            if (newHeight != currentHeight)
-            {
-                processor_.setTrackHeight(newHeight);
-                listeners_.call([newHeight](Listener& l) { l.trackHeightChanged(newHeight); });
-                repaint();
-            }
+            applyWheelTimelineZoom(wheel.deltaY, e.x);
+            applyWheelTrackHeightChange(wheel.deltaY);
         }
         return;
     }
 
-    if (e.mods.isCtrlDown())
+    if (shift)
     {
-        if (wheel.deltaY != 0.0f)
-        {
-            double zoomFactor = 1.0 + wheel.deltaY * settings.horizontalZoomFactor * 1.7;
-            zoomFactor = juce::jlimit(0.5, 1.5, zoomFactor);
-            double newZoom = juce::jlimit(0.02, 10.0, zoomLevel_ * zoomFactor);
-
-            if (std::abs(newZoom - zoomLevel_) > 0.001)
-            {
-                double timeAtMouse = xToTime(e.x);
-
-                setZoomLevel(newZoom);
-                userHasManuallyZoomed_ = true;
-
-                double pps = 100.0 * newZoom;
-                int newOffset = static_cast<int>(timeAtMouse * pps) + 8 - e.x;
-                setScrollOffset(newOffset);
-
-                FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
-            }
-        }
+        if (wheel.deltaX != 0.0f || wheel.deltaY != 0.0f)
+            applyWheelHorizontalPan(wheel.deltaX, wheel.deltaY);
         return;
     }
 
-    if (e.mods.isAltDown())
+    if (alt)
     {
         if (wheel.deltaY != 0.0f)
-            setScrollOffset(scrollOffset_ - static_cast<int>(wheel.deltaY * settings.scrollSpeed * 10.0f));
+            applyWheelTrackHeightChange(wheel.deltaY);
+        return;
+    }
 
+    if (ctrl)
+    {
+        if (wheel.deltaY != 0.0f)
+            applyWheelTimelineZoom(wheel.deltaY, e.x);
         return;
     }
 

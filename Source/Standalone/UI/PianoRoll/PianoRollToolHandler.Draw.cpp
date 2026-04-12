@@ -312,6 +312,11 @@ void PianoRollToolHandler::handleDrawNoteTool(const juce::MouseEvent& e)
         notes.push_back(newNote);
         ctx_.setDrawingNoteIndex(static_cast<int>(notes.size()) - 1);
 
+        if (ctx_.setPitchPreview) {
+            const float hz = notes.back().getAdjustedPitch();
+            if (hz > 0.0f) ctx_.setPitchPreview(true, hz);
+        }
+
         ctx_.requestRepaint();
         return;
     }
@@ -477,6 +482,8 @@ void PianoRollToolHandler::handleDrawCurveUp(const juce::MouseEvent& e)
 void PianoRollToolHandler::handleDrawNoteUp(const juce::MouseEvent& e)
 {
     AppLogger::debug("[PianoRollToolHandler] handleDrawNoteUp: finishing note draw");
+
+    if (ctx_.setPitchPreview) ctx_.setPitchPreview(false, 0.0f);
 
     if (ctx_.getDrawNoteToolPendingDrag())
     {

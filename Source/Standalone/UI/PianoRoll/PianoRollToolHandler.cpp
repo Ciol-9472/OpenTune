@@ -61,7 +61,7 @@ void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
             const int x1 = ctx_.timeToX(note.startTime + offsetSeconds);
             const int x2 = ctx_.timeToX(note.endTime + offsetSeconds);
             const float noteMidi = midiBandForNote(note);
-            if (std::abs(mouseMidiVal - noteMidi) >= 1.0f)
+            if (std::abs(mouseMidiVal - noteMidi) > kPianoRollNoteHitHalfWidthSemis)
                 continue;
             if (e.x >= x1 && e.x <= x2) {
                 ctx_.setMouseCursor(juce::MouseCursor::UpDownLeftRightResizeCursor);
@@ -231,6 +231,7 @@ void PianoRollToolHandler::mouseUp(const juce::MouseEvent& e)
             break;
         default:
             ctx_.getState().noteDrag.draggedNote = nullptr;
+            if (ctx_.setPitchPreview) ctx_.setPitchPreview(false, 0.0f);
             break;
     }
 

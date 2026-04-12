@@ -107,6 +107,8 @@ void PianoRollToolHandler::cancelDrag()
 {
     AppLogger::debug("[PianoRollToolHandler] cancelDrag: canceling all drag operations");
     ctx_.getState().selection.isSelectingArea = false;
+    ctx_.getState().selection.marqueeAdditive = false;
+    ctx_.getState().selection.marqueeBaseSelected.clear();
     ctx_.getState().noteResize.isResizing = false;
     ctx_.getState().noteResize.isDirty = false;
     ctx_.getState().noteResize.note = nullptr;
@@ -114,6 +116,7 @@ void PianoRollToolHandler::cancelDrag()
     ctx_.getState().noteDrag.draggedNote = nullptr;
     ctx_.getState().noteDrag.initialNoteOffsets.clear();
     ctx_.getState().noteDrag.isDraggingNotes = false;
+    if (ctx_.setPitchPreview) ctx_.setPitchPreview(false, 0.0f);
 }
 
 void PianoRollToolHandler::prepareNoteDragForSelectedNotes(Note* primaryNote)
@@ -310,18 +313,34 @@ void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
 
         ctx_.requestRepaint();
     }
-    else if (!isCtrlDown)
+    else
     {
-        ctx_.deselectAllNotes();
-        updateF0SelectionFromNotes();
         ctx_.getState().noteDrag.draggedNote = nullptr;
         ctx_.getState().noteDrag.initialNoteOffsets.clear();
         ctx_.getState().noteResize.isResizing = false;
         ctx_.getState().noteResize.note = nullptr;
         ctx_.getState().noteResize.edge = NoteResizeEdge::None;
+
+        const bool additiveMarquee = isCtrlDown || isShiftDown;
+        ctx_.getState().selection.marqueeAdditive = false;
+        ctx_.getState().selection.marqueeBaseSelected.clear();
+
+        if (!additiveMarquee)
+        {
+            ctx_.deselectAllNotes();
+            updateF0SelectionFromNotes();
+        }
+        else
+        {
+            for (auto& note : notes)
+                if (note.selected)
+                    ctx_.getState().selection.marqueeBaseSelected.push_back(&note);
+        }
+
         if (e.x > ctx_.getPianoKeyWidth())
         {
             ctx_.getState().selection.isSelectingArea = true;
+            ctx_.getState().selection.marqueeAdditive = additiveMarquee;
             ctx_.getState().selection.dragStartTime = std::max(0.0, trackRelativeTime);
             ctx_.getState().selection.dragEndTime = ctx_.getState().selection.dragStartTime;
             float midiVal = 69.0f + 12.0f * std::log2(clickedPitch / 440.0f) - 0.5f;
@@ -331,7 +350,10 @@ void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
         else
         {
             ctx_.getState().selection.isSelectingArea = false;
+            ctx_.getState().selection.marqueeAdditive = false;
+            ctx_.getState().selection.marqueeBaseSelected.clear();
         }
+
         ctx_.requestRepaint();
     }
 }
@@ -353,12 +375,23 @@ void PianoRollToolHandler::handleSelectDrag(const juce::MouseEvent& e)
         float selMaxMidi = std::max(ctx_.getState().selection.dragStartMidi, ctx_.getState().selection.dragEndMidi);
 
         auto& notes = ctx_.getNotes();
+        const bool additive = ctx_.getState().selection.marqueeAdditive;
+        const auto& baseSel = ctx_.getState().selection.marqueeBaseSelected;
         for (auto& note : notes)
         {
             float noteMidi = 69.0f + 12.0f * std::log2(note.getAdjustedPitch() / 440.0f) - 0.5f;
             bool timeOverlap = (note.endTime > selStartTime && note.startTime < selEndTime);
             bool pitchOverlap = (noteMidi >= selMinMidi - 0.5f && noteMidi <= selMaxMidi + 0.5f);
-            note.selected = timeOverlap && pitchOverlap;
+            const bool inBox = timeOverlap && pitchOverlap;
+            if (additive)
+            {
+                const bool inBase = std::find(baseSel.begin(), baseSel.end(), &note) != baseSel.end();
+                note.selected = inBase || inBox;
+            }
+            else
+            {
+                note.selected = inBox;
+            }
         }
 
         ctx_.requestRepaint();
@@ -460,6 +493,16 @@ void PianoRollToolHandler::handleSelectDrag(const juce::MouseEvent& e)
 
             ctx_.applyManualCorrection(std::move(ops), manualStartFrame, manualEndFrame - 1, false);
         }
+
+        if (ctx_.setPitchPreview) {
+            const auto& offs = ctx_.getState().noteDrag.initialNoteOffsets;
+            if (offs.size() == 1 && offs[0].first != nullptr) {
+                const float hz = offs[0].first->getAdjustedPitch();
+                if (hz > 0.0f) ctx_.setPitchPreview(true, hz);
+            } else {
+                ctx_.setPitchPreview(false, 0.0f);
+            }
+        }
     }
     else
     {
@@ -478,6 +521,8 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
 {
     juce::ignoreUnused(e);
     AppLogger::debug("[PianoRollToolHandler] handleSelectUp: finishing select operation");
+
+    if (ctx_.setPitchPreview) ctx_.setPitchPreview(false, 0.0f);
 
     bool queuedAsyncCommit = false;
 
@@ -624,10 +669,14 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
 
     if (ctx_.getState().selection.isSelectingArea)
     {
+        const bool wasMarqueeAdditive = ctx_.getState().selection.marqueeAdditive;
         ctx_.getState().selection.isSelectingArea = false;
+        ctx_.getState().selection.marqueeAdditive = false;
+        ctx_.getState().selection.marqueeBaseSelected.clear();
+
         double timeDelta = std::abs(ctx_.getState().selection.dragEndTime - ctx_.getState().selection.dragStartTime);
         float midiDelta = std::abs(ctx_.getState().selection.dragEndMidi - ctx_.getState().selection.dragStartMidi);
-        if (timeDelta < 0.01 || midiDelta < 0.5f)
+        if ((timeDelta < 0.01 || midiDelta < 0.5f) && !wasMarqueeAdditive)
             ctx_.deselectAllNotes();
 
         auto selectedNotes = ctx_.getSelectedNotes();

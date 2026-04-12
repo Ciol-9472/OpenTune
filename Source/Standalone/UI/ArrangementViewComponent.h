@@ -82,6 +82,13 @@ public:
     int getScrollOffset() const { return scrollOffset_; }
     int getVerticalScrollOffset() const { return verticalScrollOffset_; }
     void setVerticalScrollOffset(int offset);
+
+    /** 与 mouse 滚轮一致：水平平移时间线（Shift+滚轮） */
+    void applyWheelHorizontalPan(float deltaX, float deltaY);
+    /** 与 mouse 滚轮一致：轨道高度缩放（Alt+滚轮） */
+    void applyWheelTrackHeightChange(float deltaY);
+    /** 与 mouse 滚轮一致：横向时间缩放，anchorContentX 为排列视图本地 X（鼠标位置或视图中心） */
+    void applyWheelTimelineZoom(float deltaY, int anchorContentX);
     void setInferenceActive(bool active) { inferenceActive_ = active; }
     void fitToContent();
     void prioritizeWaveformBuildForClip(int trackId, uint64_t clipId);

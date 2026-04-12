@@ -121,14 +121,20 @@ PianoRollToolHandler::Context PianoRollComponent::buildToolHandlerContext() {
         return selected;
     };
     toolCtx.findNoteAt = [this](double time, float targetPitchHz, float pitchToleranceHz) -> Note* {
+        juce::ignoreUnused(pitchToleranceHz);
+        if (targetPitchHz <= 0.0f)
+            return nullptr;
+        const float clickMidiRow = freqToMidi(targetPitchHz);
         auto& notes = getCurrentClipNotes();
         for (auto& note : notes) {
-            if (time >= note.startTime && time < note.endTime) {
-                float adjustedPitch = note.getAdjustedPitch();
-                if (std::abs(adjustedPitch - targetPitchHz) <= pitchToleranceHz) {
-                    return &note;
-                }
-            }
+            if (time < note.startTime || time >= note.endTime)
+                continue;
+            const float adjustedPitch = note.getAdjustedPitch();
+            if (adjustedPitch <= 0.0f)
+                continue;
+            const float noteMidiRow = freqToMidi(adjustedPitch);
+            if (std::abs(noteMidiRow - clickMidiRow) <= kPianoRollNoteHitHalfWidthSemis)
+                return &note;
         }
         return nullptr;
     };
@@ -254,6 +260,9 @@ PianoRollToolHandler::Context PianoRollComponent::buildToolHandlerContext() {
     toolCtx.applyManualCorrection = [this](std::vector<PianoRollToolHandler::ManualCorrectionOp> ops, int s, int e, bool render) {
         enqueueManualCorrectionPatchAsync(ops, s, e, render);
     };
+    toolCtx.setPitchPreview = [this](bool active, float hz) {
+        if (processor_ != nullptr) processor_->setPitchPreview(active, hz);
+    };
     return toolCtx;
 }
 
@@ -319,6 +328,8 @@ void PianoRollComponent::setPitchCurve(std::shared_ptr<PitchCurve> curve) {
 
     // Deselect all notes when pitch curve changes
     interactionState_.selection.isSelectingArea = false;
+    interactionState_.selection.marqueeAdditive = false;
+    interactionState_.selection.marqueeBaseSelected.clear();
     interactionState_.selection.clearF0Selection();
     for (auto& n : getCurrentClipNotes()) {
         n.selected = false;

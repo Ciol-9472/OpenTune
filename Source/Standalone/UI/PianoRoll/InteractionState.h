@@ -19,6 +19,8 @@ struct SelectionState
 {
     // Temporary rubber-band drag state (only valid while isSelectingArea == true)
     bool isSelectingArea = false;
+    bool marqueeAdditive = false;
+    std::vector<Note*> marqueeBaseSelected;
     double dragStartTime = 0.0;
     double dragEndTime = 0.0;
     float dragStartMidi = 0.0f;

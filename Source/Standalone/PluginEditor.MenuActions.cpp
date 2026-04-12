@@ -640,20 +640,20 @@ void OpenTuneAudioProcessorEditor::exportAudioRequested(MenuBarComponent::Export
                         DBG("Successfully exported " + outRequest.targetName);
                         juce::AlertWindow::showMessageBoxAsync(
                             juce::AlertWindow::InfoIcon,
-                            juce::String::fromUTF8("瀵煎嚭瀹屾垚"),
-                            outRequest.targetName + juce::String::fromUTF8(" 宸插鍑哄埌: ") + outFile.getFullPathName());
+                            LOC(kExportStemsCompleteTitle),
+                            Loc::format(LOC(kExportAudioCompleteMessage),
+                                        outRequest.targetName,
+                                        outFile.getFullPathName()));
                         return;
                     }
 
-                    juce::String failText = juce::String::fromUTF8("鏃犳硶瀵煎嚭闊抽鍒? ") + outFile.getFullPathName();
+                    juce::String failText = Loc::format(LOC(kExportAudioFailedMessage), outFile.getFullPathName());
                     if (errorText.isNotEmpty())
-                    {
-                        failText += juce::String::fromUTF8("\n鍘熷洜: ") + errorText;
-                    }
+                        failText += Loc::format(LOC(kExportAudioFailedReason), errorText);
 
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::WarningIcon,
-                        juce::String::fromUTF8("瀵煎嚭澶辫触"),
+                        LOC(kExportAudioFailedTitle),
                         failText);
                 });
             });
@@ -826,6 +826,15 @@ void OpenTuneAudioProcessorEditor::clearSessionNeedsSave()
     sessionNeedsSave_ = false;
 }
 
+bool OpenTuneAudioProcessorEditor::shouldPromptForUnsavedSession() const
+{
+    if (!sessionNeedsSave_)
+        return false;
+    if (sessionProjectFile_.existsAsFile())
+        return true;
+    return processorRef_.hasAnyClipOnAnyTrack();
+}
+
 void OpenTuneAudioProcessorEditor::finishNewProject()
 {
     processorRef_.resetToNewEmptyProject();
@@ -837,7 +846,8 @@ void OpenTuneAudioProcessorEditor::finishNewProject()
 
 void OpenTuneAudioProcessorEditor::checkUnsavedChangesThen(std::function<void()> onProceed)
 {
-    if (!sessionNeedsSave_) {
+    if (!shouldPromptForUnsavedSession()) {
+        clearSessionNeedsSave();
         onProceed();
         return;
     }
@@ -937,7 +947,8 @@ void OpenTuneAudioProcessorEditor::runSaveProjectDialogThen(std::function<void()
 
 void OpenTuneAudioProcessorEditor::newProjectRequested()
 {
-    if (!sessionNeedsSave_) {
+    if (!shouldPromptForUnsavedSession()) {
+        clearSessionNeedsSave();
         finishNewProject();
         return;
     }

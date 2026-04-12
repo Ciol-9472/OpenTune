@@ -562,36 +562,30 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::M
     float deltaX = wheel.deltaX;
     float deltaY = wheel.deltaY;
 
-#if JUCE_MAC
-    if (e.mods.isShiftDown() && deltaY == 0.0f && deltaX != 0.0f)
-    {
-        deltaY = deltaX;
-        deltaX = 0.0f;
-    }
-#endif
-
     if (deltaY == 0.0f && deltaX == 0.0f)
         return;
 
     const bool ctrl = e.mods.isCtrlDown() || e.mods.isCommandDown();
     const bool shift = e.mods.isShiftDown();
+    const bool alt = e.mods.isAltDown();
 
-    if (ctrl && shift)
+    // Alt+Ctrl：横向+纵向同时缩放（全局缩放）
+    if (alt && ctrl)
     {
         handleHorizontalZoomWheel(e, deltaY);
         handleVerticalZoomWheel(e, deltaY);
     }
     else if (shift)
     {
-        handleVerticalZoomWheel(e, deltaY);
+        handleHorizontalScrollWheel(deltaX, deltaY);
     }
     else if (ctrl)
     {
         handleHorizontalZoomWheel(e, deltaY);
     }
-    else if (e.mods.isAltDown())
+    else if (alt)
     {
-        handleHorizontalScrollWheel(deltaX, deltaY);
+        handleVerticalZoomWheel(e, deltaY);
     }
     else
     {

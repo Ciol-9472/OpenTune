@@ -108,6 +108,10 @@ constexpr const char* kExportStemsPickTrackWarning = "Please select at least one
 constexpr const char* kExportStemsCompleteTitle = "Export Complete";
 constexpr const char* kExportStemsCompleteMessage = "Exported {0} file(s) to:\n{1}";
 constexpr const char* kExportStemsFailedTitle = "Stem export failed";
+constexpr const char* kExportAudioCompleteMessage = "{0}\nExported to:\n{1}";
+constexpr const char* kExportAudioFailedTitle = "Export Failed";
+constexpr const char* kExportAudioFailedMessage = "Unable to export audio to:\n{0}";
+constexpr const char* kExportAudioFailedReason = "\nReason: {0}";
 constexpr const char* kOk = "OK";
 constexpr const char* kSaveProject = "Save Project...";
 constexpr const char* kLoadProject = "Open Project...";
@@ -267,6 +271,10 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kExportStemsCompleteTitle, "Export Complete", "导出完成", "エクスポート完了", "Готово", "Exportación completada" },
         { Keys::kExportStemsCompleteMessage, "Exported {0} file(s) to:\n{1}", "已导出 {0} 个文件到：\n{1}", "{0} ファイルを次にエクスポートしました:\n{1}", "Экспортировано файлов: {0}\n{1}", "Se exportaron {0} archivo(s) a:\n{1}" },
         { Keys::kExportStemsFailedTitle, "Stem export failed", "分轨导出失败", "ステムのエクスポートに失敗", "Ошибка экспорта", "Error al exportar pistas" },
+        { Keys::kExportAudioCompleteMessage, "{0}\nExported to:\n{1}", "{0}\n已导出到：\n{1}", "{0}\n書き出し先:\n{1}", "{0}\nЭкспорт в:\n{1}", "{0}\nExportado a:\n{1}" },
+        { Keys::kExportAudioFailedTitle, "Export Failed", "导出失败", "エクスポート失敗", "Ошибка экспорта", "Error al exportar" },
+        { Keys::kExportAudioFailedMessage, "Unable to export audio to:\n{0}", "无法导出音频到：\n{0}", "オーディオを書き出せません:\n{0}", "Не удалось экспортировать в:\n{0}", "No se pudo exportar audio a:\n{0}" },
+        { Keys::kExportAudioFailedReason, "\nReason: {0}", "\n原因：{0}", "\n理由: {0}", "\nПричина: {0}", "\nMotivo: {0}" },
         { Keys::kOk, "OK", "确定", "OK", "OK", "Aceptar" },
         { Keys::kSaveProject, "Save Project...", "保存工程...", "プロジェクトを保存...", "Сохранить проект...", "Guardar proyecto..." },
         { Keys::kLoadProject, "Open Project...", "打开工程...", "プロジェクトを開く...", "Открыть проект...", "Abrir proyecto..." },

@@ -455,6 +455,16 @@ public:
         virtual void trackHeightChanged(int newHeight) { juce::ignoreUnused(newHeight); }
         // 垂直滚动回调 - 通知外部滚动偏移变化（用于同步ArrangementView）
         virtual void verticalScrollChanged(int offset) { juce::ignoreUnused(offset); }
+        // Shift+滚轮：排列区水平滚动（由 Editor 转发到 ArrangementView）
+        virtual void arrangementHorizontalPanWheel(float deltaX, float deltaY)
+        {
+            juce::ignoreUnused(deltaX);
+            juce::ignoreUnused(deltaY);
+        }
+        // Alt+滚轮：轨道高度缩放（与 ArrangementView 共用同一逻辑，避免侧栏与主视图不一致）
+        virtual void arrangementTrackHeightWheel(float deltaY) { juce::ignoreUnused(deltaY); }
+        // Alt+Ctrl+滚轮：横向缩放 + 轨道高度
+        virtual void arrangementAltCtrlWheel(float deltaY) { juce::ignoreUnused(deltaY); }
     };
 
     // 构造函数，高度由外部传入

@@ -290,6 +290,12 @@ private:
     std::atomic<int> fadeOutSampleCount_{0};
     int fadeOutTotalSamples_{0};  // Set in prepareToPlay based on sample rate
 
+    std::atomic<bool> pitchPreviewRequested_{false};
+    std::atomic<float> pitchPreviewTargetHz_{0.0f};
+    double pitchPreviewPhase_{0.0};
+    float pitchPreviewSmoothedHz_{0.0f};
+    float pitchPreviewSmoothedGain_{0.0f};
+
 #if !JucePlugin_Build_Standalone
     std::atomic<bool> hostIsRecording_{false};
     std::atomic<bool> hostIsLooping_{false};
@@ -323,6 +329,7 @@ private:
     void recordAudioCallbackDurationMs(double durationMs);
     void recordCacheCheck(bool cacheHit);
     double computeAudioCallbackPercentileMs(double percentile) const;
+    void mixPitchPreviewIntoBuffer(juce::AudioBuffer<float>& buffer, double sampleRate, int numSamples, int numChannels);
     void resampleDrySignal(TrackState::AudioClip& clip, double deviceSampleRate);
     static void copyClipToSnapshot(const TrackState::AudioClip& clip, OpenTune::ClipSnapshot& out);
     static void copySnapshotToClip(const OpenTune::ClipSnapshot& snap, TrackState::AudioClip& clip, uint64_t clipId);
@@ -385,6 +392,8 @@ public:
     VocoderDomain* getVocoderDomain() const { return vocoderDomain_.get(); }
 
     int getNumClips(int trackId) const;
+    /** 任意轨道上是否存在音频片段（用于判断未命名空白工程是否需“未保存”确认） */
+    bool hasAnyClipOnAnyTrack() const;
     int getSelectedClip(int trackId) const;
     void setSelectedClip(int trackId, int clipIndex);
     
@@ -543,6 +552,12 @@ public:
 
     PerfProbeSnapshot getPerfProbeSnapshot() const;
     void resetPerfProbeCounters();
+
+    /**
+     * 钢琴卷帘拖拽等 UI 音高预览：内部正弦振荡器混到输出。
+     * 仅从消息线程调用；active=false 时音频线程淡出停止。
+     */
+    void setPitchPreview(bool active, float frequencyHz);
 
     // 全局 Undo/Redo API
     UndoManager& getUndoManager() { return globalUndoManager_; }

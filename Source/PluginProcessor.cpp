@@ -593,6 +593,58 @@ void OpenTuneAudioProcessor::releaseResources() {
 #endif
 }
 
+void OpenTuneAudioProcessor::setPitchPreview(bool active, float frequencyHz)
+{
+    if (active && frequencyHz > 0.0f && std::isfinite(frequencyHz)) {
+        pitchPreviewTargetHz_.store(juce::jlimit(20.0f, 20000.0f, frequencyHz), std::memory_order_relaxed);
+        pitchPreviewRequested_.store(true, std::memory_order_relaxed);
+    } else {
+        pitchPreviewRequested_.store(false, std::memory_order_relaxed);
+    }
+}
+
+void OpenTuneAudioProcessor::mixPitchPreviewIntoBuffer(juce::AudioBuffer<float>& buffer,
+                                                       double sampleRate,
+                                                       int numSamples,
+                                                       int numChannels)
+{
+    if (numSamples <= 0 || numChannels <= 0 || sampleRate <= 0.0) {
+        return;
+    }
+
+    const bool wantOn = pitchPreviewRequested_.load(std::memory_order_relaxed);
+    const float targetHzAtomic = pitchPreviewTargetHz_.load(std::memory_order_relaxed);
+
+    constexpr float kMaxGain = 0.12f;
+    const float targetGain = (wantOn && targetHzAtomic > 0.0f) ? kMaxGain : 0.0f;
+
+    const double twoPi = juce::MathConstants<double>::twoPi;
+    const float omega = static_cast<float>(twoPi / sampleRate);
+
+    for (int i = 0; i < numSamples; ++i) {
+        pitchPreviewSmoothedGain_ += (targetGain - pitchPreviewSmoothedGain_) * 0.025f;
+
+        if (wantOn && targetHzAtomic > 0.0f) {
+            pitchPreviewSmoothedHz_ += (targetHzAtomic - pitchPreviewSmoothedHz_) * 0.12f;
+        }
+
+        if (pitchPreviewSmoothedGain_ <= 1.0e-6f) {
+            continue;
+        }
+
+        const float hz = juce::jmax(20.0f, pitchPreviewSmoothedHz_);
+        pitchPreviewPhase_ += static_cast<double>(omega) * static_cast<double>(hz);
+        while (pitchPreviewPhase_ >= twoPi) {
+            pitchPreviewPhase_ -= twoPi;
+        }
+
+        const float s = pitchPreviewSmoothedGain_ * static_cast<float>(std::sin(pitchPreviewPhase_));
+        for (int ch = 0; ch < numChannels; ++ch) {
+            buffer.addSample(ch, i, s);
+        }
+    }
+}
+
 bool OpenTuneAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     const auto in = layouts.getMainInputChannelSet();
     const auto out = layouts.getMainOutputChannelSet();
@@ -703,18 +755,20 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         buffer.clear(i, 0, numSamples);
     }
 
-    // Handle fade-out state
-    bool isFading = isFadingOut_.load();
-    bool isPlaying = isPlaying_.load();
-    
-    if (!isPlaying && !isFading) {
-        // Fully stopped - clear output and reset state
+    const bool isFading = isFadingOut_.load();
+    const bool isPlaying = isPlaying_.load();
+    const bool transportStopped = !isPlaying && !isFading;
+
+    if (transportStopped) {
         for (auto& track : tracks_) {
             track.currentRMS.store(-100.0f);
         }
         isBuffering_.store(false);
-        finalizePerf();
-        return;
+        const bool previewOn = pitchPreviewRequested_.load(std::memory_order_relaxed);
+        if (!previewOn && pitchPreviewSmoothedGain_ <= 1.0e-5f) {
+            finalizePerf();
+            return;
+        }
     }
 
     const double deviceSampleRate = currentSampleRate_.load();
@@ -723,7 +777,8 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const double blockEndSeconds = currentPosSeconds + blockDurationSeconds;
     const int64_t blockStartSample = TimeCoordinate::secondsToSamples(currentPosSeconds, deviceSampleRate);
     const int64_t blockEndSample = blockStartSample + static_cast<int64_t>(numSamples);
-    
+
+    if (!transportStopped) {
     const juce::ScopedReadLock tracksReadLock(tracksLock_);
     
     for (int trackId = 0; trackId < MAX_TRACKS; ++trackId) {
@@ -919,7 +974,15 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
-    positionAtomic_->store(blockEndSeconds, std::memory_order_relaxed);
+    } // !transportStopped
+
+    if (deviceSampleRate > 0.0 && totalNumOutputChannels > 0) {
+        mixPitchPreviewIntoBuffer(buffer, deviceSampleRate, numSamples, totalNumOutputChannels);
+    }
+
+    if (!transportStopped) {
+        positionAtomic_->store(blockEndSeconds, std::memory_order_relaxed);
+    }
     finalizePerf();
 }
 
