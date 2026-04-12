@@ -310,11 +310,12 @@ void PianoRollComponent::resized() {
     int btnW = 50;
     int btnH = 20;
     int spacing = 5;
-    int currentX = getWidth() - spacing - btnW;
+    int currentX = bounds.getRight() - spacing - btnW;
+    const int buttonY = bounds.getY() + 5;
     
-    scrollModeToggleButton_.setBounds(currentX, 5, btnW, btnH);
+    scrollModeToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
     currentX -= (btnW + spacing);
-    timeUnitToggleButton_.setBounds(currentX, 5, btnW, btnH);
+    timeUnitToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
 
     playheadOverlay_.setBounds(getLocalBounds());
     anchorFitOverlay_.setBounds(getLocalBounds());
@@ -452,11 +453,12 @@ void PianoRollComponent::fitToScreen() {
     // Total range: maxMidi_ - minMidi_
     // Available height: getHeight()
     float range = maxMidi_ - minMidi_;
-    if (range > 0 && getHeight() > 0) {
-        pixelsPerSemitone_ = static_cast<float>(getHeight()) / range;
-        
+    const int hAvail = getNoteGridViewportHeight();
+    if (range > 0 && hAvail > 0) {
+        pixelsPerSemitone_ = static_cast<float>(hAvail) / range;
+
         // Reset scroll to show top
-        verticalScrollOffset_ = 0; 
+        verticalScrollOffset_ = 0;
     }
 
     // 2. Horizontal Fit:
@@ -504,6 +506,13 @@ float PianoRollComponent::getTotalHeight() const {
     return (maxMidi_ - minMidi_) * pixelsPerSemitone_;
 }
 
+int PianoRollComponent::getNoteGridViewportHeight() const noexcept
+{
+    constexpr int kInset = 12;
+    constexpr int kHScrollbar = 15;
+    return juce::jmax(1, getHeight() - 2 * kInset - rulerHeight_ - kHScrollbar);
+}
+
 float PianoRollComponent::freqToMidi(float frequency) const {
     if (frequency <= 0.0f) return 0.0f;
     // 统一语义：频率↔MIDI 以“半音中心线”为锚点（不是键边界）。
@@ -536,7 +545,6 @@ void PianoRollComponent::setCurrentClipContext(int trackId, uint64_t clipId)
 {
     currentTrackId_ = trackId;
     currentClipId_ = clipId;
-    clipContextGeneration_.fetch_add(1, std::memory_order_release);
     if (correctionWorker_) {
         correctionWorker_->setClipContext(trackId, clipId);
     }
@@ -547,9 +555,6 @@ void PianoRollComponent::clearClipContext()
     currentTrackId_ = -1;
     currentClipId_ = 0;
     correctionInFlight_.store(false, std::memory_order_release);
-    // 使用 release 语义确保与工作线程正确同步
-    // 递增 generation 以使任何进行中的 AUTO 请求失效
-    clipContextGeneration_.fetch_add(1, std::memory_order_release);
     if (correctionWorker_) {
         correctionWorker_->setClipContext(-1, 0);
     }

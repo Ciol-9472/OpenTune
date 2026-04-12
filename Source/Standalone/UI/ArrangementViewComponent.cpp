@@ -106,9 +106,9 @@ void ArrangementViewComponent::setScrollOffset(int pixels)
 
 void ArrangementViewComponent::setVerticalScrollOffset(int offset)
 {
-    // 计算最大滚动偏移（12轨道高度 + ruler高度 - 可见高度）
-    const int totalContentHeight = rulerHeight_ + OpenTuneAudioProcessor::MAX_TRACKS * processor_.getTrackHeight();
-    const int visibleHeight = getHeight();
+    const int rows = getTimelineLayoutTrackRows();
+    const int totalContentHeight = rulerHeight_ + rows * processor_.getTrackHeight() + kTrackAddButtonRegion_;
+    const int visibleHeight = juce::jmax(0, getHeight() - kScrollbarBreadth_);
     const int maxScrollOffset = juce::jmax(0, totalContentHeight - visibleHeight);
     
     // 限制滚动范围 [0, maxScrollOffset]
@@ -124,31 +124,14 @@ void ArrangementViewComponent::fitToContent()
         return;
     }
 
-    double maxEndTime = 0.0;
-    // 音频存储采样率为固定 44.1kHz，用于计算音频时长
-    constexpr double storedSampleRate = 44100.0;
+    constexpr double kTimelineEndPadSec = 2.0;
+    double maxEndTime = processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec;
 
-    for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t)
-    {
-        int numClips = processor_.getNumClips(t);
-        for (int i = 0; i < numClips; ++i)
-        {
-            double start = processor_.getClipStartSeconds(t, i);
-            std::shared_ptr<const juce::AudioBuffer<float>> audioBuffer =
-                processor_.getClipAudioBuffer(t, i);
-            double dur = 0.0;
-            if (audioBuffer) {
-                dur = (double)audioBuffer->getNumSamples() / storedSampleRate;
-            }
-            maxEndTime = juce::jmax(maxEndTime, start + dur);
-        }
-    }
-
-    if (maxEndTime <= 0.0 || getWidth() <= 8) {
+    if (maxEndTime <= kTimelineEndPadSec || getWidth() <= 8) {
         return;
     }
 
-    int viewWidth = getWidth() - 8;
+    int viewWidth = getWidth() - kScrollbarBreadth_;
     int paddingPx = 12;
     int drawableWidth = juce::jmax(1, viewWidth - paddingPx);
     double zoom = (static_cast<double>(drawableWidth) / maxEndTime) / 100.0;
@@ -185,18 +168,20 @@ bool ArrangementViewComponent::isWaveformCacheCompleteForClip(int trackId, uint6
 void ArrangementViewComponent::resized()
 {
     auto bounds = getLocalBounds();
-    horizontalScrollBar_.setBounds(bounds.removeFromBottom(15));
-    verticalScrollBar_.setBounds(bounds.removeFromLeft(15));
+    auto vBarArea = bounds.removeFromRight(kScrollbarBreadth_);
+    verticalScrollBar_.setBounds(vBarArea);
+    horizontalScrollBar_.setBounds(bounds.removeFromBottom(kScrollbarBreadth_));
 
     // Position toggle buttons in top right of ruler
     int btnW = 50;
     int btnH = 20;
     int spacing = 5;
-    int currentX = getWidth() - spacing - btnW;
+    int currentX = bounds.getRight() - spacing - btnW;
+    const int buttonY = bounds.getY() + 5;
     
-    scrollModeToggleButton_.setBounds(currentX, 5, btnW, btnH);
+    scrollModeToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
     currentX -= (btnW + spacing);
-    timeUnitToggleButton_.setBounds(currentX, 5, btnW, btnH);
+    timeUnitToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
 
     updateScrollBars();
 
@@ -222,37 +207,36 @@ void ArrangementViewComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double
 
 void ArrangementViewComponent::updateScrollBars()
 {
-    double maxEndTime = 60.0 * 5.0; // Default 5 minutes
-    // [TIME-01] Audio is stored at fixed 44.1kHz
-    constexpr double storedSampleRate = 44100.0;
-
-    for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t)
-    {
-        int numClips = processor_.getNumClips(t);
-        for (int i = 0; i < numClips; ++i)
-        {
-            double start = processor_.getClipStartSeconds(t, i);
-            std::shared_ptr<const juce::AudioBuffer<float>> audioBuffer =
-                processor_.getClipAudioBuffer(t, i);
-            double dur = 0.0;
-            if (audioBuffer) {
-                dur = (double)audioBuffer->getNumSamples() / storedSampleRate;
-            }
-            maxEndTime = juce::jmax(maxEndTime, start + dur + 10.0);
-        }
-    }
+    constexpr double kTimelineEndPadSec = 2.0;
+    double maxEndTime = processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec;
+    maxEndTime = juce::jmax(maxEndTime, 8.0);
 
     double pixelsPerSecond = 100.0 * zoomLevel_;
     int totalContentWidth = static_cast<int>(maxEndTime * pixelsPerSecond);
-    int visibleWidth = getWidth() - 15;
+    int visibleWidth = getWidth() - kScrollbarBreadth_;
     
     horizontalScrollBar_.setRangeLimits(0.0, totalContentWidth + visibleWidth);
     horizontalScrollBar_.setCurrentRange(scrollOffset_, visibleWidth);
 
-    int totalTrackHeight = rulerHeight_ + OpenTuneAudioProcessor::MAX_TRACKS * processor_.getTrackHeight();
-    int visibleHeight = getHeight() - 15;
-    verticalScrollBar_.setRangeLimits(0.0, totalTrackHeight + visibleHeight);
+    const int rows = getTimelineLayoutTrackRows();
+    const int totalTrackHeight = rulerHeight_ + rows * processor_.getTrackHeight() + kTrackAddButtonRegion_;
+    int visibleHeight = juce::jmax(1, getHeight() - kScrollbarBreadth_);
+    verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(totalTrackHeight));
     verticalScrollBar_.setCurrentRange(verticalScrollOffset_, visibleHeight);
+}
+
+int ArrangementViewComponent::getTimelineLayoutTrackRows() const
+{
+    int rows = 2;
+    rows = juce::jmax(rows, processor_.getActiveTrackId() + 1);
+
+    for (int trackId = 0; trackId < OpenTuneAudioProcessor::MAX_TRACKS; ++trackId)
+    {
+        if (processor_.getNumClips(trackId) > 0)
+            rows = trackId + 1;
+    }
+
+    return juce::jlimit(1, OpenTuneAudioProcessor::MAX_TRACKS, rows);
 }
 
 int ArrangementViewComponent::timeToX(double seconds) const
@@ -268,8 +252,8 @@ double ArrangementViewComponent::xToTime(int x) const
 juce::Rectangle<int> ArrangementViewComponent::getTrackLaneBounds(int trackId) const
 {
     auto bounds = getLocalBounds().withTrimmedTop(rulerHeight_);
-    bounds.removeFromLeft(15); // Reserve space for vertical scrollbar
-    bounds.removeFromBottom(15); // Reserve space for horizontal scrollbar
+    bounds.removeFromRight(kScrollbarBreadth_);
+    bounds.removeFromBottom(kScrollbarBreadth_);
     int h = processor_.getTrackHeight();
     return bounds.withY(rulerHeight_ + trackId * h - verticalScrollOffset_).withHeight(h);
 }
@@ -409,6 +393,19 @@ void ArrangementViewComponent::paint(juce::Graphics& g)
     }
 
     drawGridLines(g);
+
+    const int activeTrack = processor_.getActiveTrackId();
+    const int trackH = processor_.getTrackHeight();
+    if (activeTrack >= 0 && activeTrack < OpenTuneAudioProcessor::MAX_TRACKS && trackH > 0)
+    {
+        const int y = rulerHeight_ + activeTrack * trackH - verticalScrollOffset_;
+        if (y + trackH > 0 && y < getHeight())
+        {
+            juce::Rectangle<int> row(0, y, getWidth(), trackH);
+            g.setColour(UIColors::accent.withAlpha(0.10f));
+            g.fillRect(row);
+        }
+    }
 
     for (int trackId = 0; trackId < OpenTuneAudioProcessor::MAX_TRACKS; ++trackId)
     {

@@ -856,4 +856,286 @@ void PitchCurve::restoreSegmentsAndAnchors(const std::vector<CorrectedSegment>& 
     std::atomic_store(&snapshot_, newSnapshot);
 }
 
+namespace {
+
+std::vector<CorrectedSegment> extractCorrectedSegmentsForSubrange(
+    const std::vector<CorrectedSegment>& segments,
+    int lo,
+    int hi,
+    int rebase)
+{
+    std::vector<CorrectedSegment> out;
+    if (hi <= lo) {
+        return out;
+    }
+
+    for (const auto& seg : segments) {
+        if (seg.endFrame <= lo || seg.startFrame >= hi) {
+            continue;
+        }
+
+        const int ns = juce::jmax(seg.startFrame, lo);
+        const int ne = juce::jmin(seg.endFrame, hi);
+        if (ne <= ns) {
+            continue;
+        }
+
+        const int srcOff = ns - seg.startFrame;
+        const int len = ne - ns;
+        if (srcOff < 0 || len <= 0 || srcOff + len > static_cast<int>(seg.f0Data.size())) {
+            continue;
+        }
+
+        CorrectedSegment copy = seg;
+        copy.startFrame = ns - rebase;
+        copy.endFrame = ne - rebase;
+        copy.f0Data.assign(seg.f0Data.begin() + srcOff, seg.f0Data.begin() + srcOff + len);
+        out.push_back(std::move(copy));
+    }
+
+    std::sort(out.begin(), out.end(), [](const CorrectedSegment& a, const CorrectedSegment& b) {
+        return a.startFrame < b.startFrame;
+    });
+    return out;
+}
+
+std::vector<AnchorGroup> extractAnchorGroupsForSubrange(
+    const std::vector<AnchorGroup>& groups,
+    double splitSec,
+    bool leftPart)
+{
+    std::vector<AnchorGroup> result;
+    for (const auto& g : groups) {
+        AnchorGroup ng;
+        for (const auto& pt : g.points) {
+            if (leftPart) {
+                if (pt.time < splitSec) {
+                    ng.points.push_back(pt);
+                }
+            } else {
+                if (pt.time >= splitSec) {
+                    AnchorPoint p = pt;
+                    p.time -= splitSec;
+                    ng.points.push_back(p);
+                }
+            }
+        }
+        if (ng.points.size() >= 2u) {
+            ng.sortByTime();
+            result.push_back(std::move(ng));
+        }
+    }
+    return result;
+}
+
+} // namespace
+
+std::shared_ptr<PitchCurve> PitchCurve::createFrameSubrangeCopy(int startFrame, int endExclusive) const
+{
+    auto snap = getSnapshot();
+    const auto& f0 = snap->getOriginalF0();
+    const int n = static_cast<int>(f0.size());
+    if (n <= 0 || startFrame < 0 || endExclusive <= startFrame) {
+        return nullptr;
+    }
+
+    const int hi = juce::jmin(endExclusive, n);
+    if (hi <= startFrame) {
+        return nullptr;
+    }
+
+    const int hop = snap->getHopSize();
+    const double sr = snap->getSampleRate();
+
+    std::vector<float> subF0(f0.begin() + startFrame, f0.begin() + hi);
+    std::vector<float> subEn;
+    const auto& en = snap->getOriginalEnergy();
+    if (en.size() >= static_cast<size_t>(hi)) {
+        subEn.assign(en.begin() + startFrame, en.begin() + hi);
+    } else if (!en.empty()) {
+        subEn.assign(en.begin() + juce::jmin(startFrame, static_cast<int>(en.size())),
+            en.begin() + juce::jmin(hi, static_cast<int>(en.size())));
+        if (static_cast<int>(subEn.size()) != hi - startFrame) {
+            subEn.resize(static_cast<size_t>(hi - startFrame), 0.0f);
+        }
+    } else {
+        subEn.assign(static_cast<size_t>(hi - startFrame), 0.0f);
+    }
+
+    const auto segs = extractCorrectedSegmentsForSubrange(snap->getCorrectedSegments(), startFrame, hi, startFrame);
+    std::vector<AnchorGroup> anchors;
+    if (startFrame == 0) {
+        const double boundarySec = static_cast<double>(hi) * static_cast<double>(hop) / sr;
+        anchors = extractAnchorGroupsForSubrange(snap->getAnchorGroups(), boundarySec, true);
+    } else {
+        const double boundarySec = static_cast<double>(startFrame) * static_cast<double>(hop) / sr;
+        anchors = extractAnchorGroupsForSubrange(snap->getAnchorGroups(), boundarySec, false);
+    }
+
+    auto out = std::make_shared<PitchCurve>();
+    out->clear();
+    out->setHopSize(hop);
+    out->setSampleRate(sr);
+    out->setOriginalF0(subF0);
+    out->setOriginalEnergy(subEn);
+    out->restoreSegmentsAndAnchors(segs, anchors);
+    return out;
+}
+
+std::shared_ptr<PitchCurve> PitchCurve::mergeSequentialCurves(const PitchCurve& left, const PitchCurve& right)
+{
+    auto L = left.getSnapshot();
+    auto R = right.getSnapshot();
+    if (L->getHopSize() != R->getHopSize()) {
+        return nullptr;
+    }
+    if (std::abs(L->getSampleRate() - R->getSampleRate()) > 1e-6) {
+        return nullptr;
+    }
+
+    const int hop = L->getHopSize();
+    const double sr = L->getSampleRate();
+    const int leftFrames = static_cast<int>(L->getOriginalF0().size());
+    const int rightFrames = static_cast<int>(R->getOriginalF0().size());
+    if (leftFrames <= 0 || rightFrames <= 0) {
+        return nullptr;
+    }
+
+    const double leftDurSec =
+        static_cast<double>(leftFrames) * static_cast<double>(hop) / sr;
+
+    std::vector<float> mergedF0 = L->getOriginalF0();
+    mergedF0.insert(mergedF0.end(), R->getOriginalF0().begin(), R->getOriginalF0().end());
+
+    std::vector<float> mergedEn = L->getOriginalEnergy();
+    if (mergedEn.size() < static_cast<size_t>(leftFrames)) {
+        mergedEn.resize(static_cast<size_t>(leftFrames), 0.0f);
+    }
+    const auto& rEn = R->getOriginalEnergy();
+    if (rEn.size() >= static_cast<size_t>(rightFrames)) {
+        mergedEn.insert(mergedEn.end(), rEn.begin(), rEn.begin() + rightFrames);
+    } else {
+        for (int i = 0; i < rightFrames; ++i) {
+            mergedEn.push_back(i < static_cast<int>(rEn.size()) ? rEn[static_cast<size_t>(i)] : 0.0f);
+        }
+    }
+    if (mergedEn.size() < mergedF0.size()) {
+        mergedEn.resize(mergedF0.size(), 0.0f);
+    }
+
+    std::vector<CorrectedSegment> mergedSegs = L->getCorrectedSegments();
+    for (auto seg : R->getCorrectedSegments()) {
+        seg.startFrame += leftFrames;
+        seg.endFrame += leftFrames;
+        mergedSegs.push_back(std::move(seg));
+    }
+    std::sort(mergedSegs.begin(), mergedSegs.end(), [](const CorrectedSegment& a, const CorrectedSegment& b) {
+        return a.startFrame < b.startFrame;
+    });
+
+    std::vector<AnchorGroup> mergedAnchors = L->getAnchorGroups();
+    for (auto g : R->getAnchorGroups()) {
+        for (auto& pt : g.points) {
+            pt.time += leftDurSec;
+        }
+        if (g.points.size() >= 2u) {
+            g.sortByTime();
+            mergedAnchors.push_back(std::move(g));
+        }
+    }
+
+    auto out = std::make_shared<PitchCurve>();
+    out->clear();
+    out->setHopSize(hop);
+    out->setSampleRate(sr);
+    out->setOriginalF0(mergedF0);
+    out->setOriginalEnergy(mergedEn);
+    out->restoreSegmentsAndAnchors(mergedSegs, mergedAnchors);
+    return out;
+}
+
+std::shared_ptr<PitchCurve> PitchCurve::mergeSequentialCurvesWithGap(const PitchCurve& left, const PitchCurve& right,
+                                                                     double gapSeconds)
+{
+    if (gapSeconds <= 1e-12) {
+        return mergeSequentialCurves(left, right);
+    }
+
+    auto L = left.getSnapshot();
+    auto R = right.getSnapshot();
+    if (L->getHopSize() != R->getHopSize()) {
+        return nullptr;
+    }
+    if (std::abs(L->getSampleRate() - R->getSampleRate()) > 1e-6) {
+        return nullptr;
+    }
+
+    const int hop = L->getHopSize();
+    const double sr = L->getSampleRate();
+    const int leftFrames = static_cast<int>(L->getOriginalF0().size());
+    const int rightFrames = static_cast<int>(R->getOriginalF0().size());
+    if (leftFrames <= 0 || rightFrames <= 0 || hop <= 0 || sr <= 1e-9) {
+        return nullptr;
+    }
+
+    const int gapFrames = static_cast<int>(std::llround(gapSeconds * sr / static_cast<double>(hop)));
+    const int gapPad = juce::jmax(0, gapFrames);
+
+    const double leftDurSec =
+        static_cast<double>(leftFrames) * static_cast<double>(hop) / sr;
+
+    std::vector<float> mergedF0 = L->getOriginalF0();
+    mergedF0.insert(mergedF0.end(), static_cast<size_t>(gapPad), 0.0f);
+    mergedF0.insert(mergedF0.end(), R->getOriginalF0().begin(), R->getOriginalF0().end());
+
+    std::vector<float> mergedEn = L->getOriginalEnergy();
+    if (mergedEn.size() < static_cast<size_t>(leftFrames)) {
+        mergedEn.resize(static_cast<size_t>(leftFrames), 0.0f);
+    }
+    mergedEn.insert(mergedEn.end(), static_cast<size_t>(gapPad), 0.0f);
+    const auto& rEn = R->getOriginalEnergy();
+    if (rEn.size() >= static_cast<size_t>(rightFrames)) {
+        mergedEn.insert(mergedEn.end(), rEn.begin(), rEn.begin() + rightFrames);
+    } else {
+        for (int i = 0; i < rightFrames; ++i) {
+            mergedEn.push_back(i < static_cast<int>(rEn.size()) ? rEn[static_cast<size_t>(i)] : 0.0f);
+        }
+    }
+    if (mergedEn.size() < mergedF0.size()) {
+        mergedEn.resize(mergedF0.size(), 0.0f);
+    }
+
+    const int shift = leftFrames + gapPad;
+    std::vector<CorrectedSegment> mergedSegs = L->getCorrectedSegments();
+    for (auto seg : R->getCorrectedSegments()) {
+        seg.startFrame += shift;
+        seg.endFrame += shift;
+        mergedSegs.push_back(std::move(seg));
+    }
+    std::sort(mergedSegs.begin(), mergedSegs.end(), [](const CorrectedSegment& a, const CorrectedSegment& b) {
+        return a.startFrame < b.startFrame;
+    });
+
+    const double anchorShift = leftDurSec + gapSeconds;
+    std::vector<AnchorGroup> mergedAnchors = L->getAnchorGroups();
+    for (auto g : R->getAnchorGroups()) {
+        for (auto& pt : g.points) {
+            pt.time += anchorShift;
+        }
+        if (g.points.size() >= 2u) {
+            g.sortByTime();
+            mergedAnchors.push_back(std::move(g));
+        }
+    }
+
+    auto out = std::make_shared<PitchCurve>();
+    out->clear();
+    out->setHopSize(hop);
+    out->setSampleRate(sr);
+    out->setOriginalF0(mergedF0);
+    out->setOriginalEnergy(mergedEn);
+    out->restoreSegmentsAndAnchors(mergedSegs, mergedAnchors);
+    return out;
+}
+
 } // namespace OpenTune

@@ -11,16 +11,6 @@ TopBarComponent::TopBarComponent(MenuBarComponent& menuBar, TransportBarComponen
     addAndMakeVisible(menuBar_);
     addAndMakeVisible(transportBar_);
 
-    // 侧边栏开关按钮 - 使用箭头图标表示收起/展开功能
-    trackPanelToggleButton_.setIcon(ToolbarIcons::getPanelRightIcon());
-    trackPanelToggleButton_.setClickingTogglesState(true);
-    trackPanelToggleButton_.setToggleState(true, juce::dontSendNotification);
-    trackPanelToggleButton_.setTooltip("Show/Hide Left Panel");
-    trackPanelToggleButton_.onClick = [this]() {
-        if (onToggleTrackPanel) onToggleTrackPanel();
-    };
-    addAndMakeVisible(trackPanelToggleButton_);
-
     parameterPanelToggleButton_.setIcon(ToolbarIcons::getPanelLeftIcon());
     parameterPanelToggleButton_.setClickingTogglesState(true);
     parameterPanelToggleButton_.setToggleState(true, juce::dontSendNotification);
@@ -39,19 +29,14 @@ void TopBarComponent::applyTheme()
     repaint();
 }
 
-void TopBarComponent::setSidePanelsVisible(bool trackPanelVisible, bool parameterPanelVisible)
+void TopBarComponent::setParameterPanelToggleState(bool parameterPanelVisible)
 {
-    trackPanelToggleButton_.setToggleState(trackPanelVisible, juce::dontSendNotification);
     parameterPanelToggleButton_.setToggleState(parameterPanelVisible, juce::dontSendNotification);
     repaint();
 }
 
 void TopBarComponent::refreshLocalizedText()
 {
-    // 更新按钮文本和 tooltip
-    trackPanelToggleButton_.setButtonText(LOC(kTracks));
-    trackPanelToggleButton_.setTooltip(LOC(kTracks));
-    
     parameterPanelToggleButton_.setButtonText(LOC(kProps));
     parameterPanelToggleButton_.setTooltip(LOC(kProps));
     
@@ -107,17 +92,13 @@ void TopBarComponent::resized()
     else
         menuBar_.setBounds({});
 
-    // Transport 行：左/右留给侧边栏开关按钮
+    // Transport 行：右侧为属性面板开关
     const int pad = 6;
-    const int toggleW = 50; // 统一宽度 (50px) - Scaled 1.25x
-    const int toggleH = 40; // 统一高度 (40px) - Scaled 1.25x
+    const int toggleW = 50;
+    const int toggleH = 40;
 
     auto row = bounds.reduced(pad, pad);
 
-    auto leftArea = row.removeFromLeft(toggleW);
-    trackPanelToggleButton_.setBounds(leftArea.withSizeKeepingCentre(toggleW, toggleH));
-
-    row.removeFromLeft(pad);
     auto rightArea = row.removeFromRight(toggleW);
     parameterPanelToggleButton_.setBounds(rightArea.withSizeKeepingCentre(toggleW, toggleH));
 

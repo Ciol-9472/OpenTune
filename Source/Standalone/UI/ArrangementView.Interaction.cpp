@@ -181,6 +181,16 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
 
+    if (e.mods.isPopupMenu()) {
+        auto hit = hitTestClip(e.getPosition());
+        if (hit.trackId >= 0 && hit.clipIndex >= 0) {
+            listeners_.call([&](Listener& l) {
+                l.arrangementClipContextMenu(hit.trackId, hit.clipIndex, e.getScreenPosition());
+            });
+        }
+        return;
+    }
+
     if (juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))
     {
         isPanning_ = true;
@@ -210,6 +220,36 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
     auto hit = hitTestClip(e.getPosition());
     if (hit.trackId < 0)
     {
+        if (e.y > rulerHeight_)
+        {
+            const int tr = getTrackIndexAtPoint(e.getPosition());
+            if (tr >= 0)
+            {
+                processor_.setActiveTrack(tr);
+                const int n = processor_.getNumClips(tr);
+                int sel = processor_.getSelectedClip(tr);
+                if (n <= 0) {
+                    sel = -1;
+                } else {
+                    sel = juce::jlimit(0, n - 1, sel);
+                }
+                processor_.setSelectedClip(tr, sel);
+                selectedTrack_ = tr;
+                selectedClip_ = sel;
+                if (sel >= 0 && sel < n) {
+                    selectedClipId_ = processor_.getClipId(tr, sel);
+                } else {
+                    selectedClipId_ = 0;
+                }
+                if (!e.mods.isCtrlDown() && !e.mods.isShiftDown()) {
+                    clearClipSelection();
+                }
+                listeners_.call([this](Listener& l) { l.clipSelectionChanged(selectedTrack_, selectedClip_); });
+                repaint();
+                return;
+            }
+        }
+
         if (!e.mods.isCtrlDown() && !e.mods.isShiftDown())
             clearClipSelection();
 
@@ -562,6 +602,10 @@ void ArrangementViewComponent::applyWheelTimelineZoom(float deltaY, int anchorCo
     double pps = 100.0 * newZoom;
     int newOffset = static_cast<int>(timeAtMouse * pps) + 8 - anchorContentX;
     setScrollOffset(newOffset);
+
+    if (onUserTimelineZoomChanged) {
+        onUserTimelineZoomChanged(newZoom);
+    }
 
     FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
 }

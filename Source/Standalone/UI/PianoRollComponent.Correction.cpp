@@ -154,7 +154,9 @@ void PianoRollComponent::enqueueNoteBasedCorrectionAsync(int startFrame,
     request->vibratoDepth = vibratoDepth;
     request->vibratoRate = vibratoRate;
     request->audioSampleRate = static_cast<double>(PianoRollComponent::kAudioSampleRate);
-    request->clipContextGenerationSnapshot = clipContextGeneration_.load(std::memory_order_acquire);
+    if (correctionWorker_) {
+        request->clipContextGenerationSnapshot = correctionWorker_->getClipContextGeneration();
+    }
     request->trackIdSnapshot = currentTrackId_;
     request->clipIdSnapshot = currentClipId_;
     correctionWorker_->enqueue(request);
@@ -619,7 +621,9 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     request->autoEndFrame = endFrame;
     request->autoGenParams = genParams;
 
-    request->clipContextGenerationSnapshot = clipContextGeneration_.load(std::memory_order_acquire);
+    if (correctionWorker_) {
+        request->clipContextGenerationSnapshot = correctionWorker_->getClipContextGeneration();
+    }
     request->trackIdSnapshot = currentTrackId_;
     request->clipIdSnapshot = currentClipId_;
 

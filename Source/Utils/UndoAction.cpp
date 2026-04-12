@@ -130,6 +130,39 @@ void ClipSplitAction::redo()
     processor_.setSelectedClip(trackId_, newClipIndex_);
 }
 
+// === ClipMergeAction 实现 ===
+
+void ClipMergeAction::undo()
+{
+    const int idx = processor_.findClipIndexById(trackId_, survivorClipId_);
+    if (idx < 0) {
+        return;
+    }
+
+    if (!processor_.splitClipAtSeconds(trackId_, idx, jointTimelineSeconds_)) {
+        return;
+    }
+
+    const int sel = processor_.getSelectedClip(trackId_);
+    if (sel >= 0 && sel < processor_.getNumClips(trackId_)) {
+        rightClipIdForRedo_ = processor_.getClipId(trackId_, sel);
+    }
+}
+
+void ClipMergeAction::redo()
+{
+    if (rightClipIdForRedo_ == 0) {
+        return;
+    }
+
+    const int li = processor_.findClipIndexById(trackId_, survivorClipId_);
+    if (li < 0) {
+        return;
+    }
+
+    processor_.mergeSplitClips(trackId_, survivorClipId_, rightClipIdForRedo_, li);
+}
+
 // === ClipGainChangeAction 实现 ===
 
 void ClipGainChangeAction::undo()

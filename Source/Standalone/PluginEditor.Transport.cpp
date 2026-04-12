@@ -121,41 +121,6 @@ void OpenTuneAudioProcessorEditor::scaleChanged(int rootNote, int scaleType)
     );
 }
 
-void OpenTuneAudioProcessorEditor::viewToggled(bool workspaceView)
-{
-    isWorkspaceView_ = workspaceView;
-    arrangementView_.setVisible(isWorkspaceView_);
-    pianoRoll_.setVisible(!isWorkspaceView_);
-    
-    // Explicitly grab focus for the active view to ensure keyboard shortcuts work immediately
-    if (isWorkspaceView_)
-        arrangementView_.grabKeyboardFocus();
-    else
-        pianoRoll_.grabKeyboardFocus();
-
-    resized();
-    repaint();
-
-    // 寤惰繜璋冪敤鑷姩缂╂斁锛岀‘淇漴esized()瀹屾垚鍚庢墽琛?
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::Timer::callAfterDelay(50, [safeThis, workspaceView]() {
-        if (safeThis == nullptr) return;
-
-        if (workspaceView) {
-            // 鍒囨崲鍒癆rrangementView
-            if (!safeThis->arrangementView_.hasUserManuallyZoomed()) {
-                safeThis->arrangementView_.fitToContent();
-            }
-        } else {
-            // 鍒囨崲鍒癙ianoRoll
-            if (!safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        }
-    });
-
-}
-
 // ============================================================================
 // TrackPanelComponent::Listener Implementation
 // ============================================================================
@@ -278,15 +243,12 @@ void OpenTuneAudioProcessorEditor::clipSelectionChanged(int trackId, int clipInd
     syncPianoRollFromClipSelection(trackId, clipIndex);
     markSessionNeedsSave();
 
-    // 濡傛灉褰撳墠鍦≒ianoRoll瑙嗗浘锛屼笖鐢ㄦ埛娌℃湁鎵嬪姩缂╂斁杩囷紝鑷姩閫傞厤鏂癱lip
-    if (!isWorkspaceView_) {
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(100, [safeThis]() {
-            if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        });
-    }
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(100, [safeThis]() {
+        if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
+            safeThis->pianoRoll_.fitToScreen();
+        }
+    });
 }
 
 void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
@@ -309,26 +271,14 @@ void OpenTuneAudioProcessorEditor::verticalScrollChanged(int newOffset)
 
 void OpenTuneAudioProcessorEditor::clipDoubleClicked(int trackId, int clipIndex)
 {
-    // 1. Switch to Piano Roll View
-    if (isWorkspaceView_)
-    {
-        transportBar_.setWorkspaceView(false);
-        viewToggled(false); // 浼氳Е鍙戣嚜鍔ㄧ缉鏀?
-    }
-    else
-    {
-        // 濡傛灉宸茬粡鍦≒ianoRoll瑙嗗浘锛屼篃闇€瑕佽皟鐢╢itToScreen
-        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(50, [safeThis]() {
-            if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-                safeThis->pianoRoll_.fitToScreen();
-            }
-        });
-    }
-
-    // 2. Select the clip
     clipSelectionChanged(trackId, clipIndex);
 
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(50, [safeThis]() {
+        if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
+            safeThis->pianoRoll_.fitToScreen();
+        }
+    });
 }
 
 } // namespace OpenTune

@@ -568,8 +568,6 @@ TransportBarComponent::TransportBarComponent()
     , pauseButton_(LOC(kPause), ToolbarIcons::getPauseIcon())
     , stopButton_(LOC(kStop), ToolbarIcons::getStopIcon())
     , loopButton_(LOC(kLoop), ToolbarIcons::getLoopIcon())
-    , trackViewButton_(LOC(kTracks), ToolbarIcons::getTrackViewIcon())
-    , pianoViewButton_(LOC(kPianoRollView), ToolbarIcons::getPianoViewIcon())
     , tapButton_("Tap", ToolbarIcons::getTapIcon())
 {
     // Setup Menu Buttons
@@ -606,25 +604,6 @@ TransportBarComponent::TransportBarComponent()
     loopButton_.onClick = [this] { onLoopToggled(); };
     loopButton_.setTooltip(LOC(kLoop));
     addAndMakeVisible(loopButton_);
-
-    // Setup Track View Button
-    trackViewButton_.setClickingTogglesState(true);
-    trackViewButton_.setToggleState(true, juce::dontSendNotification);
-    trackViewButton_.onClick = [this] { onTrackViewClicked(); };
-    trackViewButton_.setTooltip(LOC(kTrackView));
-    addAndMakeVisible(trackViewButton_);
-
-
-    // Setup Piano View Button
-    pianoViewButton_.setClickingTogglesState(true);
-    pianoViewButton_.setToggleState(false, juce::dontSendNotification);
-    pianoViewButton_.onClick = [this] { onPianoViewClicked(); };
-    pianoViewButton_.setTooltip(LOC(kPianoRollView));
-    addAndMakeVisible(pianoViewButton_);
-    
-    // Setup Joined Buttons (Segmented Control style)
-    trackViewButton_.setConnectedEdges(UnifiedToolbarButton::Right);
-    pianoViewButton_.setConnectedEdges(UnifiedToolbarButton::Left);
 
     // Setup BPM Label
     bpmLabel_.setText("BPM", juce::dontSendNotification);
@@ -706,8 +685,6 @@ void TransportBarComponent::refreshLocalizedText()
     pauseButton_.setTooltip(LOC(kPause));
     stopButton_.setTooltip(LOC(kStop));
     loopButton_.setTooltip(LOC(kLoop));
-    trackViewButton_.setTooltip(LOC(kTrackView));
-    pianoViewButton_.setTooltip(LOC(kPianoRollView));
     tapButton_.setTooltip(LOC(kTapTempo));
     
     // 刷新 scaleLabel
@@ -831,10 +808,6 @@ void TransportBarComponent::resized()
     loopButton_.setBounds(row.removeFromLeft(buttonWidth));
     row.removeFromLeft(groupGap);
 
-    trackViewButton_.setBounds(row.removeFromLeft(buttonWidth));
-    pianoViewButton_.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(spacing);
-
     const int timeDisplayWidth = 156;
     timeDisplay_.setBounds(row.removeFromLeft(timeDisplayWidth));
     row.removeFromLeft(spacing);
@@ -894,19 +867,6 @@ bool TransportBarComponent::isLoopEnabled() const
     return loopButton_.getToggleState();
 }
 
-void TransportBarComponent::setWorkspaceView(bool workspaceView)
-{
-    workspaceView_ = workspaceView;
-    // Update both buttons based on the state
-    trackViewButton_.setToggleState(workspaceView_, juce::dontSendNotification);
-    pianoViewButton_.setToggleState(!workspaceView_, juce::dontSendNotification);
-}
-
-bool TransportBarComponent::isWorkspaceView() const
-{
-    return workspaceView_;
-}
-
 void TransportBarComponent::setBpm(double bpm)
 {
     bpmField_.setValue(bpm);
@@ -957,30 +917,6 @@ void TransportBarComponent::onLoopToggled()
 {
     bool enabled = loopButton_.getToggleState();
     listeners_.call([enabled](Listener& l) { l.loopToggled(enabled); });
-}
-
-void TransportBarComponent::onTrackViewClicked()
-{
-    // If already in track view, do nothing or re-assert
-    if (workspaceView_) {
-        trackViewButton_.setToggleState(true, juce::dontSendNotification);
-        return;
-    }
-    
-    setWorkspaceView(true);
-    listeners_.call([this](Listener& l) { l.viewToggled(workspaceView_); });
-}
-
-void TransportBarComponent::onPianoViewClicked()
-{
-    // If already in piano view, do nothing or re-assert
-    if (!workspaceView_) {
-        pianoViewButton_.setToggleState(true, juce::dontSendNotification);
-        return;
-    }
-    
-    setWorkspaceView(false);
-    listeners_.call([this](Listener& l) { l.viewToggled(workspaceView_); });
 }
 
 void TransportBarComponent::onBpmChanged()
