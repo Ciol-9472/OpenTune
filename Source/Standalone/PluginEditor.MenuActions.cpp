@@ -199,7 +199,7 @@ int OpenTuneAudioProcessorEditor::resolveTrackIndexForAudioDrop(int editorX, int
 {
     juce::Point<int> p(editorX, editorY);
 
-    if (isWorkspaceView_ && arrangementView_.isVisible() && arrangementView_.getBounds().contains(p))
+    if (arrangementView_.isVisible() && arrangementView_.getBounds().contains(p))
     {
         const auto local = arrangementView_.getLocalPoint(this, p);
         return arrangementView_.getTrackIndexAtPoint(local);
@@ -219,7 +219,7 @@ int OpenTuneAudioProcessorEditor::resolveTrackIndexForAudioDrop(int editorX, int
         return -1;
     }
 
-    if (!isWorkspaceView_ && pianoRoll_.isVisible() && pianoRoll_.getBounds().contains(p))
+    if (pianoRoll_.isVisible() && pianoRoll_.getBounds().contains(p))
         return processorRef_.getActiveTrackId();
 
     return -1;
@@ -1216,7 +1216,7 @@ void OpenTuneAudioProcessorEditor::themeChanged(ThemeId themeId)
     }
 
     topBar_.applyTheme();
-    topBar_.setSidePanelsVisible(isTrackPanelVisible_, isParameterPanelVisible_);
+        topBar_.setParameterPanelToggleState(isParameterPanelVisible_);
     trackPanel_.applyTheme();
     parameterPanel_.applyTheme();
 
@@ -1323,6 +1323,8 @@ void OpenTuneAudioProcessorEditor::syncUiAfterProjectLoad()
 
     applyResolvedScaleForClip(activeTrack, clipIndex);
     syncPianoRollFromClipSelection(activeTrack, clipIndex);
+    restorePersistedPianoRollZoomState();
+
     syncParameterPanelFromSelection();
     menuBar_.menuItemsChanged();
     refreshAfterUndoRedo();

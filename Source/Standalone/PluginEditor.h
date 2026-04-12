@@ -34,6 +34,26 @@
 
 namespace OpenTune {
 
+/** Vertical drag bar between arrangement timeline and piano roll. */
+class MainWorkspaceSplitterBar : public juce::Component
+{
+public:
+    MainWorkspaceSplitterBar() = default;
+
+    std::function<void(int deltaY)> onDragDelta;
+
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseEnter(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
+
+private:
+    int lastScreenY_{0};
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWorkspaceSplitterBar)
+};
+
 class OpenTuneAudioProcessorEditor : public juce::AudioProcessorEditor,
                                       public ParameterPanel::Listener,
                                       public MenuBarComponent::Listener,
@@ -89,7 +109,6 @@ public:
     void loopToggled(bool enabled) override;
     void bpmChanged(double newBpm) override;
     void scaleChanged(int rootNote, int scaleType) override;
-    void viewToggled(bool workspaceView) override;
 
     // TrackPanelComponent::Listener
     void trackSelected(int trackId) override;
@@ -105,6 +124,7 @@ public:
     void clipSelectionChanged(int trackId, int clipIndex) override;
     void clipTimingChanged(int trackId, int clipIndex) override;
     void clipDoubleClicked(int trackId, int clipIndex) override;
+    void arrangementClipContextMenu(int trackId, int clipIndex, juce::Point<int> screenPos) override;
     void verticalScrollChanged(int newOffset) override;
     // trackHeightChanged已在TrackPanelComponent::Listener中声明
 
@@ -158,6 +178,10 @@ private:
     void waitForBackgroundUiTasks();
     void refreshAfterUndoRedo();
     void syncUiAfterProjectLoad();
+    void restorePersistedPianoRollZoomState();
+    void restorePersistedWorkspaceSplitRatio();
+    void restoreStandaloneWindowState();
+    void persistUserUiState() const;
     void openProjectFromFileWithUiFeedback(const juce::File& file);
     void markSessionNeedsSave();
     void clearSessionNeedsSave();
@@ -171,6 +195,11 @@ private:
     void startStemExportWorker(juce::String prefix, juce::Array<int> trackIds, juce::File outputDir);
     void performUndoWithRangeTracking();
     void performRedoWithRangeTracking();
+    int getWorkspaceUsableHeight() const;
+    int resolveArrangementWorkspaceHeight(int usableHeight) const;
+    double getArrangementWorkspaceSplitRatio() const;
+    static bool isStandaloneWindowMaximised(const juce::ResizableWindow& window);
+    static void setStandaloneWindowMaximised(juce::ResizableWindow& window, bool shouldBeMaximised);
     
     // AUTO 启动统一 helper
     void startAutoTuneAsUnifiedEdit();
@@ -189,6 +218,7 @@ private:
     TrackPanelComponent trackPanel_;
     ParameterPanel parameterPanel_;
     ArrangementViewComponent arrangementView_;
+    MainWorkspaceSplitterBar workspaceSplitter_;
     PianoRollComponent pianoRoll_;
     AutoRenderOverlayComponent autoRenderOverlay_;
 
@@ -212,10 +242,12 @@ private:
     };
     std::vector<DeferredImportPostProcessRequest> deferredImportPostProcessQueue_;
     
-    bool isWorkspaceView_ = true;
+    /** -1 = derive from default ratio on first layout; else pixel height of arrangement strip. */
+    int arrangementWorkspaceHeight_{-1};
+    double arrangementWorkspaceSplitRatio_{-1.0};
+    bool suppressLinkedTimelineZoom_{false};
 
     // 现代布局：左右面板可折叠（用于“沉浸主画布”模式）
-    bool isTrackPanelVisible_ = true;
     bool isParameterPanelVisible_ = true;
 
     bool f0ParamsSyncedFromInference_ = false;

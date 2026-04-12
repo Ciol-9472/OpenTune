@@ -389,6 +389,8 @@ target_sources(OpenTune
         Source/Utils/RecentProjectsManager.h
         Source/Utils/LastFileDialogPaths.cpp
         Source/Utils/LastFileDialogPaths.h
+        Source/Utils/UserUiState.cpp
+        Source/Utils/UserUiState.h
         Source/Utils/CpuFeatures.cpp
         Source/Utils/CpuFeatures.h
         Source/Utils/CpuBudgetManager.cpp

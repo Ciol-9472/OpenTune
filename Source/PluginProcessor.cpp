@@ -778,8 +778,23 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int64_t blockStartSample = TimeCoordinate::secondsToSamples(currentPosSeconds, deviceSampleRate);
     const int64_t blockEndSample = blockStartSample + static_cast<int64_t>(numSamples);
 
+    double projectEndSec = 0.0;
+
     if (!transportStopped) {
     const juce::ScopedReadLock tracksReadLock(tracksLock_);
+
+    {
+        constexpr double kSr = AudioConstants::StoredAudioSampleRate;
+        for (int t = 0; t < MAX_TRACKS; ++t) {
+            for (const auto& clip : tracks_[t].clips) {
+                if (!clip.audioBuffer) {
+                    continue;
+                }
+                const double dur = static_cast<double>(clip.audioBuffer->getNumSamples()) / kSr;
+                projectEndSec = juce::jmax(projectEndSec, clip.startSeconds + dur);
+            }
+        }
+    }
     
     for (int trackId = 0; trackId < MAX_TRACKS; ++trackId) {
         auto& track = tracks_[trackId];
@@ -981,7 +996,14 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     if (!transportStopped) {
-        positionAtomic_->store(blockEndSeconds, std::memory_order_relaxed);
+        double nextPos = blockEndSeconds;
+        if (!loopEnabled_.load(std::memory_order_relaxed) && projectEndSec > 1e-9) {
+            if (currentPosSeconds < projectEndSec && blockEndSeconds >= projectEndSec && isPlaying_.load(std::memory_order_relaxed)) {
+                setPlaying(false);
+            }
+            nextPos = std::min(nextPos, projectEndSec);
+        }
+        positionAtomic_->store(nextPos, std::memory_order_relaxed);
     }
     finalizePerf();
 }

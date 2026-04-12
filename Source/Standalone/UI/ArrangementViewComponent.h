@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <functional>
 #include <set>
 #include "../PluginProcessor.h"
 #include "UIColors.h"
@@ -39,6 +40,7 @@ public:
         virtual void clipSelectionChanged(int trackId, int clipIndex) = 0;
         virtual void clipTimingChanged(int trackId, int clipIndex) = 0;
         virtual void clipDoubleClicked(int /*trackId*/, int /*clipIndex*/) {}
+        virtual void arrangementClipContextMenu(int /*trackId*/, int /*clipIndex*/, juce::Point<int> /*screenPos*/) {}
         // Y轴缩放回调 - 通知外部轨道高度变化（用于同步TrackPanel）
         virtual void trackHeightChanged(int newHeight) { juce::ignoreUnused(newHeight); }
         // Y轴滚动回调 - 通知外部垂直滚动偏移变化（用于同步TrackPanel）
@@ -90,6 +92,8 @@ public:
     /** 与 mouse 滚轮一致：横向时间缩放，anchorContentX 为排列视图本地 X（鼠标位置或视图中心） */
     void applyWheelTimelineZoom(float deltaY, int anchorContentX);
     void setInferenceActive(bool active) { inferenceActive_ = active; }
+    /** Fired after user-driven horizontal timeline zoom (wheel), for syncing other views. */
+    std::function<void(double zoomLevel)> onUserTimelineZoomChanged;
     void fitToContent();
     void prioritizeWaveformBuildForClip(int trackId, uint64_t clipId);
     bool isWaveformCacheCompleteForClip(int trackId, uint64_t clipId) const;
@@ -129,6 +133,7 @@ private:
     void onScrollVBlankCallback(double timestampSec);
     double readPlayheadTime() const;
     void updateScrollBars();
+    int getTimelineLayoutTrackRows() const;
     void drawTimeRuler(juce::Graphics& g);
     void drawGridLines(juce::Graphics& g);
 
@@ -241,6 +246,8 @@ private:
     std::weak_ptr<std::atomic<double>> positionSource_;
 
     static constexpr int rulerHeight_ = 30;
+    static constexpr int kScrollbarBreadth_ = 15;
+    static constexpr int kTrackAddButtonRegion_ = 60;
 };
 
 } // namespace OpenTune

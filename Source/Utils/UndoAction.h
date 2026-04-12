@@ -303,6 +303,38 @@ private:
     int newClipIndex_;
 };
 
+class ClipMergeAction : public UndoAction
+{
+public:
+    ClipMergeAction(OpenTuneAudioProcessor& processor,
+                    int trackId,
+                    uint64_t survivorClipId,
+                    double jointTimelineSeconds)
+        : processor_(processor),
+          trackId_(trackId),
+          survivorClipId_(survivorClipId),
+          jointTimelineSeconds_(jointTimelineSeconds)
+    {
+    }
+
+    void undo() override;
+    void redo() override;
+
+    juce::String getDescription() const override
+    {
+        return "Merge Clips";
+    }
+
+    uint64_t getClipId() const override { return survivorClipId_; }
+
+private:
+    OpenTuneAudioProcessor& processor_;
+    int trackId_;
+    uint64_t survivorClipId_;
+    double jointTimelineSeconds_;
+    uint64_t rightClipIdForRedo_{0};
+};
+
 class ClipGainChangeAction : public UndoAction
 {
 public:

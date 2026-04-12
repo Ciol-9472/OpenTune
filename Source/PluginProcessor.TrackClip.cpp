@@ -2,10 +2,96 @@
 #include <algorithm>
 #include <cmath>
 #include "Utils/AppLogger.h"
+#include "Utils/PitchCurve.h"
 
 namespace OpenTune {
 
 namespace {
+
+double clipStoredDurationSeconds(const OpenTuneAudioProcessor::TrackState::AudioClip& c)
+{
+    if (!c.audioBuffer || c.audioBuffer->getNumSamples() <= 0) {
+        return 0.0;
+    }
+    return static_cast<double>(c.audioBuffer->getNumSamples()) / AudioConstants::StoredAudioSampleRate;
+}
+
+/** 将片段起点限制在同轨与其它 clip 不重叠（允许紧贴）。 */
+double clampClipStartNonOverlapping(std::vector<OpenTuneAudioProcessor::TrackState::AudioClip>& clips, int selfIndex,
+                                    double desiredStart)
+{
+    if (selfIndex < 0 || selfIndex >= static_cast<int>(clips.size())) {
+        return std::max(0.0, desiredStart);
+    }
+
+    const double dur = clipStoredDurationSeconds(clips[static_cast<size_t>(selfIndex)]);
+    double s = std::max(0.0, desiredStart);
+
+    for (int pass = 0; pass < 64; ++pass) {
+        bool changed = false;
+        const double myEnd = s + dur;
+
+        for (int i = 0; i < static_cast<int>(clips.size()); ++i) {
+            if (i == selfIndex) {
+                continue;
+            }
+
+            const double os = clips[static_cast<size_t>(i)].startSeconds;
+            const double od = clipStoredDurationSeconds(clips[static_cast<size_t>(i)]);
+            const double oe = os + od;
+
+            if (myEnd <= os + 1e-9 || s >= oe - 1e-9) {
+                continue;
+            }
+
+            const double optRight = oe;
+            const double optLeft = os - dur;
+            const double pick = (std::abs(optRight - desiredStart) <= std::abs(optLeft - desiredStart)) ? optRight : optLeft;
+            const double newS = std::max(0.0, pick);
+            if (std::abs(newS - s) > 1e-12) {
+                s = newS;
+                changed = true;
+                break;
+            }
+        }
+
+        if (!changed) {
+            break;
+        }
+    }
+
+    return s;
+}
+
+void splitNotesAtLocalSeconds(const std::vector<Note>& src,
+                              double splitT,
+                              std::vector<Note>& outLeft,
+                              std::vector<Note>& outRight)
+{
+    outLeft.clear();
+    outRight.clear();
+    for (Note n : src) {
+        if (n.endTime <= splitT) {
+            outLeft.push_back(n);
+        } else if (n.startTime >= splitT) {
+            n.startTime -= splitT;
+            n.endTime -= splitT;
+            outRight.push_back(n);
+        } else {
+            Note nl = n;
+            nl.endTime = splitT;
+            if (nl.endTime > nl.startTime) {
+                outLeft.push_back(nl);
+            }
+            Note nr = n;
+            nr.startTime = 0.0;
+            nr.endTime = n.endTime - splitT;
+            if (nr.endTime > nr.startTime) {
+                outRight.push_back(nr);
+            }
+        }
+    }
+}
 
 template <typename ClipT>
 void computeClipSilentGaps(ClipT& clip)
@@ -225,7 +311,8 @@ void OpenTuneAudioProcessor::setClipStartSeconds(int trackId, int clipIndex, dou
         const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
         auto& clips = tracks_[trackId].clips;
         if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
-            clips[clipIndex].startSeconds = std::max(0.0, startSeconds);
+            clips[static_cast<size_t>(clipIndex)].startSeconds =
+                clampClipStartNonOverlapping(clips, clipIndex, startSeconds);
         }
     }
 }
@@ -302,10 +389,103 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     computeClipSilentGaps(originalClip);
     computeClipSilentGaps(newClip);
 
+    newClip.detectedKey = originalClip.detectedKey;
+    newClip.originalF0State = originalClip.originalF0State;
+
+    std::vector<Note> leftNotes;
+    std::vector<Note> rightNotes;
+    splitNotesAtLocalSeconds(originalClip.notes, splitPointSeconds, leftNotes, rightNotes);
+    originalClip.notes = std::move(leftNotes);
+    newClip.notes = std::move(rightNotes);
+
+    if (originalClip.pitchCurve) {
+        auto snap = originalClip.pitchCurve->getSnapshot();
+        const int totalF0 = static_cast<int>(snap->getOriginalF0().size());
+        if (totalF0 > 1) {
+            const int hop = snap->getHopSize();
+            const double f0Sr = snap->getSampleRate();
+            const double splitPointSec = static_cast<double>(splitPointInClip) / kStoredSampleRate;
+            int splitFrame = 1;
+            if (hop > 0 && f0Sr > 1e-9) {
+                splitFrame = static_cast<int>(std::llround(splitPointSec * f0Sr / static_cast<double>(hop)));
+            } else {
+                splitFrame = static_cast<int>(
+                    (splitPointInClip * static_cast<int64_t>(totalF0)) / juce::jmax<int64_t>(1, totalSamples));
+            }
+            splitFrame = juce::jlimit(1, totalF0 - 1, splitFrame);
+            auto leftCurve = originalClip.pitchCurve->createFrameSubrangeCopy(0, splitFrame);
+            auto rightCurve = originalClip.pitchCurve->createFrameSubrangeCopy(splitFrame, totalF0);
+            if (leftCurve && rightCurve) {
+                originalClip.pitchCurve = leftCurve;
+                newClip.pitchCurve = rightCurve;
+            } else {
+                originalClip.pitchCurve.reset();
+                newClip.pitchCurve.reset();
+                originalClip.originalF0State = OriginalF0State::NotRequested;
+                newClip.originalF0State = OriginalF0State::NotRequested;
+            }
+        } else {
+            originalClip.pitchCurve.reset();
+            newClip.pitchCurve.reset();
+        }
+    }
+
+    originalClip.renderCache = std::make_shared<RenderCache>();
+    newClip.renderCache = std::make_shared<RenderCache>();
+
+    const double deviceSr = currentSampleRate_.load(std::memory_order_relaxed);
+    resampleDrySignal(originalClip, deviceSr);
+    resampleDrySignal(newClip, deviceSr);
+
     clips.insert(clips.begin() + clipIndex + 1, std::move(newClip));
     tracks_[trackId].selectedClipIndex = clipIndex + 1;
 
     return true;
+}
+
+bool OpenTuneAudioProcessor::mergeAdjacentClips(int trackId, int leftClipIndex)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS) {
+        return false;
+    }
+
+    uint64_t leftId = 0;
+    uint64_t rightId = 0;
+    {
+        const juce::ScopedReadLock tracksReadLock(tracksLock_);
+        const auto& clips = tracks_[trackId].clips;
+        if (leftClipIndex < 0 || leftClipIndex + 1 >= static_cast<int>(clips.size())) {
+            return false;
+        }
+
+        const auto& leftClip = clips[static_cast<size_t>(leftClipIndex)];
+        const auto& rightClip = clips[static_cast<size_t>(leftClipIndex + 1)];
+        if (!leftClip.audioBuffer || !rightClip.audioBuffer) {
+            return false;
+        }
+
+        leftId = leftClip.clipId;
+        rightId = rightClip.clipId;
+    }
+
+    return mergeSplitClips(trackId, leftId, rightId, leftClipIndex);
+}
+
+bool OpenTuneAudioProcessor::canMergeAdjacentClips(int trackId, int leftClipIndex) const
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS) {
+        return false;
+    }
+
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    const auto& clips = tracks_[trackId].clips;
+    if (leftClipIndex < 0 || leftClipIndex + 1 >= static_cast<int>(clips.size())) {
+        return false;
+    }
+
+    const auto& leftClip = clips[static_cast<size_t>(leftClipIndex)];
+    const auto& rightClip = clips[static_cast<size_t>(leftClipIndex + 1)];
+    return leftClip.audioBuffer != nullptr && rightClip.audioBuffer != nullptr;
 }
 
 void OpenTuneAudioProcessor::setClipGainById(int trackId, uint64_t clipId, float gain)
@@ -352,30 +532,78 @@ bool OpenTuneAudioProcessor::mergeSplitClips(int trackId, uint64_t originalClipI
         return false;
     }
 
-    auto& originalClip = clips[originalIndex];
-    auto& newClip = clips[newIndex];
+    const int leftIdx = std::min(originalIndex, newIndex);
+    const int rightIdx = std::max(originalIndex, newIndex);
 
-    const int originalSamples = originalClip.audioBuffer->getNumSamples();
-    const int newSamples = newClip.audioBuffer->getNumSamples();
-    const int channels = std::max(originalClip.audioBuffer->getNumChannels(), newClip.audioBuffer->getNumChannels());
+    auto& leftClip = clips[leftIdx];
+    auto& rightClip = clips[rightIdx];
 
-    auto mergedBuffer = std::make_shared<juce::AudioBuffer<float>>(channels, originalSamples + newSamples);
-    for (int ch = 0; ch < originalClip.audioBuffer->getNumChannels(); ++ch) {
-        mergedBuffer->copyFrom(ch, 0, *originalClip.audioBuffer, ch, 0, originalSamples);
+    const int leftSamples = leftClip.audioBuffer->getNumSamples();
+    const int rightSamples = rightClip.audioBuffer->getNumSamples();
+    const int channels = std::max(leftClip.audioBuffer->getNumChannels(), rightClip.audioBuffer->getNumChannels());
+
+    constexpr double kStoredSampleRate = AudioConstants::StoredAudioSampleRate;
+    const double leftDurSec = static_cast<double>(leftSamples) / kStoredSampleRate;
+    const double endLeftOnTimeline = leftClip.startSeconds + leftDurSec;
+    const double gapSecRaw = rightClip.startSeconds - endLeftOnTimeline;
+    const double gapSec = std::max(0.0, gapSecRaw);
+    const int gapSamples = static_cast<int>(std::llround(gapSec * kStoredSampleRate));
+
+    const int mergedTotalSamples = leftSamples + gapSamples + rightSamples;
+    auto mergedBuffer = std::make_shared<juce::AudioBuffer<float>>(channels, mergedTotalSamples);
+    mergedBuffer->clear();
+    for (int ch = 0; ch < leftClip.audioBuffer->getNumChannels(); ++ch) {
+        mergedBuffer->copyFrom(ch, 0, *leftClip.audioBuffer, ch, 0, leftSamples);
     }
-    for (int ch = 0; ch < newClip.audioBuffer->getNumChannels(); ++ch) {
-        mergedBuffer->copyFrom(ch, originalSamples, *newClip.audioBuffer, ch, 0, newSamples);
+    for (int ch = 0; ch < rightClip.audioBuffer->getNumChannels(); ++ch) {
+        mergedBuffer->copyFrom(ch, leftSamples + gapSamples, *rightClip.audioBuffer, ch, 0, rightSamples);
     }
-    originalClip.audioBuffer = mergedBuffer;
-    originalClip.sourceAudioAbsolutePath.clear();
-    originalClip.fadeOutDuration = newClip.fadeOutDuration;
+    leftClip.audioBuffer = mergedBuffer;
+    leftClip.sourceAudioAbsolutePath.clear();
+    leftClip.fadeOutDuration = rightClip.fadeOutDuration;
 
-    computeClipSilentGaps(originalClip);
-    clips.erase(clips.begin() + newIndex);
+    const double rightTimeShift = leftDurSec + gapSec;
+
+    std::vector<Note> mergedNotes = leftClip.notes;
+    for (Note n : rightClip.notes) {
+        n.startTime += rightTimeShift;
+        n.endTime += rightTimeShift;
+        mergedNotes.push_back(n);
+    }
+    std::sort(mergedNotes.begin(), mergedNotes.end(), [](const Note& a, const Note& b) {
+        return a.startTime < b.startTime;
+    });
+    leftClip.notes = std::move(mergedNotes);
+
+    if (leftClip.pitchCurve && rightClip.pitchCurve) {
+        std::shared_ptr<PitchCurve> mergedCurve;
+        if (gapSec > 1e-9) {
+            mergedCurve = PitchCurve::mergeSequentialCurvesWithGap(*leftClip.pitchCurve, *rightClip.pitchCurve, gapSec);
+        } else {
+            mergedCurve = PitchCurve::mergeSequentialCurves(*leftClip.pitchCurve, *rightClip.pitchCurve);
+        }
+        if (mergedCurve) {
+            leftClip.pitchCurve = mergedCurve;
+        } else {
+            leftClip.pitchCurve.reset();
+            leftClip.originalF0State = OriginalF0State::NotRequested;
+        }
+    } else {
+        leftClip.pitchCurve.reset();
+        leftClip.originalF0State = OriginalF0State::NotRequested;
+    }
+
+    leftClip.renderCache = std::make_shared<RenderCache>();
+
+    computeClipSilentGaps(leftClip);
+    clips.erase(clips.begin() + rightIdx);
 
     if (targetClipIndex >= 0 && targetClipIndex < static_cast<int>(clips.size())) {
         tracks_[trackId].selectedClipIndex = targetClipIndex;
     }
+
+    const double deviceSr = currentSampleRate_.load(std::memory_order_relaxed);
+    resampleDrySignal(leftClip, deviceSr);
 
     return true;
 }
@@ -443,7 +671,8 @@ bool OpenTuneAudioProcessor::setClipStartSecondsById(int trackId, uint64_t clipI
     if (it == clips.end()) {
         return false;
     }
-    it->startSeconds = std::max(0.0, startSeconds);
+    const int selfIndex = static_cast<int>(std::distance(clips.begin(), it));
+    it->startSeconds = clampClipStartNonOverlapping(clips, selfIndex, startSeconds);
     return true;
 }
 
@@ -742,6 +971,23 @@ void OpenTuneAudioProcessor::resampleDrySignal(TrackState::AudioClip& clip, doub
         const int toCopy = juce::jmin(newLen, static_cast<int>(resampled.size()));
         clip.drySignalBuffer_.copyFrom(ch, 0, resampled.data(), toCopy);
     }
+}
+
+double OpenTuneAudioProcessor::getProjectTimelineEndSeconds() const
+{
+    constexpr double kSr = AudioConstants::StoredAudioSampleRate;
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    double maxEnd = 0.0;
+    for (int t = 0; t < MAX_TRACKS; ++t) {
+        for (const auto& clip : tracks_[t].clips) {
+            if (!clip.audioBuffer) {
+                continue;
+            }
+            const double dur = static_cast<double>(clip.audioBuffer->getNumSamples()) / kSr;
+            maxEnd = juce::jmax(maxEnd, clip.startSeconds + dur);
+        }
+    }
+    return maxEnd;
 }
 
 } // namespace OpenTune

@@ -108,12 +108,19 @@ public:
         }
     }
     void setZoomLevel(double zoom);
+    double getZoomLevel() const { return zoomLevel_; }
+    void setVerticalZoom(float pixelsPerSemitone);
+    float getVerticalZoom() const { return pixelsPerSemitone_; }
+    void setVerticalScrollOffset(float offset);
+    float getVerticalScrollOffset() const { return verticalScrollOffset_; }
+    void restoreZoomState(double horizontalZoom, float verticalZoom);
     void setCurrentTool(ToolId tool);
     ToolId getCurrentTool() const { return currentTool_; }
     bool selectToolByContextMenuCommand(int commandId);
     void setShowWaveform(bool shouldShow);
     void setShowLanes(bool shouldShow);
     void setInferenceActive(bool active);
+    std::function<void(double zoomLevel)> onUserTimelineZoomChanged;
     void setBpm(double bpm);
     void setTimeSignature(int numerator, int denominator);
     void setTimeUnit(TimeUnit unit);
@@ -274,6 +281,8 @@ private:
     float midiToFreq(float midiNote) const;
 
     float getTotalHeight() const;
+    /** 与 resized() 中 reduced(12)、标尺、底边横向滚动条一致的音高网格可视高度 */
+    int getNoteGridViewportHeight() const noexcept;
     
     int clipSecondsToFrameIndex(double clipSeconds, size_t totalFrames = 0) const {
         if (hopSize_ <= 0 || f0SampleRate_ <= 0.0) return -1;
@@ -379,7 +388,6 @@ private:
     bool isRendering_ = false;
     
     std::atomic<bool> correctionInFlight_{false};
-    std::atomic<uint64_t> clipContextGeneration_{0};
 
     juce::Colour currentTrackColor_ = juce::Colours::white;
     juce::String currentTrackName_;

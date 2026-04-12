@@ -422,6 +422,20 @@ public:
         std::atomic_store(&snapshot_, newSnapshot);
     }
 
+    /**
+     * Copy F0 / energy / corrections / anchors for frame range [startFrame, endExclusive),
+     * rebasing frame indices so the result starts at frame 0.
+     * @return nullptr if range invalid or empty F0
+     */
+    std::shared_ptr<PitchCurve> createFrameSubrangeCopy(int startFrame, int endExclusive) const;
+
+    /** Concatenate two curves (right follows left in time). Hop/sampleRate must match. */
+    static std::shared_ptr<PitchCurve> mergeSequentialCurves(const PitchCurve& left, const PitchCurve& right);
+
+    /** 与 mergeSequentialCurves 相同，但在两段之间插入 gapSeconds 对应的静音 F0/能量帧（hop/sr 与左侧一致） */
+    static std::shared_ptr<PitchCurve> mergeSequentialCurvesWithGap(const PitchCurve& left, const PitchCurve& right,
+                                                                    double gapSeconds);
+
 private:
     std::shared_ptr<const PitchCurveSnapshot> snapshot_;
     std::atomic<uint64_t> nextRenderGeneration_{1};

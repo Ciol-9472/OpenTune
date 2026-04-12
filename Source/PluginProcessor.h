@@ -428,6 +428,12 @@ public:
     
     bool splitClipAtSeconds(int trackId, int clipIndex, double splitSeconds);
     bool mergeSplitClips(int trackId, uint64_t originalClipId, uint64_t newClipId, int targetClipIndex);
+    /** Merge clips[leftClipIndex] with clips[leftClipIndex+1] when timeline-adjacent (same track). */
+    bool mergeAdjacentClips(int trackId, int leftClipIndex);
+    bool canMergeAdjacentClips(int trackId, int leftClipIndex) const;
+
+    /** 工程时间线结束时间：所有 clip 的 max(start + 存储采样率下时长)，无 clip 时为 0 */
+    double getProjectTimelineEndSeconds() const;
     bool deleteClip(int trackId, int clipIndex);
 
     using ClipSnapshot = OpenTune::ClipSnapshot;

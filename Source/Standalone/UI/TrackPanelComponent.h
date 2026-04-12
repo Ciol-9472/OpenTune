@@ -14,6 +14,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <cmath>
+#include <functional>
 #include "UIColors.h"
 
 namespace OpenTune {
@@ -513,6 +514,9 @@ public:
     // 轨道起始Y偏移 - 与ArrangementView的rulerHeight对齐
     void setTrackStartYOffset(int offset);
     int getTrackStartYOffset() const { return trackStartYOffset_; }
+
+    /** 与 ArrangementView 一致的时间线行数（用于垂直滚动范围） */
+    void setTimelineTrackRowCountSource(std::function<int()> fn) { timelineTrackRowCountSource_ = std::move(fn); }
     
     // 轨道高度限制常量
     static constexpr int MIN_TRACK_HEIGHT = 70;   // 最小高度：控件不重叠
@@ -547,6 +551,17 @@ private:
     void onVolumeChanged(int trackId);
 
     void updateTrackAppearance(int trackId);
+
+    std::function<int()> timelineTrackRowCountSource_;
+
+    int getTimelineLayoutTrackRows() const
+    {
+        if (timelineTrackRowCountSource_) {
+            const int n = timelineTrackRowCountSource_();
+            return juce::jlimit(1, MAX_TRACKS, n);
+        }
+        return MAX_TRACKS;
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackPanelComponent)
 };

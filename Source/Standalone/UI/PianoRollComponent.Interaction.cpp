@@ -1,3 +1,4 @@
+#include "../../PluginProcessor.h"
 #include "PianoRollComponent.h"
 #include "../Utils/ZoomSensitivityConfig.h"
 #include "FrameScheduler.h"
@@ -264,6 +265,40 @@ void PianoRollComponent::setZoomLevel(double zoom)
     requestInteractiveRepaint();
 }
 
+void PianoRollComponent::setVerticalZoom(float pixelsPerSemitone)
+{
+    pixelsPerSemitone_ = juce::jlimit(5.0f, 120.0f, pixelsPerSemitone);
+
+    const float totalHeight = getTotalHeight();
+    const float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
+    const float maxScroll = juce::jmax(0.0f, totalHeight - visibleHeight);
+    verticalScrollOffset_ = juce::jlimit(0.0f, maxScroll, verticalScrollOffset_);
+
+    updateScrollBars();
+    requestInteractiveRepaint();
+}
+
+void PianoRollComponent::setVerticalScrollOffset(float offset)
+{
+    const float totalHeight = getTotalHeight();
+    const float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
+    const float maxScroll = juce::jmax(0.0f, totalHeight - visibleHeight);
+    verticalScrollOffset_ = juce::jlimit(0.0f, maxScroll, offset);
+
+    verticalScrollBar_.setCurrentRangeStart(verticalScrollOffset_);
+    FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
+}
+
+void PianoRollComponent::restoreZoomState(double horizontalZoom, float verticalZoom)
+{
+    setZoomLevel(horizontalZoom);
+    setVerticalZoom(verticalZoom);
+    verticalScrollOffset_ = 0.0f;
+    userHasManuallyZoomed_ = true;
+    updateScrollBars();
+    requestInteractiveRepaint();
+}
+
 void PianoRollComponent::setCurrentTool(ToolId tool)
 {
     if (tool != ToolId::LineAnchor && currentTool_ == ToolId::LineAnchor)
@@ -455,7 +490,8 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         int newScrollX = dragStartScrollOffset_ - deltaX;
         setScrollOffset(newScrollX);
         float newScrollY = dragStartVerticalScrollOffset_ - static_cast<float>(deltaY);
-        float maxScroll = getTotalHeight() - getHeight();
+        const float vh = static_cast<float>(getNoteGridViewportHeight());
+        float maxScroll = getTotalHeight() - vh;
         verticalScrollOffset_ = juce::jlimit(0.0f, std::max(0.0f, maxScroll), newScrollY);
         requestInteractiveRepaint();
         return;
@@ -502,7 +538,7 @@ void PianoRollComponent::handleVerticalZoomWheel(const juce::MouseEvent& e, floa
     verticalScrollOffset_ = targetY - static_cast<float>(e.y);
 
     float totalHeight = getTotalHeight();
-    float visibleHeight = static_cast<float>(getHeight() - rulerHeight_ - 15);
+    float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
     float maxScroll = totalHeight - visibleHeight;
     if (maxScroll > 0.0f)
         verticalScrollOffset_ = juce::jlimit(0.0f, maxScroll, verticalScrollOffset_);
@@ -527,7 +563,7 @@ void PianoRollComponent::handleVerticalScrollWheel(float deltaY)
     float scrollDelta = deltaY * settings.scrollSpeed;
     verticalScrollOffset_ -= scrollDelta;
     float totalHeight = getTotalHeight();
-    float visibleHeight = static_cast<float>(getHeight() - rulerHeight_ - 15);
+    float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
     float maxScroll = totalHeight - visibleHeight;
     if (maxScroll > 0.0f)
         verticalScrollOffset_ = juce::jlimit(0.0f, maxScroll, verticalScrollOffset_);
@@ -555,6 +591,10 @@ void PianoRollComponent::handleHorizontalZoomWheel(const juce::MouseEvent& e, fl
     int absolutePixel = timeConverter_.timeToPixel(mouseTime);
     int newScrollOffset = absolutePixel - mouseX;
     setScrollOffset(newScrollOffset);
+
+    if (onUserTimelineZoomChanged) {
+        onUserTimelineZoomChanged(zoomLevel_);
+    }
 }
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -622,13 +662,13 @@ void PianoRollComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double newRa
     }
     else if (scrollBar == &verticalScrollBar_)
     {
-        verticalScrollOffset_ = static_cast<float>(newRangeStart);
-        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
+        setVerticalScrollOffset(static_cast<float>(newRangeStart));
     }
 }
 
 void PianoRollComponent::updateScrollBars()
 {
+    constexpr double kTimelinePadSec = 2.0;
     double maxTime = 0.0;
     if (audioBuffer_)
     {
@@ -644,8 +684,20 @@ void PianoRollComponent::updateScrollBars()
         }
     }
 
-    maxTime = std::max(maxTime, 10.0);
-    maxTime += 5.0;
+    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0)
+    {
+        const int idx = processor_->getClipIndexById(currentTrackId_, currentClipId_);
+        if (idx >= 0)
+        {
+            const double clipStart = processor_->getClipStartSeconds(currentTrackId_, idx);
+            const double projEnd = processor_->getProjectTimelineEndSeconds();
+            const double spanToProjEnd = std::max(0.0, projEnd - clipStart);
+            maxTime = std::max(maxTime, spanToProjEnd);
+        }
+    }
+
+    maxTime += kTimelinePadSec;
+    maxTime = std::max(maxTime, 1.0);
 
     double pixelsPerSecond = 100.0 * zoomLevel_;
     int totalContentWidth = static_cast<int>(maxTime * pixelsPerSecond);
@@ -656,10 +708,9 @@ void PianoRollComponent::updateScrollBars()
     horizontalScrollBar_.setCurrentRange(scrollOffset_, visibleWidth);
 
     float totalHeight = getTotalHeight();
-    int visibleHeight = getHeight() - rulerHeight_ - 15;
-    visibleHeight = juce::jmax(1, visibleHeight);
+    int visibleHeight = getNoteGridViewportHeight();
 
-    verticalScrollBar_.setRangeLimits(0.0, totalHeight);
+    verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(totalHeight + static_cast<float>(visibleHeight)));
     verticalScrollBar_.setCurrentRange(verticalScrollOffset_, visibleHeight);
 }
 

@@ -12,6 +12,7 @@
 #include "Utils/AppLogger.h"
 #include "Utils/TimeCoordinate.h"
 #include "Utils/UndoAction.h"
+#include "Utils/UserUiState.h"
 #include "Utils/KeyShortcutConfig.h"
 #include <cmath>
 #include <atomic>
@@ -24,7 +25,46 @@
 #include <future>
 #include <chrono>
 
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
 namespace OpenTune {
+
+void MainWorkspaceSplitterBar::paint(juce::Graphics& g)
+{
+    g.fillAll(UIColors::backgroundMedium.darker(0.12f));
+    auto r = getLocalBounds().toFloat().reduced(2.0f, 0.0f);
+    g.setColour(UIColors::accent.withAlpha(0.45f));
+    g.fillRoundedRectangle(r.withSizeKeepingCentre(r.getWidth(), 2.5f), 1.25f);
+}
+
+void MainWorkspaceSplitterBar::mouseDown(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    lastScreenY_ = e.getScreenY();
+}
+
+void MainWorkspaceSplitterBar::mouseDrag(const juce::MouseEvent& e)
+{
+    const int dy = e.getScreenY() - lastScreenY_;
+    lastScreenY_ = e.getScreenY();
+    if (dy != 0 && onDragDelta) {
+        onDragDelta(dy);
+    }
+}
+
+void MainWorkspaceSplitterBar::mouseEnter(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+}
+
+void MainWorkspaceSplitterBar::mouseExit(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+}
 
 namespace {
 
@@ -373,23 +413,15 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     addAndMakeVisible(topBar_);
 
     // 椤堕儴鏉★細渚ц竟鏍忔姌鍙犲紑鍏?
-    topBar_.onToggleTrackPanel = [this]() {
-        isTrackPanelVisible_ = !isTrackPanelVisible_;
-        trackPanel_.setVisible(isTrackPanelVisible_);
-        topBar_.setSidePanelsVisible(isTrackPanelVisible_, isParameterPanelVisible_);
-        resized();
-        repaint();
-    };
-
     topBar_.onToggleParameterPanel = [this]() {
         isParameterPanelVisible_ = !isParameterPanelVisible_;
         parameterPanel_.setVisible(isParameterPanelVisible_);
-        topBar_.setSidePanelsVisible(isTrackPanelVisible_, isParameterPanelVisible_);
+        topBar_.setParameterPanelToggleState(isParameterPanelVisible_);
         resized();
         repaint();
     };
 
-    topBar_.setSidePanelsVisible(isTrackPanelVisible_, isParameterPanelVisible_);
+    topBar_.setParameterPanelToggleState(isParameterPanelVisible_);
 
     trackPanel_.addListener(this);
     trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
@@ -421,6 +453,50 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     arrangementView_.setZoomLevel(processorRef_.getZoomLevel());
     addAndMakeVisible(arrangementView_);
 
+    {
+        auto timelineRowsFn = [this]() {
+            int used = 0;
+            for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t) {
+                if (processorRef_.getNumClips(t) > 0) {
+                    used = t + 1;
+                }
+            }
+            return juce::jmax(trackPanel_.getVisibleTrackCount(), used);
+        };
+        trackPanel_.setTimelineTrackRowCountSource(timelineRowsFn);
+    }
+
+    addAndMakeVisible(workspaceSplitter_);
+    workspaceSplitter_.onDragDelta = [this](int dy) {
+        if (dy == 0) {
+            return;
+        }
+        constexpr int kMinArr = 100;
+        constexpr int kMinPiano = 160;
+        const int usable = getWorkspaceUsableHeight();
+        if (usable < kMinArr + kMinPiano) {
+            return;
+        }
+        if (arrangementWorkspaceHeight_ < 0) {
+            arrangementWorkspaceHeight_ = resolveArrangementWorkspaceHeight(usable);
+        }
+        arrangementWorkspaceHeight_ =
+            juce::jlimit(kMinArr, usable - kMinPiano, arrangementWorkspaceHeight_ + dy);
+        arrangementWorkspaceSplitRatio_ =
+            static_cast<double>(arrangementWorkspaceHeight_) / static_cast<double>(usable);
+        resized();
+    };
+
+    arrangementView_.onUserTimelineZoomChanged = [this](double z) {
+        if (suppressLinkedTimelineZoom_) {
+            return;
+        }
+        suppressLinkedTimelineZoom_ = true;
+        processorRef_.setZoomLevel(z);
+        pianoRoll_.setZoomLevel(z);
+        suppressLinkedTimelineZoom_ = false;
+    };
+
     // Setup Piano Roll (main editor area)
     pianoRoll_.addListener(this);
     pianoRoll_.setExternalToolSelectionHandler([this](int toolId) { toolSelected(toolId); });
@@ -441,24 +517,31 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     pianoRoll_.setShowWaveform(processorRef_.getShowWaveform());
     pianoRoll_.setShowLanes(processorRef_.getShowLanes());
     pianoRoll_.setZoomLevel(processorRef_.getZoomLevel());
+    restorePersistedPianoRollZoomState();
+    restorePersistedWorkspaceSplitRatio();
+
+    pianoRoll_.onUserTimelineZoomChanged = [this](double z) {
+        if (suppressLinkedTimelineZoom_) {
+            return;
+        }
+        suppressLinkedTimelineZoom_ = true;
+        processorRef_.setZoomLevel(z);
+        arrangementView_.setZoomLevel(z);
+        suppressLinkedTimelineZoom_ = false;
+    };
     
     // 璁剧疆楂樻€ц兘鎾斁澶翠綅缃簮 - 鐩存帴浠?Processor 璇诲彇锛岀粫杩?60Hz Timer 鐡堕
     pianoRoll_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
     arrangementView_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
     
     addAndMakeVisible(pianoRoll_);
-    pianoRoll_.setVisible(!isWorkspaceView_);
-    arrangementView_.setVisible(isWorkspaceView_);
 
     // Add AutoRenderOverlay (initially hidden, covers PianoRoll during AUTO)
     addAndMakeVisible(autoRenderOverlay_);
     autoRenderOverlay_.setVisible(false);
 
     // Ensure initial focus
-    if (isWorkspaceView_)
-        arrangementView_.grabKeyboardFocus();
-    else
-        pianoRoll_.grabKeyboardFocus();
+    arrangementView_.grabKeyboardFocus();
 
     // Apply the purple theme to the window
     getLookAndFeel().setColour(juce::ResizableWindow::backgroundColourId, UIColors::backgroundDark);
@@ -473,6 +556,13 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
             window->setUsingNativeTitleBar(true);
             window->setColour(juce::DocumentWindow::backgroundColourId, UIColors::backgroundMedium);
             window->repaint();
+
+            juce::Component::SafePointer<OpenTuneAudioProcessorEditor> delayedSafeThis(safeThis);
+            juce::MessageManager::callAsync([delayedSafeThis]() {
+                if (delayedSafeThis != nullptr) {
+                    delayedSafeThis->restoreStandaloneWindowState();
+                }
+            });
         }
     });
 
@@ -519,6 +609,8 @@ OpenTuneAudioProcessorEditor::~OpenTuneAudioProcessorEditor()
     juce::MenuBarModel::setMacMainMenu(nullptr);
 #endif
 
+    persistUserUiState();
+
     // Stop timer
     stopTimer();
 
@@ -543,6 +635,153 @@ OpenTuneAudioProcessorEditor::~OpenTuneAudioProcessorEditor()
     arrangementView_.removeListener(this);
     parameterPanel_.removeListener(this);
     pianoRoll_.removeListener(this);
+}
+
+void OpenTuneAudioProcessorEditor::restorePersistedPianoRollZoomState()
+{
+    double horizontalZoom = 0.0;
+    float verticalZoom = 0.0f;
+    float verticalScroll = 0.0f;
+    if (!UserUiState::getPianoRollViewState(horizontalZoom, verticalZoom, verticalScroll)) {
+        return;
+    }
+
+    suppressLinkedTimelineZoom_ = true;
+    processorRef_.setZoomLevel(horizontalZoom);
+    arrangementView_.setZoomLevel(horizontalZoom);
+    pianoRoll_.restoreZoomState(horizontalZoom, verticalZoom);
+    pianoRoll_.setVerticalScrollOffset(verticalScroll);
+    suppressLinkedTimelineZoom_ = false;
+}
+
+void OpenTuneAudioProcessorEditor::restorePersistedWorkspaceSplitRatio()
+{
+    double splitRatio = 0.0;
+    if (!UserUiState::getWorkspaceSplitRatio(splitRatio)) {
+        return;
+    }
+
+    if (splitRatio > 0.0 && splitRatio < 1.0) {
+        arrangementWorkspaceSplitRatio_ = splitRatio;
+        arrangementWorkspaceHeight_ = -1;
+    }
+}
+
+void OpenTuneAudioProcessorEditor::restoreStandaloneWindowState()
+{
+    juce::String windowState;
+    bool maximised = false;
+    if (!UserUiState::getStandaloneWindowState(windowState, maximised)) {
+        return;
+    }
+
+    auto* window = findParentComponentOfClass<juce::ResizableWindow>();
+    if (window == nullptr) {
+        return;
+    }
+
+    (void)window->restoreWindowStateFromString(windowState);
+
+    if (maximised) {
+        setStandaloneWindowMaximised(*window, true);
+    }
+}
+
+void OpenTuneAudioProcessorEditor::persistUserUiState() const
+{
+    UserUiState::setPianoRollViewState(pianoRoll_.getZoomLevel(),
+                                       pianoRoll_.getVerticalZoom(),
+                                       pianoRoll_.getVerticalScrollOffset());
+    UserUiState::setWorkspaceSplitRatio(getArrangementWorkspaceSplitRatio());
+
+    auto* window = const_cast<OpenTuneAudioProcessorEditor*>(this)->findParentComponentOfClass<juce::ResizableWindow>();
+    if (window == nullptr) {
+        return;
+    }
+
+    UserUiState::setStandaloneWindowState(window->getWindowStateAsString(),
+                                          isStandaloneWindowMaximised(*window));
+}
+
+bool OpenTuneAudioProcessorEditor::isStandaloneWindowMaximised(const juce::ResizableWindow& window)
+{
+#if JUCE_WINDOWS
+    if (auto* peer = window.getPeer()) {
+        if (auto* nativeHandle = peer->getNativeHandle()) {
+            return ::IsZoomed(static_cast<HWND>(nativeHandle)) != FALSE;
+        }
+    }
+#else
+    juce::ignoreUnused(window);
+#endif
+
+    return false;
+}
+
+int OpenTuneAudioProcessorEditor::getWorkspaceUsableHeight() const
+{
+    constexpr int kSplitterH = 6;
+    const int shadowMargin = 12;
+    const int gap = 6;
+
+    juce::Rectangle<int> probe = getLocalBounds();
+    probe.reduce(gap, gap);
+
+    const int topBarHeight = menuBar_.isVisible() ? (MENU_BAR_HEIGHT + TRANSPORT_BAR_HEIGHT) : TRANSPORT_BAR_HEIGHT;
+    probe.removeFromTop(topBarHeight + shadowMargin * 2);
+    probe.removeFromTop(juce::jmax(0, gap - shadowMargin));
+
+    if (isParameterPanelVisible_) {
+        probe.removeFromRight(PARAMETER_PANEL_WIDTH + shadowMargin * 2);
+        probe.removeFromRight(juce::jmax(0, gap - shadowMargin));
+    }
+
+    return probe.getHeight() - kSplitterH;
+}
+
+int OpenTuneAudioProcessorEditor::resolveArrangementWorkspaceHeight(int usableHeight) const
+{
+    constexpr int kMinArrangement = 100;
+    constexpr int kMinPiano = 160;
+    constexpr double kDefaultRatio = 0.38;
+
+    const double splitRatio =
+        arrangementWorkspaceSplitRatio_ > 0.0 ? arrangementWorkspaceSplitRatio_ : kDefaultRatio;
+    const int proposedHeight = static_cast<int>(std::lround(splitRatio * static_cast<double>(usableHeight)));
+
+    return juce::jlimit(kMinArrangement, usableHeight - kMinPiano, proposedHeight);
+}
+
+double OpenTuneAudioProcessorEditor::getArrangementWorkspaceSplitRatio() const
+{
+    constexpr double kDefaultRatio = 0.38;
+
+    const int usableHeight = const_cast<OpenTuneAudioProcessorEditor*>(this)->getWorkspaceUsableHeight();
+    if (usableHeight <= 0) {
+        return arrangementWorkspaceSplitRatio_ > 0.0 ? arrangementWorkspaceSplitRatio_ : kDefaultRatio;
+    }
+
+    int arrangementHeight = arrangementWorkspaceHeight_;
+    if (arrangementHeight < 0) {
+        arrangementHeight = resolveArrangementWorkspaceHeight(usableHeight);
+    }
+
+    return juce::jlimit(0.05, 0.95, static_cast<double>(arrangementHeight) / static_cast<double>(usableHeight));
+}
+
+void OpenTuneAudioProcessorEditor::setStandaloneWindowMaximised(juce::ResizableWindow& window,
+                                                                bool shouldBeMaximised)
+{
+#if JUCE_WINDOWS
+    if (auto* peer = window.getPeer()) {
+        if (auto* nativeHandle = peer->getNativeHandle()) {
+            ::ShowWindow(static_cast<HWND>(nativeHandle), shouldBeMaximised ? SW_MAXIMIZE : SW_RESTORE);
+            return;
+        }
+    }
+#else
+    juce::ignoreUnused(window, shouldBeMaximised);
+#endif
 }
 
 void OpenTuneAudioProcessorEditor::launchBackgroundUiTask(std::function<void()> task)
@@ -748,19 +987,6 @@ void OpenTuneAudioProcessorEditor::resized()
 
     // 宸︿晶 Track Inspector锛堝彲鎶樺彔锛?
     // 瀹藉害 + 闃村奖杈硅窛锛堝乏鍙冲悇12px锛?
-    if (isTrackPanelVisible_)
-    {
-        trackPanel_.setVisible(true);
-        const int trackPanelWidthWithShadow = TRACK_PANEL_WIDTH + shadowMargin * 2;
-        trackPanel_.setBounds(bounds.removeFromLeft(trackPanelWidthWithShadow));
-        bounds.removeFromLeft(juce::jmax(0, gap - shadowMargin));
-    }
-    else
-    {
-        trackPanel_.setVisible(false);
-        trackPanel_.setBounds({});
-    }
-
     // 鍙充晶 Properties Panel锛堝彲鎶樺彔锛?
     // 瀹藉害 + 闃村奖杈硅窛锛堝乏鍙冲悇12px锛?
     if (isParameterPanelVisible_)
@@ -776,15 +1002,44 @@ void OpenTuneAudioProcessorEditor::resized()
         parameterPanel_.setBounds({});
     }
 
-    // 涓ぎ鍖哄煙锛圥ianoRoll / ArrangementView锛?
-    // PianoRoll 宸茬粡浣跨敤 reduced(12.0f) 缁樺埗鑳屾櫙锛宐ounds 淇濇寔涓嶅彉
-    arrangementView_.setBounds(bounds);
-    pianoRoll_.setBounds(bounds);
-    
-    // AutoRenderOverlay 瑕嗙洊鏁翠釜 PianoRoll 鍖哄煙
-    autoRenderOverlay_.setBounds(bounds);
-    autoRenderOverlay_.toFront(false);
+    // Central column: arrangement (top) + splitter + piano roll (bottom)
+    constexpr int kSplitterH = 6;
+    constexpr int kMinArrangement = 100;
+    constexpr int kMinPiano = 160;
+    const int usable = bounds.getHeight() - kSplitterH;
+    if (usable >= kMinArrangement + kMinPiano)
+    {
+        arrangementWorkspaceHeight_ = resolveArrangementWorkspaceHeight(usable);
+        arrangementWorkspaceSplitRatio_ =
+            static_cast<double>(arrangementWorkspaceHeight_) / static_cast<double>(usable);
 
+        auto top = bounds.removeFromTop(arrangementWorkspaceHeight_);
+        trackPanel_.setVisible(true);
+        const int trackPanelWidthWithShadow = TRACK_PANEL_WIDTH + shadowMargin * 2;
+        auto arrArea = top;
+        trackPanel_.setBounds(arrArea.removeFromLeft(trackPanelWidthWithShadow));
+        arrArea.removeFromLeft(juce::jmax(0, gap - shadowMargin));
+        arrangementView_.setBounds(arrArea);
+        workspaceSplitter_.setVisible(true);
+        workspaceSplitter_.setBounds(bounds.removeFromTop(kSplitterH));
+        pianoRoll_.setBounds(bounds);
+    }
+    else
+    {
+        auto narrowTop = bounds.removeFromTop(kMinArrangement);
+        trackPanel_.setVisible(true);
+        const int trackPanelWidthWithShadow = TRACK_PANEL_WIDTH + shadowMargin * 2;
+        auto arrArea = narrowTop;
+        trackPanel_.setBounds(arrArea.removeFromLeft(trackPanelWidthWithShadow));
+        arrArea.removeFromLeft(juce::jmax(0, gap - shadowMargin));
+        arrangementView_.setBounds(arrArea);
+        workspaceSplitter_.setVisible(false);
+        workspaceSplitter_.setBounds({});
+        pianoRoll_.setBounds(bounds);
+    }
+
+    autoRenderOverlay_.setBounds(pianoRoll_.getBounds());
+    autoRenderOverlay_.toFront(false);
 }
 
 void OpenTuneAudioProcessorEditor::syncParameterPanelFromSelection()
@@ -966,7 +1221,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
         if (autoOverlayLatched_) {
             autoRenderOverlay_.setMessageText("Rendering...");
             autoRenderOverlay_.setVisible(true);
-        } else if (rmvpeOverlayLatched_ && !isWorkspaceView_) {
+        } else if (rmvpeOverlayLatched_) {
             const bool isCurrentClipExtracting = 
                 pianoRoll_.getCurrentTrackId() == rmvpeOverlayTargetTrackId_
                 && pianoRoll_.getCurrentClipId() == rmvpeOverlayTargetClipId_;
@@ -1545,11 +1800,93 @@ void OpenTuneAudioProcessorEditor::trackTimeOffsetChanged(int trackId, double ne
     // processorRef_.setTrackTimeOffset(trackId, newOffset);
 }
 
+void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int clipIndex, juce::Point<int> screenPos)
+{
+    enum MenuIds : int {
+        SplitAtPlayhead = 1,
+        MergeWithNext
+    };
+
+    const double posSec = processorRef_.getPosition();
+    const double cStart = processorRef_.getClipStartSeconds(trackId, clipIndex);
+    std::shared_ptr<const juce::AudioBuffer<float>> clipBuffer =
+        processorRef_.getClipAudioBuffer(trackId, clipIndex);
+    double clipDurSec = 0.0;
+    if (clipBuffer) {
+        clipDurSec = static_cast<double>(clipBuffer->getNumSamples())
+            / OpenTuneAudioProcessor::getStoredAudioSampleRate();
+    }
+    const double cEnd = cStart + clipDurSec;
+    const bool playheadInside = clipDurSec > 0.2 && posSec > cStart + 0.08 && posSec < cEnd - 0.08;
+    const bool canMerge = processorRef_.canMergeAdjacentClips(trackId, clipIndex);
+
+    juce::PopupMenu menu;
+    menu.addItem(SplitAtPlayhead, "Split at playhead", playheadInside, false);
+    menu.addItem(MergeWithNext, "Merge with next clip", canMerge, false);
+
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({ screenPos.x, screenPos.y, 1, 1 }),
+        [safeThis, trackId, clipIndex, playheadInside, canMerge](int result) {
+            if (safeThis == nullptr || result == 0) {
+                return;
+            }
+
+            if (result == SplitAtPlayhead && playheadInside) {
+                const int originalClipIndex = clipIndex;
+                const uint64_t originalClipId = safeThis->processorRef_.getClipId(trackId, clipIndex);
+                double originalDuration = 0.0;
+                std::shared_ptr<const juce::AudioBuffer<float>> buf =
+                    safeThis->processorRef_.getClipAudioBuffer(trackId, clipIndex);
+                if (buf) {
+                    originalDuration = static_cast<double>(buf->getNumSamples())
+                        / OpenTuneAudioProcessor::getStoredAudioSampleRate();
+                }
+
+                const double splitSeconds = safeThis->processorRef_.getPosition();
+                if (safeThis->processorRef_.splitClipAtSeconds(trackId, clipIndex, splitSeconds)) {
+                    int newClipIndex = safeThis->processorRef_.getSelectedClip(trackId);
+                    uint64_t newClipId = 0;
+                    if (newClipIndex >= 0 && newClipIndex < safeThis->processorRef_.getNumClips(trackId)) {
+                        newClipId = safeThis->processorRef_.getClipId(trackId, newClipIndex);
+                    }
+
+                    ClipSplitAction::SplitResult splitResult;
+                    splitResult.newClipId = newClipId;
+                    splitResult.splitSeconds = splitSeconds;
+                    splitResult.originalClipDuration = originalDuration;
+
+                    safeThis->processorRef_.getUndoManager().addAction(std::make_unique<ClipSplitAction>(
+                        safeThis->processorRef_, trackId, originalClipId, splitResult, originalClipIndex, newClipIndex));
+
+                    safeThis->clipTimingChanged(trackId, newClipIndex);
+                    safeThis->arrangementView_.repaint();
+                }
+                return;
+            }
+
+            if (result == MergeWithNext && canMerge) {
+                const uint64_t leftId = safeThis->processorRef_.getClipId(trackId, clipIndex);
+                std::shared_ptr<const juce::AudioBuffer<float>> leftBuf =
+                    safeThis->processorRef_.getClipAudioBuffer(trackId, clipIndex);
+                if (!leftBuf) {
+                    return;
+                }
+                const double jointTimelineSeconds = safeThis->processorRef_.getClipStartSeconds(trackId, clipIndex + 1);
+
+                if (safeThis->processorRef_.mergeAdjacentClips(trackId, clipIndex)) {
+                    safeThis->processorRef_.getUndoManager().addAction(std::make_unique<ClipMergeAction>(
+                        safeThis->processorRef_, trackId, leftId, jointTimelineSeconds));
+                    safeThis->clipSelectionChanged(trackId, clipIndex);
+                    safeThis->arrangementView_.repaint();
+                }
+            }
+        });
+}
+
 void OpenTuneAudioProcessorEditor::escapeKeyPressed()
 {
-    const bool targetWorkspaceView = !isWorkspaceView_;
-    transportBar_.setWorkspaceView(targetWorkspaceView);
-    viewToggled(targetWorkspaceView);
+    // Previously toggled arrangement/piano full-screen; unified layout uses Escape only from piano roll
+    // when there is no note selection (see PianoRollToolHandler).
 }
 
 void OpenTuneAudioProcessorEditor::toolChanged(int toolId)

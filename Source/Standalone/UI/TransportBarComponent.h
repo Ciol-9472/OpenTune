@@ -118,7 +118,6 @@ public:
         virtual void loopToggled(bool enabled) = 0;
         virtual void bpmChanged(double newBpm) = 0;
         virtual void scaleChanged(int rootNote, int scaleType) = 0;
-        virtual void viewToggled(bool workspaceView) = 0;
         virtual void audioSettingsRequested() {}
     };
 
@@ -156,8 +155,6 @@ public:
     void setScale(int rootNote, int scaleType);
 
     void setPositionSeconds(double seconds);
-    void setWorkspaceView(bool workspaceView);
-    bool isWorkspaceView() const;
     void setRenderStatusText(const juce::String& text);
 
     juce::Component& getFileButton() { return fileButton_; }
@@ -173,8 +170,6 @@ private:
     void onBpmChanged();
     void onTapClicked();
     void onScaleChanged();
-    void onTrackViewClicked();
-    void onPianoViewClicked();
 
     juce::ListenerList<Listener> listeners_;
 
@@ -189,10 +184,6 @@ private:
     UnifiedToolbarButton stopButton_;
     UnifiedToolbarButton loopButton_;
     
-    // Split View Buttons
-    UnifiedToolbarButton trackViewButton_;
-    UnifiedToolbarButton pianoViewButton_;
-    
     // Labels & Editors
     DigitalTimeDisplay timeDisplay_;
     juce::Label bpmLabel_;
@@ -205,7 +196,6 @@ private:
     juce::ComboBox scaleTypeSelector_;
     // State
     bool isPlaying_ = false;
-    bool workspaceView_ = true;
     bool embeddedInTopBar_ = false;
     juce::String renderStatusText_;
     juce::Time lastTapTime_;

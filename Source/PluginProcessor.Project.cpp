@@ -114,6 +114,19 @@ static juce::ValueTree pitchCurveToValueTree(const PitchCurve& pc)
         curveState.addChild(segState, -1, nullptr);
     }
 
+    const auto& anchorGroups = snapshot->getAnchorGroups();
+    for (const auto& group : anchorGroups) {
+        juce::ValueTree groupState("AnchorGroup");
+        for (const auto& point : group.points) {
+            juce::ValueTree pointState("AnchorPoint");
+            pointState.setProperty("time", point.time, nullptr);
+            pointState.setProperty("pitch", point.pitch, nullptr);
+            pointState.setProperty("selected", point.selected, nullptr);
+            groupState.addChild(pointState, -1, nullptr);
+        }
+        curveState.addChild(groupState, -1, nullptr);
+    }
+
     return curveState;
 }
 
@@ -130,23 +143,47 @@ static void restorePitchCurveFromValueTree(PitchCurve& pc, const juce::ValueTree
     pc.setOriginalEnergy(originalEnergy);
     pc.clearAllCorrections();
 
+    std::vector<CorrectedSegment> restoredSegments;
+    std::vector<AnchorGroup> restoredAnchorGroups;
+
     for (auto child : curveState) {
-        if (!child.hasType("Segment")) {
-            continue;
-        }
+        if (child.hasType("Segment")) {
+            CorrectedSegment seg;
+            seg.startFrame = static_cast<int>(child.getProperty("start", 0));
+            seg.endFrame = static_cast<int>(child.getProperty("end", 0));
+            seg.source = static_cast<CorrectedSegment::Source>(static_cast<int>(child.getProperty("source", 0)));
+            seg.retuneSpeed = static_cast<float>(static_cast<double>(child.getProperty("retuneSpeed", 100.0)));
+            seg.vibratoDepth = static_cast<float>(static_cast<double>(child.getProperty("vibratoDepth", 0.0)));
+            seg.vibratoRate = static_cast<float>(static_cast<double>(child.getProperty("vibratoRate", 7.5)));
+            decodeFloatVectorBase64(child.getProperty("f0"), seg.f0Data);
 
-        CorrectedSegment seg;
-        seg.startFrame = static_cast<int>(child.getProperty("start", 0));
-        seg.endFrame = static_cast<int>(child.getProperty("end", 0));
-        seg.source = static_cast<CorrectedSegment::Source>(static_cast<int>(child.getProperty("source", 0)));
-        seg.retuneSpeed = static_cast<float>(static_cast<double>(child.getProperty("retuneSpeed", 100.0)));
-        seg.vibratoDepth = static_cast<float>(static_cast<double>(child.getProperty("vibratoDepth", 0.0)));
-        seg.vibratoRate = static_cast<float>(static_cast<double>(child.getProperty("vibratoRate", 7.5)));
-        decodeFloatVectorBase64(child.getProperty("f0"), seg.f0Data);
-
-        if (seg.startFrame < seg.endFrame && !seg.f0Data.empty()) {
-            pc.restoreCorrectedSegment(seg);
+            if (seg.startFrame < seg.endFrame && !seg.f0Data.empty()) {
+                restoredSegments.push_back(std::move(seg));
+            }
         }
+        else if (child.hasType("AnchorGroup")) {
+            AnchorGroup group;
+            for (auto pointChild : child) {
+                if (!pointChild.hasType("AnchorPoint")) {
+                    continue;
+                }
+
+                AnchorPoint point;
+                point.time = static_cast<double>(pointChild.getProperty("time", 0.0));
+                point.pitch = static_cast<float>(static_cast<double>(pointChild.getProperty("pitch", 0.0)));
+                point.selected = static_cast<bool>(pointChild.getProperty("selected", false));
+                group.points.push_back(point);
+            }
+
+            group.sortByTime();
+            if (!group.empty()) {
+                restoredAnchorGroups.push_back(std::move(group));
+            }
+        }
+    }
+
+    if (!restoredSegments.empty() || !restoredAnchorGroups.empty()) {
+        pc.restoreSegmentsAndAnchors(restoredSegments, restoredAnchorGroups);
     }
 }
 
@@ -186,7 +223,8 @@ static bool clipValueTreeHasPitchData(const juce::ValueTree& curveState)
         return true;
     }
     for (int i = 0; i < curveState.getNumChildren(); ++i) {
-        if (curveState.getChild(i).hasType("Segment")) {
+        const auto child = curveState.getChild(i);
+        if (child.hasType("Segment") || child.hasType("AnchorGroup")) {
             return true;
         }
     }
@@ -431,7 +469,7 @@ static bool parseProjectFileTree(const juce::ValueTree& root,
     }
 
     const int schema = static_cast<int>(root.getProperty("schemaVersion", 0));
-    if (schema < 1 || schema > 3) {
+    if (schema < 1 || schema > 4) {
         return false;
     }
 
@@ -599,7 +637,7 @@ void OpenTuneAudioProcessor::setStateInformation(const void* data, int sizeInByt
 bool OpenTuneAudioProcessor::saveProjectToFile(const juce::File& file)
 {
     juce::ValueTree root("OpenTuneProject");
-    root.setProperty("schemaVersion", 3, nullptr);
+    root.setProperty("schemaVersion", 4, nullptr);
     root.setProperty("bpm", getBpm(), nullptr);
     root.setProperty("zoomLevel", zoomLevel_, nullptr);
     root.setProperty("trackHeight", trackHeight_, nullptr);
