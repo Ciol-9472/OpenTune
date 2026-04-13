@@ -39,8 +39,50 @@ void PianoRollComponent::drawToolHintOverlay(juce::Graphics& g)
     }
 }
 
+void PianoRollComponent::drawHoveredToolNameOverlay(juce::Graphics& g)
+{
+    if (!hasHoveredToolButton_ || hoveredToolName_.isEmpty())
+        return;
+
+    const juce::Font font = UIColors::getLabelFont(12.0f);
+    g.setFont(font);
+
+    constexpr int paddingX = 9;
+    constexpr int bubbleHeight = 22;
+    juce::GlyphArrangement glyphs;
+    glyphs.addLineOfText(font, hoveredToolName_, 0.0f, 0.0f);
+    const auto textBounds = glyphs.getBoundingBox(0, glyphs.getNumGlyphs(), true);
+    const int textWidth = static_cast<int>(std::ceil(textBounds.getWidth()));
+    const int bubbleWidth = juce::jmax(56, textWidth + paddingX * 2);
+
+    int x = hoveredToolButtonBounds_.getCentreX() - (bubbleWidth / 2);
+    int y = hoveredToolButtonBounds_.getBottom() + 6;
+
+    const int minX = pianoKeyWidth_ + 6;
+    const int maxX = getWidth() - bubbleWidth - 20;
+    if (maxX >= minX)
+        x = juce::jlimit(minX, maxX, x);
+
+    if ((y + bubbleHeight) > (getHeight() - 24))
+        y = hoveredToolButtonBounds_.getY() - bubbleHeight - 6;
+
+    const auto bubbleBounds = juce::Rectangle<float>(
+        static_cast<float>(x),
+        static_cast<float>(y),
+        static_cast<float>(bubbleWidth),
+        static_cast<float>(bubbleHeight));
+
+    g.setColour(UIColors::backgroundDark.withAlpha(0.92f));
+    g.fillRoundedRectangle(bubbleBounds, 5.0f);
+    g.setColour(UIColors::panelBorder.withAlpha(0.92f));
+    g.drawRoundedRectangle(bubbleBounds, 5.0f, 1.0f);
+    g.setColour(UIColors::textPrimary);
+    g.drawText(hoveredToolName_, bubbleBounds.toNearestInt(), juce::Justification::centred, false);
+}
+
 void PianoRollComponent::paintOverChildren(juce::Graphics& g)
 {
+    drawHoveredToolNameOverlay(g);
     drawToolHintOverlay(g);
 }
 

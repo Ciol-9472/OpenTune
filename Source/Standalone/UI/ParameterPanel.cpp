@@ -219,6 +219,15 @@ ParameterPanel::ParameterPanel()
     splitNoteToolButton_->setIcon(ToolbarIcons::getCutIcon(), false);
     splitNoteToolButton_->onClick = [this] { onToolClicked(5); };
     addAndMakeVisible(*splitNoteToolButton_);
+
+    // Tool buttons are moved to PianoRoll (top-left compact toolbar).
+    toolsHeader_.setVisible(false);
+    autoTuneToolButton_->setVisible(false);
+    selectToolButton_->setVisible(false);
+    drawNoteToolButton_->setVisible(false);
+    lineAnchorToolButton_->setVisible(false);
+    handDrawToolButton_->setVisible(false);
+    splitNoteToolButton_->setVisible(false);
 }
 
 ParameterPanel::~ParameterPanel()
@@ -258,47 +267,29 @@ void ParameterPanel::resized()
     const auto themeId = Theme::getActiveTheme();
     const bool isBlueBreeze = (themeId == ThemeId::BlueBreeze);
 
-    // 旋钮尺寸：BlueBreeze 主题使用更大尺寸 (115px)，其他主题使用 92px
     const int knobSize = isBlueBreeze ? 115 : 92;
 
-    // 阴影边距：内容区域在 reduced(12) 范围内布局
-    // 再加上 8px 内边距 = 总共 reduced(20)
     const int shadowMargin = 12;
     const int innerPadding = 8;
     auto mainArea = getLocalBounds().reduced(shadowMargin + innerPadding);
-    
+
     const int headerHeight = 24;
     const int labelHeight = 20;
     const int spacing = 12;
-    const int toolButtonSize = 60;  // 放大 0.25 倍：48 * 1.25 = 60
-    const int toolButtonGap = 10;   // 相应增大间距
-    const int toolButtonHorizontalGap = 12; // 列间距相应增大
-    const int toolHeaderGap = 8;
-    const int rows = 3; // 使用3行布局（2×2网格 + 1个居中按钮）
-    // Tools区域高度计算：header + gap + 3行按钮 + 2个行间距
-    const int toolsHeight = headerHeight + toolHeaderGap + rows * toolButtonSize + (rows - 1) * toolButtonGap;
 
-    // 向上平移 150px：先预留底部空间，再取出 Tools 区域
-    mainArea.removeFromBottom(150);
-    auto toolsArea = mainArea.removeFromBottom(toolsHeight);
-
-    // Pitch Correction
     pitchCorrectionHeader_.setBounds(mainArea.removeFromTop(headerHeight));
     mainArea.removeFromTop(spacing);
 
-    // 2x2 Grid Layout for Knobs
     const int rowHeight = labelHeight + knobSize + 8;
-    
+
     auto layoutKnobCell = [&](juce::Rectangle<int> area, juce::Label& label, juce::Slider& slider) {
         label.setBounds(area.removeFromTop(labelHeight));
         slider.setBounds(area.reduced(4, 0));
     };
 
-    // Row 1 (Retune Speed | Vibrato Depth)
     auto row1 = mainArea.removeFromTop(rowHeight);
     mainArea.removeFromTop(spacing);
-    
-    // Row 2 (Vibrato Rate | Note Split)
+
     auto row2 = mainArea.removeFromTop(rowHeight);
     mainArea.removeFromTop(spacing);
 
@@ -306,35 +297,17 @@ void ParameterPanel::resized()
 
     layoutKnobCell(row1.removeFromLeft(colWidth), retuneSpeedLabel_, retuneSpeedSlider_);
     layoutKnobCell(row1, vibratoDepthLabel_, vibratoDepthSlider_);
-    
+
     layoutKnobCell(row2.removeFromLeft(colWidth), vibratoRateLabel_, vibratoRateSlider_);
     layoutKnobCell(row2, noteSplitLabel_, noteSplitSlider_);
 
-    // Header
-    toolsHeader_.setBounds(toolsArea.removeFromTop(headerHeight));
-    toolsArea.removeFromTop(toolHeaderGap);
-
-    // 工具按钮布局：2列×3行（选择/绘制 | 锚点/手绘 | 分割/AUTO）
-    auto toolsColumn = toolsArea.reduced(5, 0);
-    int startY = toolsColumn.getY();
-
-    std::vector<juce::Component*> buttons;
-    if (selectToolButton_) buttons.push_back(selectToolButton_.get());
-    if (drawNoteToolButton_) buttons.push_back(drawNoteToolButton_.get());
-    if (lineAnchorToolButton_) buttons.push_back(lineAnchorToolButton_.get());
-    if (handDrawToolButton_) buttons.push_back(handDrawToolButton_.get());
-    if (splitNoteToolButton_) buttons.push_back(splitNoteToolButton_.get());
-    if (autoTuneToolButton_) buttons.push_back(autoTuneToolButton_.get());
-
-    int totalWidth = 2 * toolButtonSize + toolButtonHorizontalGap;
-    int gridStartX = toolsColumn.getCentreX() - totalWidth / 2;
-    for (int i = 0; i < static_cast<int>(buttons.size()); ++i) {
-        int row = i / 2;
-        int col = i % 2;
-        int x = gridStartX + col * (toolButtonSize + toolButtonHorizontalGap);
-        int y = startY + row * (toolButtonSize + toolButtonGap);
-        buttons[i]->setBounds(x, y, toolButtonSize, toolButtonSize);
-    }
+    toolsHeader_.setBounds(0, 0, 0, 0);
+    if (autoTuneToolButton_) autoTuneToolButton_->setBounds(0, 0, 0, 0);
+    if (selectToolButton_) selectToolButton_->setBounds(0, 0, 0, 0);
+    if (drawNoteToolButton_) drawNoteToolButton_->setBounds(0, 0, 0, 0);
+    if (lineAnchorToolButton_) lineAnchorToolButton_->setBounds(0, 0, 0, 0);
+    if (handDrawToolButton_) handDrawToolButton_->setBounds(0, 0, 0, 0);
+    if (splitNoteToolButton_) splitNoteToolButton_->setBounds(0, 0, 0, 0);
 }
 
 void ParameterPanel::applyTheme()
@@ -402,7 +375,7 @@ void ParameterPanel::setupLabel(juce::Label& label, const juce::String& text)
 void ParameterPanel::setupLargeKnob(juce::Slider& slider, double min, double max, double defaultVal, const juce::String& suffix)
 {
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    // 文本框略加宽加高，减少“薄片感”
+    // Slightly larger textbox to improve readability.
     slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 28);
     slider.setRange(min, max, 0.01);
     slider.setValue(defaultVal);
@@ -520,3 +493,4 @@ void ParameterPanel::onToolClicked(int toolId)
 }
 
 } // namespace OpenTune
+

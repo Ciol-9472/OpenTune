@@ -46,6 +46,7 @@
 namespace OpenTune {
 
 class OpenTuneAudioProcessor;
+class PianoRollToolIconButton;
 
 class PianoRollComponent : public juce::Component,
                            public juce::ScrollBar::Listener,
@@ -235,6 +236,16 @@ private:
     TimelineZoomScrollBar verticalScrollBar_{ true };
     SmallButton scrollModeToggleButton_;
     SmallButton timeUnitToggleButton_;
+    std::unique_ptr<PianoRollToolIconButton> autoTuneToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> selectToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> drawNoteToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> lineAnchorToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> handDrawToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> splitNoteToolButton_;
+    juce::String hoveredToolName_;
+    ToolId hoveredToolId_ = ToolId::Select;
+    bool hasHoveredToolButton_ = false;
+    juce::Rectangle<int> hoveredToolButtonBounds_;
 
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
@@ -259,6 +270,7 @@ private:
     void drawLineAnchorPreview(juce::Graphics& g, double offsetSeconds);
     void drawSelectionBox(juce::Graphics& g, double offsetSeconds, ThemeId themeId);
     void drawRenderingProgress(juce::Graphics& g);
+    void drawHoveredToolNameOverlay(juce::Graphics& g);
     void drawToolHintOverlay(juce::Graphics& g);
 
     void handleVerticalZoomWheel(const juce::MouseEvent& e, float deltaY);
@@ -271,6 +283,14 @@ private:
     int getTimelineVisibleWidth() const noexcept;
 
     void initializeUIComponents();
+    void initializeToolButtons();
+    void layoutToolButtons();
+    void updateToolButtonStates();
+    void refreshToolButtonTooltips();
+    void handleToolButtonClicked(ToolId tool);
+    juce::String getToolDisplayName(ToolId tool) const;
+    void setHoveredToolButton(ToolId tool, const juce::Rectangle<int>& buttonBounds);
+    void clearHoveredToolButton(ToolId tool);
     void initializeUndoSupport();
     void initializeRenderer();
     void initializeCorrectionWorker();

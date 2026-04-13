@@ -498,6 +498,7 @@ void PianoRollComponent::setCurrentTool(ToolId tool)
         listeners_.call([toolId](Listener& l) { l.toolChanged(toolId); });
     }
 
+    updateToolButtonStates();
     repaint();
 }
 

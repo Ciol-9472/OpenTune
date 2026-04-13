@@ -9,6 +9,7 @@
 #include "../../PluginProcessor.h"
 #include "FrameScheduler.h"
 #include "UiText.h"
+#include "ToolbarIcons.h"
 #include "PianoRoll/PianoRollToolHints.h"
 #include "ThemeTokens.h"
 
@@ -19,6 +20,91 @@ constexpr int kRightToolMenuLongPressMs = 200;
 } // namespace
 
 namespace OpenTune {
+
+class PianoRollToolIconButton : public juce::Button
+{
+public:
+    explicit PianoRollToolIconButton(ToolId toolId)
+        : juce::Button("PianoRollTool"), toolId_(toolId)
+    {
+        setClickingTogglesState(true);
+    }
+
+    void setIcon(const juce::Path& path, bool fillIcon)
+    {
+        iconPath_ = path;
+        fillIcon_ = fillIcon;
+    }
+
+    void setTextLabel(const juce::String& labelText)
+    {
+        textLabel_ = labelText;
+    }
+
+    ToolId getToolId() const { return toolId_; }
+
+    std::function<void(ToolId, const juce::Rectangle<int>&)> onHoverEnter;
+    std::function<void(ToolId)> onHoverExit;
+
+    void mouseEnter(const juce::MouseEvent& e) override
+    {
+        juce::Button::mouseEnter(e);
+        if (onHoverEnter)
+            onHoverEnter(toolId_, getBounds());
+    }
+
+    void mouseExit(const juce::MouseEvent& e) override
+    {
+        juce::Button::mouseExit(e);
+        if (onHoverExit)
+            onHoverExit(toolId_);
+    }
+
+    void paintButton(juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(0.75f);
+        const bool selected = getToggleState();
+
+        juce::Colour bg = selected ? UIColors::accent.withAlpha(0.30f) : UIColors::backgroundDark.withAlpha(0.70f);
+        juce::Colour border = selected ? UIColors::accent.withAlpha(0.95f) : UIColors::panelBorder.withAlpha(0.75f);
+        juce::Colour icon = selected ? juce::Colours::white : UIColors::textSecondary.brighter(0.15f);
+
+        if (shouldDrawButtonAsHighlighted)
+        {
+            bg = bg.brighter(selected ? 0.05f : 0.16f);
+            border = border.brighter(0.08f);
+            icon = icon.brighter(0.12f);
+        }
+
+        if (shouldDrawButtonAsDown)
+            bg = bg.darker(0.12f);
+
+        constexpr float corner = 4.5f;
+        g.setColour(bg);
+        g.fillRoundedRectangle(bounds, corner);
+        g.setColour(border);
+        g.drawRoundedRectangle(bounds, corner, selected ? 1.4f : 1.0f);
+
+        if (textLabel_.isNotEmpty())
+        {
+            const float fontHeight = juce::jlimit(9.0f, 18.0f, bounds.getHeight() * 0.45f);
+            g.setColour(icon);
+            g.setFont(UIColors::getLabelFont(fontHeight));
+            g.drawText(textLabel_, bounds.toNearestInt(), juce::Justification::centred);
+        }
+        else
+        {
+            auto iconArea = bounds.reduced(4.5f);
+            ToolbarIcons::drawIcon(g, iconPath_, iconArea, icon, 1.6f, fillIcon_);
+        }
+    }
+
+private:
+    ToolId toolId_ = ToolId::Select;
+    juce::Path iconPath_;
+    bool fillIcon_ = false;
+    juce::String textLabel_;
+};
 
 namespace {
 ScaleMode scaleModeFromTransportScaleType(int scaleType) noexcept
@@ -79,6 +165,8 @@ void PianoRollComponent::initializeUIComponents() {
     };
     addAndMakeVisible(timeUnitToggleButton_);
 
+    initializeToolButtons();
+
     addAndMakeVisible(playheadOverlay_);
     playheadOverlay_.setPianoKeyWidth(pianoKeyWidth_);
 
@@ -87,6 +175,221 @@ void PianoRollComponent::initializeUIComponents() {
 
     scrollVBlankAttachment_ = std::make_unique<juce::VBlankAttachment>(
         this, [this](double timestampSec) { onScrollVBlankCallback(timestampSec); });
+}
+
+void PianoRollComponent::initializeToolButtons()
+{
+    autoTuneToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::AutoTune);
+    selectToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::Select);
+    drawNoteToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::DrawNote);
+    lineAnchorToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::LineAnchor);
+    handDrawToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::HandDraw);
+    splitNoteToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::SplitNote);
+
+    autoTuneToolButton_->setTextLabel("AUTO");
+    selectToolButton_->setIcon(ToolbarIcons::getSelectIcon(), false);
+    drawNoteToolButton_->setIcon(ToolbarIcons::getDrawNoteIcon(), false);
+    lineAnchorToolButton_->setIcon(ToolbarIcons::getLineAnchorIcon(), false);
+    handDrawToolButton_->setIcon(ToolbarIcons::getHandDrawIcon(), false);
+    splitNoteToolButton_->setIcon(ToolbarIcons::getCutIcon(), false);
+
+    const int radioGroup = 2201;
+    autoTuneToolButton_->setRadioGroupId(radioGroup);
+    selectToolButton_->setRadioGroupId(radioGroup);
+    drawNoteToolButton_->setRadioGroupId(radioGroup);
+    lineAnchorToolButton_->setRadioGroupId(radioGroup);
+    handDrawToolButton_->setRadioGroupId(radioGroup);
+    splitNoteToolButton_->setRadioGroupId(radioGroup);
+
+    autoTuneToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::AutoTune); };
+    selectToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::Select); };
+    drawNoteToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::DrawNote); };
+    lineAnchorToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::LineAnchor); };
+    handDrawToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::HandDraw); };
+    splitNoteToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::SplitNote); };
+
+    auto wireHoverCallbacks = [this](PianoRollToolIconButton* button) {
+        button->onHoverEnter = [this](ToolId tool, const juce::Rectangle<int>& bounds) {
+            setHoveredToolButton(tool, bounds);
+        };
+        button->onHoverExit = [this](ToolId tool) {
+            clearHoveredToolButton(tool);
+        };
+    };
+
+    wireHoverCallbacks(autoTuneToolButton_.get());
+    wireHoverCallbacks(selectToolButton_.get());
+    wireHoverCallbacks(drawNoteToolButton_.get());
+    wireHoverCallbacks(lineAnchorToolButton_.get());
+    wireHoverCallbacks(handDrawToolButton_.get());
+    wireHoverCallbacks(splitNoteToolButton_.get());
+
+    addAndMakeVisible(*autoTuneToolButton_);
+    addAndMakeVisible(*selectToolButton_);
+    addAndMakeVisible(*drawNoteToolButton_);
+    addAndMakeVisible(*lineAnchorToolButton_);
+    addAndMakeVisible(*handDrawToolButton_);
+    addAndMakeVisible(*splitNoteToolButton_);
+
+    refreshToolButtonTooltips();
+    updateToolButtonStates();
+}
+
+void PianoRollComponent::layoutToolButtons()
+{
+    if (!autoTuneToolButton_ || !selectToolButton_ || !drawNoteToolButton_
+        || !lineAnchorToolButton_ || !handDrawToolButton_ || !splitNoteToolButton_)
+    {
+        return;
+    }
+
+    auto contentBounds = getLocalBounds().reduced(12);
+    contentBounds.removeFromBottom(15);
+    contentBounds.removeFromRight(15);
+
+    const float componentScale = juce::jlimit(1.0f, 2.25f,
+        juce::Component::getApproximateScaleFactorForComponent(this));
+
+    int buttonSize = juce::roundToInt(26.0f * componentScale);
+    int gap = juce::roundToInt(4.0f * componentScale);
+    int autoButtonWidth = juce::roundToInt(buttonSize * 1.75f);
+
+    const int x0 = contentBounds.getX() + pianoKeyWidth_ + juce::roundToInt(8.0f * componentScale);
+    const int y = contentBounds.getY() + juce::roundToInt(4.0f * componentScale);
+    const int rightLimit = juce::jmax(x0, timeUnitToggleButton_.getX() - juce::roundToInt(8.0f * componentScale));
+
+    auto computeTotalWidth = [](int iconSize, int spacing, int autoWidth) {
+        return 5 * iconSize + autoWidth + 5 * spacing;
+    };
+
+    int totalWidth = computeTotalWidth(buttonSize, gap, autoButtonWidth);
+    if (totalWidth > (rightLimit - x0))
+    {
+        const float shrinkRatio = static_cast<float>(rightLimit - x0) / static_cast<float>(juce::jmax(1, totalWidth));
+        const float clampedShrink = juce::jlimit(0.80f, 1.0f, shrinkRatio);
+        buttonSize = juce::roundToInt(static_cast<float>(buttonSize) * clampedShrink);
+        gap = juce::roundToInt(static_cast<float>(gap) * clampedShrink);
+        autoButtonWidth = juce::roundToInt(static_cast<float>(autoButtonWidth) * clampedShrink);
+        totalWidth = computeTotalWidth(buttonSize, gap, autoButtonWidth);
+    }
+
+    int x = x0;
+    selectToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
+    drawNoteToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
+    lineAnchorToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
+    handDrawToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
+    splitNoteToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
+    autoTuneToolButton_->setBounds(x, y, autoButtonWidth, buttonSize);
+
+    if (hasHoveredToolButton_)
+    {
+        std::vector<PianoRollToolIconButton*> buttons {
+            selectToolButton_.get(),
+            drawNoteToolButton_.get(),
+            lineAnchorToolButton_.get(),
+            handDrawToolButton_.get(),
+            splitNoteToolButton_.get(),
+            autoTuneToolButton_.get()
+        };
+
+        for (auto* button : buttons)
+        {
+            if (button->getToolId() == hoveredToolId_)
+            {
+                hoveredToolButtonBounds_ = button->getBounds();
+                break;
+            }
+        }
+    }
+}
+
+void PianoRollComponent::updateToolButtonStates()
+{
+    if (!autoTuneToolButton_ || !selectToolButton_ || !drawNoteToolButton_
+        || !lineAnchorToolButton_ || !handDrawToolButton_ || !splitNoteToolButton_)
+    {
+        return;
+    }
+
+    autoTuneToolButton_->setToggleState(currentTool_ == ToolId::AutoTune, juce::dontSendNotification);
+    selectToolButton_->setToggleState(currentTool_ == ToolId::Select, juce::dontSendNotification);
+    drawNoteToolButton_->setToggleState(currentTool_ == ToolId::DrawNote, juce::dontSendNotification);
+    lineAnchorToolButton_->setToggleState(currentTool_ == ToolId::LineAnchor, juce::dontSendNotification);
+    handDrawToolButton_->setToggleState(currentTool_ == ToolId::HandDraw, juce::dontSendNotification);
+    splitNoteToolButton_->setToggleState(currentTool_ == ToolId::SplitNote, juce::dontSendNotification);
+}
+
+juce::String PianoRollComponent::getToolDisplayName(ToolId tool) const
+{
+    switch (tool)
+    {
+        case ToolId::AutoTune: return LOC(kAuto);
+        case ToolId::Select: return LOC(kSelect);
+        case ToolId::DrawNote: return LOC(kDrawNotes);
+        case ToolId::LineAnchor: return LOC(kLineAnchor);
+        case ToolId::HandDraw: return LOC(kHandDraw);
+        case ToolId::SplitNote: return LOC(kSplitNote);
+        default: return {};
+    }
+}
+
+void PianoRollComponent::refreshToolButtonTooltips()
+{
+    if (autoTuneToolButton_)
+        autoTuneToolButton_->setTooltip(getToolDisplayName(ToolId::AutoTune));
+    if (selectToolButton_)
+        selectToolButton_->setTooltip(getToolDisplayName(ToolId::Select));
+    if (drawNoteToolButton_)
+        drawNoteToolButton_->setTooltip(getToolDisplayName(ToolId::DrawNote));
+    if (lineAnchorToolButton_)
+        lineAnchorToolButton_->setTooltip(getToolDisplayName(ToolId::LineAnchor));
+    if (handDrawToolButton_)
+        handDrawToolButton_->setTooltip(getToolDisplayName(ToolId::HandDraw));
+    if (splitNoteToolButton_)
+        splitNoteToolButton_->setTooltip(getToolDisplayName(ToolId::SplitNote));
+}
+
+void PianoRollComponent::handleToolButtonClicked(ToolId tool)
+{
+    if (externalToolSelectionHandler_)
+    {
+        externalToolSelectionHandler_(static_cast<int>(tool));
+        return;
+    }
+
+    if (tool == ToolId::AutoTune)
+    {
+        listeners_.call([](Listener& l) { l.autoTuneRequested(); });
+        setCurrentTool(ToolId::Select);
+        return;
+    }
+
+    setCurrentTool(tool);
+}
+
+void PianoRollComponent::setHoveredToolButton(ToolId tool, const juce::Rectangle<int>& buttonBounds)
+{
+    hoveredToolId_ = tool;
+    hoveredToolName_ = getToolDisplayName(tool);
+    hoveredToolButtonBounds_ = buttonBounds;
+    hasHoveredToolButton_ = hoveredToolName_.isNotEmpty();
+    repaint();
+}
+
+void PianoRollComponent::clearHoveredToolButton(ToolId tool)
+{
+    if (!hasHoveredToolButton_ || hoveredToolId_ != tool)
+        return;
+
+    hasHoveredToolButton_ = false;
+    hoveredToolName_.clear();
+    hoveredToolButtonBounds_ = {};
+    repaint();
 }
 
 void PianoRollComponent::initializeUndoSupport() {
@@ -299,6 +602,9 @@ PianoRollComponent::~PianoRollComponent() {
 void PianoRollComponent::languageChanged(Language newLanguage)
 {
     juce::ignoreUnused(newLanguage);
+    refreshToolButtonTooltips();
+    if (hasHoveredToolButton_)
+        hoveredToolName_ = getToolDisplayName(hoveredToolId_);
     repaint();
 }
 
@@ -322,6 +628,7 @@ void PianoRollComponent::resized() {
     scrollModeToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
     currentX -= (btnW + spacing);
     timeUnitToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
+    layoutToolButtons();
 
     playheadOverlay_.setBounds(getLocalBounds());
     anchorFitOverlay_.setBounds(getLocalBounds());
