@@ -19,6 +19,11 @@ float gPianoRollVerticalScroll = 0.0f;
 bool gHasWorkspaceSplitRatio = false;
 double gWorkspaceSplitRatio = 0.38;
 
+bool gHasAutoTunePromptSettings = false;
+float gAutoTuneRetuneSpeedPercent = 15.0f;
+float gAutoTuneNoteSplitCents = 80.0f;
+bool gAutoTuneSkipPrompt = false;
+
 } // namespace
 
 juce::File UserUiState::storageFile()
@@ -44,6 +49,10 @@ void UserUiState::ensureLoaded()
     gPianoRollVerticalScroll = 0.0f;
     gHasWorkspaceSplitRatio = false;
     gWorkspaceSplitRatio = 0.38;
+    gHasAutoTunePromptSettings = false;
+    gAutoTuneRetuneSpeedPercent = 15.0f;
+    gAutoTuneNoteSplitCents = 80.0f;
+    gAutoTuneSkipPrompt = false;
 
     const juce::File file = storageFile();
     if (!file.existsAsFile())
@@ -73,6 +82,14 @@ void UserUiState::ensureLoaded()
         gWorkspaceSplitRatio = xml->getDoubleAttribute("workspaceSplitRatio", 0.38);
         gHasWorkspaceSplitRatio = gWorkspaceSplitRatio > 0.0;
     }
+
+    if (xml->hasAttribute("autoTuneRetuneSpeedPercent") && xml->hasAttribute("autoTuneNoteSplitCents"))
+    {
+        gAutoTuneRetuneSpeedPercent = static_cast<float>(xml->getDoubleAttribute("autoTuneRetuneSpeedPercent", 15.0));
+        gAutoTuneNoteSplitCents = static_cast<float>(xml->getDoubleAttribute("autoTuneNoteSplitCents", 80.0));
+        gAutoTuneSkipPrompt = xml->getBoolAttribute("autoTuneSkipPrompt", false);
+        gHasAutoTunePromptSettings = true;
+    }
 }
 
 void UserUiState::persist()
@@ -97,6 +114,13 @@ void UserUiState::persist()
 
         if (gHasWorkspaceSplitRatio)
             root.setAttribute("workspaceSplitRatio", gWorkspaceSplitRatio);
+
+        if (gHasAutoTunePromptSettings)
+        {
+            root.setAttribute("autoTuneRetuneSpeedPercent", static_cast<double>(gAutoTuneRetuneSpeedPercent));
+            root.setAttribute("autoTuneNoteSplitCents", static_cast<double>(gAutoTuneNoteSplitCents));
+            root.setAttribute("autoTuneSkipPrompt", gAutoTuneSkipPrompt);
+        }
     }
 
     const juce::File file = storageFile();
@@ -177,6 +201,34 @@ void UserUiState::setWorkspaceSplitRatio(double splitRatio)
         gLoaded = true;
         gWorkspaceSplitRatio = splitRatio;
         gHasWorkspaceSplitRatio = splitRatio > 0.0;
+    }
+
+    persist();
+}
+
+bool UserUiState::getAutoTunePromptSettings(float& retuneSpeedPercentOut, float& noteSplitCentsOut, bool& skipPromptOut)
+{
+    ensureLoaded();
+
+    const juce::ScopedLock sl(gLock);
+    if (!gHasAutoTunePromptSettings)
+        return false;
+
+    retuneSpeedPercentOut = gAutoTuneRetuneSpeedPercent;
+    noteSplitCentsOut = gAutoTuneNoteSplitCents;
+    skipPromptOut = gAutoTuneSkipPrompt;
+    return true;
+}
+
+void UserUiState::setAutoTunePromptSettings(float retuneSpeedPercent, float noteSplitCents, bool skipPrompt)
+{
+    {
+        const juce::ScopedLock sl(gLock);
+        gLoaded = true;
+        gAutoTuneRetuneSpeedPercent = retuneSpeedPercent;
+        gAutoTuneNoteSplitCents = noteSplitCents;
+        gAutoTuneSkipPrompt = skipPrompt;
+        gHasAutoTunePromptSettings = true;
     }
 
     persist();

@@ -70,6 +70,7 @@ public:
         virtual void pitchCurveEdited(int startFrame, int endFrame) { (void)startFrame; (void)endFrame; }
         virtual void noteOffsetChanged(size_t noteIndex, float oldOffset, float newOffset) { (void)noteIndex; (void)oldOffset; (void)newOffset; }
         virtual void autoTuneRequested() {}
+        virtual void autoTuneOptionsRequested() { autoTuneRequested(); }
         virtual void trackTimeOffsetChanged(int trackId, double newOffset) { (void)trackId; (void)newOffset; }
         virtual void escapeKeyPressed() {}
         virtual void toolChanged(int toolId) { juce::ignoreUnused(toolId); }

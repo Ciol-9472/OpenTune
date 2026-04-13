@@ -357,6 +357,8 @@ target_sources(OpenTune
         Source/Standalone/UI/MenuBarComponent.h
         Source/Standalone/UI/StemExportDialogComponent.cpp
         Source/Standalone/UI/StemExportDialogComponent.h
+        Source/Standalone/UI/AutoTuneOptionsDialogComponent.cpp
+        Source/Standalone/UI/AutoTuneOptionsDialogComponent.h
         Source/Standalone/UI/TransportBarComponent.cpp
         Source/Standalone/UI/TransportBarComponent.h
         Source/Standalone/UI/TopBarComponent.cpp

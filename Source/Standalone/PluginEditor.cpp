@@ -3,6 +3,7 @@
 #include "UI/FrameScheduler.h"
 #include "UI/OptionsDialogComponent.h"
 #include "UI/StemExportDialogComponent.h"
+#include "UI/AutoTuneOptionsDialogComponent.h"
 #include "Audio/AsyncAudioLoader.h"
 #include "DSP/ChromaKeyDetector.h"
 #include "Utils/LastFileDialogPaths.h"
@@ -438,11 +439,24 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
 
     // Setup Parameter Panel
     parameterPanel_.addListener(this);
-    // parameterPanel_.setRetuneSpeed(processorRef_.getRetuneSpeed());
-    parameterPanel_.setRetuneSpeed(PitchControlConfig::kDefaultRetuneSpeedPercent);
-    pianoRoll_.setRetuneSpeed(PitchControlConfig::kDefaultRetuneSpeedNormalized);
-    parameterPanel_.setNoteSplit(PitchControlConfig::kDefaultNoteSplitCents);
-    pianoRoll_.setNoteSplit(PitchControlConfig::kDefaultNoteSplitCents);
+    {
+        float savedRetuneSpeed = PitchControlConfig::kDefaultRetuneSpeedPercent;
+        float savedNoteSplit = PitchControlConfig::kDefaultNoteSplitCents;
+        bool savedSkipPrompt = false;
+        if (UserUiState::getAutoTunePromptSettings(savedRetuneSpeed, savedNoteSplit, savedSkipPrompt))
+        {
+            autoTuneRetuneSpeedPercent_ = juce::jlimit(0.0f, 100.0f, savedRetuneSpeed);
+            autoTuneNoteSplitCents_ = juce::jlimit(
+                PitchControlConfig::kMinNoteSplitCents,
+                PitchControlConfig::kMaxNoteSplitCents,
+                savedNoteSplit);
+            autoTuneSkipPrompt_ = savedSkipPrompt;
+        }
+    }
+    parameterPanel_.setRetuneSpeed(autoTuneRetuneSpeedPercent_);
+    pianoRoll_.setRetuneSpeed(autoTuneRetuneSpeedPercent_ / 100.0f);
+    parameterPanel_.setNoteSplit(autoTuneNoteSplitCents_);
+    pianoRoll_.setNoteSplit(autoTuneNoteSplitCents_);
     
     parameterPanel_.setF0Min(30.0f);
     parameterPanel_.setF0Max(2000.0f);
@@ -715,6 +729,7 @@ void OpenTuneAudioProcessorEditor::persistUserUiState() const
                                        pianoRoll_.getVerticalZoom(),
                                        pianoRoll_.getVerticalScrollOffset());
     UserUiState::setWorkspaceSplitRatio(getArrangementWorkspaceSplitRatio());
+    UserUiState::setAutoTunePromptSettings(autoTuneRetuneSpeedPercent_, autoTuneNoteSplitCents_, autoTuneSkipPrompt_);
 
     auto* window = const_cast<OpenTuneAudioProcessorEditor*>(this)->findParentComponentOfClass<juce::ResizableWindow>();
     if (window == nullptr) {
@@ -1345,7 +1360,7 @@ void OpenTuneAudioProcessorEditor::toolSelected(int toolId)
     if (tool == ToolId::AutoTune)
     {
         // 鍚堝苟閲嶅閫昏緫锛氳皟鐢ㄧ粺涓€ helper
-        startAutoTuneAsUnifiedEdit();
+        startAutoTuneAsUnifiedEdit(false);
         pianoRoll_.setCurrentTool(ToolId::Select);
         parameterPanel_.setActiveTool(1);
         return;
@@ -1361,6 +1376,9 @@ void OpenTuneAudioProcessorEditor::toolSelected(int toolId)
 
 void OpenTuneAudioProcessorEditor::retuneSpeedChanged(float speed)
 {
+    autoTuneRetuneSpeedPercent_ = juce::jlimit(0.0f, 100.0f, speed);
+    UserUiState::setAutoTunePromptSettings(autoTuneRetuneSpeedPercent_, autoTuneNoteSplitCents_, autoTuneSkipPrompt_);
+
     float normalizedSpeed = speed / 100.0f;
     pianoRoll_.setRetuneSpeed(normalizedSpeed);
     if (pianoRoll_.applyRetuneSpeedToSelection(normalizedSpeed)) {
@@ -1376,7 +1394,7 @@ void OpenTuneAudioProcessorEditor::vibratoDepthChanged(float value)
 {
     if (pianoRoll_.applyVibratoDepthToSelection(value)) return;
     pianoRoll_.setVibratoDepth(value);
-    const float speed = parameterPanel_.getRetuneSpeed() / 100.0f;
+    const float speed = autoTuneRetuneSpeedPercent_ / 100.0f;
     const float rate = parameterPanel_.getVibratoRate();
     pianoRoll_.applyCorrectionAsyncForEntireClip(speed, value, rate);
 }
@@ -1385,14 +1403,19 @@ void OpenTuneAudioProcessorEditor::vibratoRateChanged(float value)
 {
     if (pianoRoll_.applyVibratoRateToSelection(value)) return;
     pianoRoll_.setVibratoRate(value);
-    const float speed = parameterPanel_.getRetuneSpeed() / 100.0f;
+    const float speed = autoTuneRetuneSpeedPercent_ / 100.0f;
     const float depth = parameterPanel_.getVibratoDepth();
     pianoRoll_.applyCorrectionAsyncForEntireClip(speed, depth, value);
 }
 
 void OpenTuneAudioProcessorEditor::noteSplitChanged(float value)
 {
-    pianoRoll_.setNoteSplit(value);
+    autoTuneNoteSplitCents_ = juce::jlimit(
+        PitchControlConfig::kMinNoteSplitCents,
+        PitchControlConfig::kMaxNoteSplitCents,
+        value);
+    UserUiState::setAutoTunePromptSettings(autoTuneRetuneSpeedPercent_, autoTuneNoteSplitCents_, autoTuneSkipPrompt_);
+    pianoRoll_.setNoteSplit(autoTuneNoteSplitCents_);
 }
 
 void OpenTuneAudioProcessorEditor::parameterDragEnded(int paramId, float oldValue, float newValue)
@@ -1798,7 +1821,14 @@ void OpenTuneAudioProcessorEditor::playFromStartToggleRequested()
 void OpenTuneAudioProcessorEditor::autoTuneRequested()
 {
     // 鍚堝苟閲嶅閫昏緫锛氳皟鐢ㄧ粺涓€ helper
-    startAutoTuneAsUnifiedEdit();
+    startAutoTuneAsUnifiedEdit(false);
+    pianoRoll_.setCurrentTool(ToolId::Select);
+    parameterPanel_.setActiveTool(1);
+}
+
+void OpenTuneAudioProcessorEditor::autoTuneOptionsRequested()
+{
+    startAutoTuneAsUnifiedEdit(true);
     pianoRoll_.setCurrentTool(ToolId::Select);
     parameterPanel_.setActiveTool(1);
 }
@@ -1924,12 +1954,158 @@ void OpenTuneAudioProcessorEditor::audioSettingsRequested()
     processorRef_.showAudioSettingsDialog(*this);
 }
 
-// AUTO 鍚姩缁熶竴 helper锛氬悎骞?toolSelected(AutoTune) 涓?autoTuneRequested() 鐨勯噸澶嶉€昏緫
-void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit()
+bool OpenTuneAudioProcessorEditor::resolveActiveClipIndex(int trackId, uint64_t clipId, int& clipIndexOut) const
+{
+    clipIndexOut = -1;
+    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS || clipId == 0) {
+        return false;
+    }
+
+    const int activeTrackId = processorRef_.getActiveTrackId();
+    if (activeTrackId != trackId) {
+        return false;
+    }
+
+    const int selectedClipIndex = processorRef_.getSelectedClip(activeTrackId);
+    if (selectedClipIndex < 0) {
+        return false;
+    }
+
+    if (processorRef_.getClipId(activeTrackId, selectedClipIndex) != clipId) {
+        return false;
+    }
+
+    clipIndexOut = selectedClipIndex;
+    return true;
+}
+
+void OpenTuneAudioProcessorEditor::applyAutoTunePromptSettingsToUi()
+{
+    autoTuneRetuneSpeedPercent_ = juce::jlimit(0.0f, 100.0f, autoTuneRetuneSpeedPercent_);
+    autoTuneNoteSplitCents_ = juce::jlimit(
+        PitchControlConfig::kMinNoteSplitCents,
+        PitchControlConfig::kMaxNoteSplitCents,
+        autoTuneNoteSplitCents_);
+
+    parameterPanel_.setRetuneSpeed(autoTuneRetuneSpeedPercent_);
+    parameterPanel_.setNoteSplit(autoTuneNoteSplitCents_);
+    pianoRoll_.setRetuneSpeed(autoTuneRetuneSpeedPercent_ / 100.0f);
+    pianoRoll_.setNoteSplit(autoTuneNoteSplitCents_);
+}
+
+void OpenTuneAudioProcessorEditor::clearAutoTuneEditsForClip(int trackId, int clipIndex, uint64_t clipId)
+{
+    auto notes = processorRef_.getClipNotes(trackId, clipIndex);
+    bool hadSelection = false;
+    for (auto& note : notes)
+    {
+        if (note.selected)
+        {
+            note.selected = false;
+            hadSelection = true;
+        }
+    }
+
+    if (!hadSelection) {
+        return;
+    }
+
+    processorRef_.setClipNotes(trackId, clipIndex, notes);
+
+    if (pianoRoll_.getCurrentTrackId() == trackId && pianoRoll_.getCurrentClipId() == clipId) {
+        pianoRoll_.setNotes(notes);
+    }
+}
+
+void OpenTuneAudioProcessorEditor::executeAutoTuneForClip(int trackId, uint64_t clipId, bool clearExistingEdits)
+{
+    int clipIndex = -1;
+    if (!resolveActiveClipIndex(trackId, clipId, clipIndex)) {
+        return;
+    }
+
+    if (clearExistingEdits) {
+        clearAutoTuneEditsForClip(trackId, clipIndex, clipId);
+    }
+
+    applyAutoTunePromptSettingsToUi();
+
+    const bool success = pianoRoll_.applyAutoTuneToSelection();
+    if (!success) {
+        return;
+    }
+
+    autoOverlayLatched_ = true;
+    autoOverlayTargetTrackId_ = trackId;
+    autoOverlayTargetClipId_ = clipId;
+    autoRenderOverlay_.setMessageText("Rendering...");
+    autoRenderOverlay_.setVisible(true);
+}
+
+void OpenTuneAudioProcessorEditor::showAutoTuneOptionsDialog(int trackId, uint64_t clipId, bool clearExistingEdits)
+{
+    int clipIndex = -1;
+    if (!resolveActiveClipIndex(trackId, clipId, clipIndex)) {
+        return;
+    }
+    juce::ignoreUnused(clipIndex);
+
+    auto* dialogContent = new AutoTuneOptionsDialogContent(
+        autoTuneRetuneSpeedPercent_,
+        autoTuneNoteSplitCents_,
+        autoTuneSkipPrompt_);
+
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    dialogContent->setOnAccepted([safeThis, trackId, clipId, clearExistingEdits](float retuneSpeedPercent,
+                                                                                  float noteSplitCents,
+                                                                                  bool skipPrompt) {
+        if (safeThis == nullptr) {
+            return;
+        }
+
+        int resolvedClipIndex = -1;
+        if (!safeThis->resolveActiveClipIndex(trackId, clipId, resolvedClipIndex)) {
+            return;
+        }
+        juce::ignoreUnused(resolvedClipIndex);
+
+        safeThis->autoTuneRetuneSpeedPercent_ = juce::jlimit(0.0f, 100.0f, retuneSpeedPercent);
+        safeThis->autoTuneNoteSplitCents_ = juce::jlimit(
+            PitchControlConfig::kMinNoteSplitCents,
+            PitchControlConfig::kMaxNoteSplitCents,
+            noteSplitCents);
+        safeThis->autoTuneSkipPrompt_ = skipPrompt;
+        UserUiState::setAutoTunePromptSettings(
+            safeThis->autoTuneRetuneSpeedPercent_,
+            safeThis->autoTuneNoteSplitCents_,
+            safeThis->autoTuneSkipPrompt_);
+
+        safeThis->executeAutoTuneForClip(trackId, clipId, clearExistingEdits);
+    });
+
+    dialogContent->setSize(520, 250);
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialogContent);
+    options.dialogTitle = "AUTO";
+    options.dialogBackgroundColour = UIColors::backgroundDark;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    options.launchAsync();
+}
+
+// AUTO 启动统一 helper：合并 toolSelected(AutoTune) 与 autoTuneRequested() 的重复逻辑
+void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit(bool forceShowOptionsDialog)
 {
     const int trackId = processorRef_.getActiveTrackId();
     const int clipIndex = processorRef_.getSelectedClip(trackId);
     if (trackId < 0 || clipIndex < 0) {
+        return;
+    }
+
+    const uint64_t clipId = processorRef_.getClipId(trackId, clipIndex);
+    if (clipId == 0) {
         return;
     }
 
@@ -1959,15 +2135,48 @@ void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit()
         return;
     }
 
-    // 灏濊瘯鍚姩 AUTO 澶勭悊
-    bool success = pianoRoll_.applyAutoTuneToSelection();
-    if (success) {
-        autoOverlayLatched_ = true;
-        autoOverlayTargetTrackId_ = trackId;
-        autoOverlayTargetClipId_ = processorRef_.getClipId(trackId, clipIndex);
-        autoRenderOverlay_.setMessageText("Rendering...");
-        autoRenderOverlay_.setVisible(true);
+    bool hasEditedContent = false;
+    if (auto curve = processorRef_.getClipPitchCurve(trackId, clipIndex)) {
+        hasEditedContent = curve->hasAnyCorrection();
     }
+
+    if (autoTuneSkipPrompt_ && !forceShowOptionsDialog) {
+        executeAutoTuneForClip(trackId, clipId, hasEditedContent);
+        return;
+    }
+
+    if (!hasEditedContent) {
+        showAutoTuneOptionsDialog(trackId, clipId, false);
+        return;
+    }
+
+    auto options = juce::MessageBoxOptions::makeOptionsYesNo(
+        juce::MessageBoxIconType::WarningIcon,
+        "AUTO",
+        LOC(kAutoOverwriteWarning),
+        LOC(kYes),
+        LOC(kNo),
+        this);
+
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    juce::AlertWindow::showAsync(options, [safeThis, trackId, clipId, forceShowOptionsDialog](int result) {
+        if (safeThis == nullptr || result != 1) {
+            return;
+        }
+
+        int resolvedClipIndex = -1;
+        if (!safeThis->resolveActiveClipIndex(trackId, clipId, resolvedClipIndex)) {
+            return;
+        }
+        juce::ignoreUnused(resolvedClipIndex);
+
+        if (safeThis->autoTuneSkipPrompt_ && !forceShowOptionsDialog) {
+            safeThis->executeAutoTuneForClip(trackId, clipId, true);
+            return;
+        }
+
+        safeThis->showAutoTuneOptionsDialog(trackId, clipId, true);
+    });
 }
 
 } // namespace OpenTune

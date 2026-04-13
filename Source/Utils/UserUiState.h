@@ -16,6 +16,9 @@ public:
     static bool getWorkspaceSplitRatio(double& splitRatioOut);
     static void setWorkspaceSplitRatio(double splitRatio);
 
+    static bool getAutoTunePromptSettings(float& retuneSpeedPercentOut, float& noteSplitCentsOut, bool& skipPromptOut);
+    static void setAutoTunePromptSettings(float retuneSpeedPercent, float noteSplitCents, bool skipPrompt);
+
 private:
     static juce::File storageFile();
     static void ensureLoaded();

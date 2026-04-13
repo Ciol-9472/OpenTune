@@ -45,6 +45,27 @@ public:
 
     std::function<void(ToolId, const juce::Rectangle<int>&)> onHoverEnter;
     std::function<void(ToolId)> onHoverExit;
+    std::function<void(ToolId)> onRightClick;
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown())
+            return;
+
+        juce::Button::mouseDown(e);
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown())
+        {
+            if (onRightClick)
+                onRightClick(toolId_);
+            return;
+        }
+
+        juce::Button::mouseUp(e);
+    }
 
     void mouseEnter(const juce::MouseEvent& e) override
     {
@@ -207,6 +228,9 @@ void PianoRollComponent::initializeToolButtons()
     lineAnchorToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::LineAnchor); };
     handDrawToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::HandDraw); };
     splitNoteToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::SplitNote); };
+    autoTuneToolButton_->onRightClick = [this](ToolId) {
+        listeners_.call([](Listener& l) { l.autoTuneOptionsRequested(); });
+    };
 
     auto wireHoverCallbacks = [this](PianoRollToolIconButton* button) {
         button->onHoverEnter = [this](ToolId tool, const juce::Rectangle<int>& bounds) {
@@ -341,7 +365,7 @@ juce::String PianoRollComponent::getToolDisplayName(ToolId tool) const
 void PianoRollComponent::refreshToolButtonTooltips()
 {
     if (autoTuneToolButton_)
-        autoTuneToolButton_->setTooltip(getToolDisplayName(ToolId::AutoTune));
+        autoTuneToolButton_->setTooltip(getToolDisplayName(ToolId::AutoTune) + " (" + LOC(kAutoRightClickOptions) + ")");
     if (selectToolButton_)
         selectToolButton_->setTooltip(getToolDisplayName(ToolId::Select));
     if (drawNoteToolButton_)

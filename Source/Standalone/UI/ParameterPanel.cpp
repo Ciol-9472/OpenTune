@@ -129,6 +129,8 @@ ParameterPanel::ParameterPanel()
             listeners_.call([this, newVal](Listener& l) { l.parameterDragEnded(kParamRetuneSpeed, dragStartRetuneSpeed_, newVal); });
     };
     addAndMakeVisible(retuneSpeedSlider_);
+    retuneSpeedLabel_.setVisible(false);
+    retuneSpeedSlider_.setVisible(false);
 
     setupLabel(vibratoDepthLabel_, LOC(kVibratoDepth));
     vibratoDepthLabel_.setJustificationType(juce::Justification::centred);
@@ -178,6 +180,8 @@ ParameterPanel::ParameterPanel()
             listeners_.call([this, newVal](Listener& l) { l.parameterDragEnded(kParamNoteSplit, dragStartNoteSplit_, newVal); });
     };
     addAndMakeVisible(noteSplitSlider_);
+    noteSplitLabel_.setVisible(false);
+    noteSplitSlider_.setVisible(false);
 
     // ========== Tools Section (Replaces Info Display) ==========
     setupHeader(toolsHeader_, LOC(kTools));
@@ -290,16 +294,14 @@ void ParameterPanel::resized()
     auto row1 = mainArea.removeFromTop(rowHeight);
     mainArea.removeFromTop(spacing);
 
-    auto row2 = mainArea.removeFromTop(rowHeight);
-    mainArea.removeFromTop(spacing);
-
     const int colWidth = row1.getWidth() / 2;
+    layoutKnobCell(row1.removeFromLeft(colWidth), vibratoDepthLabel_, vibratoDepthSlider_);
+    layoutKnobCell(row1, vibratoRateLabel_, vibratoRateSlider_);
 
-    layoutKnobCell(row1.removeFromLeft(colWidth), retuneSpeedLabel_, retuneSpeedSlider_);
-    layoutKnobCell(row1, vibratoDepthLabel_, vibratoDepthSlider_);
-
-    layoutKnobCell(row2.removeFromLeft(colWidth), vibratoRateLabel_, vibratoRateSlider_);
-    layoutKnobCell(row2, noteSplitLabel_, noteSplitSlider_);
+    retuneSpeedLabel_.setBounds(0, 0, 0, 0);
+    retuneSpeedSlider_.setBounds(0, 0, 0, 0);
+    noteSplitLabel_.setBounds(0, 0, 0, 0);
+    noteSplitSlider_.setBounds(0, 0, 0, 0);
 
     toolsHeader_.setBounds(0, 0, 0, 0);
     if (autoTuneToolButton_) autoTuneToolButton_->setBounds(0, 0, 0, 0);

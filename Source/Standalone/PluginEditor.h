@@ -29,6 +29,7 @@
 #include "UI/AutoRenderOverlayComponent.h"
 #include "Utils/RecentProjectsManager.h"
 #include "Utils/LocalizationManager.h"
+#include "Utils/PitchControlConfig.h"
 #include "Audio/AsyncAudioLoader.h"
 #include "Services/F0ExtractionService.h"
 
@@ -133,6 +134,7 @@ public:
     void playPauseToggleRequested() override;
     void stopPlaybackRequested() override;
     void autoTuneRequested() override;
+    void autoTuneOptionsRequested() override;
     void pitchCurveEdited(int startFrame, int endFrame) override;
     void trackTimeOffsetChanged(int trackId, double newOffset) override;
     void escapeKeyPressed() override;
@@ -202,7 +204,12 @@ private:
     static void setStandaloneWindowMaximised(juce::ResizableWindow& window, bool shouldBeMaximised);
     
     // AUTO 启动统一 helper
-    void startAutoTuneAsUnifiedEdit();
+    void startAutoTuneAsUnifiedEdit(bool forceShowOptionsDialog = false);
+    bool resolveActiveClipIndex(int trackId, uint64_t clipId, int& clipIndexOut) const;
+    void applyAutoTunePromptSettingsToUi();
+    void clearAutoTuneEditsForClip(int trackId, int clipIndex, uint64_t clipId);
+    void executeAutoTuneForClip(int trackId, uint64_t clipId, bool clearExistingEdits);
+    void showAutoTuneOptionsDialog(int trackId, uint64_t clipId, bool clearExistingEdits);
 
     OpenTuneAudioProcessor& processorRef_;
 
@@ -267,6 +274,9 @@ private:
     int lastScaleType_ = 1;  // 1=Major
     uint32_t lastUndoRedoShortcutMs_ = 0;
     bool suppressScaleChangedCallback_ = false;
+    float autoTuneRetuneSpeedPercent_ = PitchControlConfig::kDefaultRetuneSpeedPercent;
+    float autoTuneNoteSplitCents_ = PitchControlConfig::kDefaultNoteSplitCents;
+    bool autoTuneSkipPrompt_ = false;
     std::array<float, OpenTuneAudioProcessor::MAX_TRACKS> lastTrackVolumes_;
     float volumeDragStartValue_ = 1.0f;
     int volumeDragTrackId_ = -1;

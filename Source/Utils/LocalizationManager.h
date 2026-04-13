@@ -200,6 +200,10 @@ constexpr const char* kDrawNotes = "Draw notes";
 constexpr const char* kLineAnchor = "Line anchor";
 constexpr const char* kHandDraw = "Hand draw pitch";
 constexpr const char* kSplitNote = "Split note";
+constexpr const char* kAutoOptionsTitle = "Auto Pitch Detection Options";
+constexpr const char* kAutoOverwriteWarning = "AUTO overwrite warning";
+constexpr const char* kAutoUseAsDefaultAndSkip = "AUTO use as default and skip prompt";
+constexpr const char* kAutoRightClickOptions = "AUTO right click options";
 
 constexpr const char* kPlay = "Play";
 constexpr const char* kPause = "Pause";
@@ -362,6 +366,10 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kLineAnchor, "Line anchor", "锚点", "ラインアンカー", "Якорь", "Ancla línea" },
         { Keys::kHandDraw, "Hand draw pitch", "手绘音高", "手描きピッチ", "Рисование высоты", "Dib. tono" },
         { Keys::kSplitNote, "Split note", "分割音符", "ノート分割", "Разделить ноту", "Dividir nota" },
+        { Keys::kAutoOptionsTitle, "Auto Pitch Detection Options", "自动音高检测选项", "自動ピッチ検出オプション", "Параметры автокоррекции высоты", "Opciones de detección automática de tono" },
+        { Keys::kAutoOverwriteWarning, "This clip already contains edited content.\nRe-running AUTO will discard all current edits. Continue?", "当前 Clip 中存在已修改内容。\n重新执行 AUTO 将丢失所有当前修改，是否继续？", "このクリップには既存の編集があります。\nAUTO を再実行すると現在の編集内容は失われます。続行しますか？", "В этом клипе уже есть правки.\nПовторный запуск AUTO удалит текущие изменения. Продолжить?", "Este clip ya contiene ediciones.\nVolver a ejecutar AUTO descartará los cambios actuales. ¿Continuar?" },
+        { Keys::kAutoUseAsDefaultAndSkip, "Use these settings as default and run directly next time (right-click AUTO to reopen options)", "此后沿用当前参数为默认并直接渲染（右键点击 AUTO 可重新打开参数对话框）", "この設定を既定にして次回から直接実行（AUTO を右クリックでオプション再表示）", "Использовать эти параметры по умолчанию и запускать сразу (ПКМ по AUTO — открыть параметры)", "Usar estos ajustes por defecto y ejecutar directamente (clic derecho en AUTO para abrir opciones)" },
+        { Keys::kAutoRightClickOptions, "Right-click for options", "右键打开参数", "右クリックでオプション", "ПКМ: параметры", "Clic derecho: opciones" },
         
         { Keys::kPlay, "Play", "播放", "再生", "Старт", "Reprod." },
         { Keys::kPause, "Pause", "暂停", "一時停止", "Пауза", "Pausar" },
@@ -401,7 +409,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kPianoRollHintSplit1, "Click a note at the mouse position to split it into two.", "在鼠标位置单击音符可将其一分为二。", "マウス位置でノートをクリックして分割。", "Клик по ноте под курсором — разрез.", "Clic en la nota bajo el cursor para partirla." },
         { Keys::kPianoRollHintSplit2, "Shortcut [5] Split Note tool.", "快捷键 [5] 分割音符工具。", "[5] ノート分割。", "[5] — разрезать.", "Atajo [5] dividir nota." },
         { Keys::kPianoRollHintAuto1, "Click to run Auto note generation for the current F0 range/selection.", "单击可根据当前 F0 与选区自动生成音符。", "クリックでF0範囲から自動ノート生成。", "Клик — авто-ноты по F0/выделению.", "Clic: generar notas automáticas según F0/selección." },
-        { Keys::kPianoRollHintAuto2, "Shortcut [6] when the piano roll has keyboard focus.", "钢琴窗拥有键盘焦点时快捷键 [6]。", "ピアノロールにフォーカスがあるとき [6]。", "Фокус на ролле — клавиша [6].", "Con foco en el piano roll, atajo [6]." },
+        { Keys::kPianoRollHintAuto2, "Right-click AUTO to open options; shortcut [6] when the piano roll has keyboard focus.", "右键点击 AUTO 可打开参数对话框；钢琴窗拥有键盘焦点时快捷键 [6]。", "AUTO を右クリックでオプションを開く。ピアノロールにフォーカスがあるとき [6]。", "ПКМ по AUTO открывает параметры; при фокусе ролла — [6].", "Clic derecho en AUTO abre opciones; con foco en el piano roll, atajo [6]." },
     };
     
     for (const auto& t : translations)
