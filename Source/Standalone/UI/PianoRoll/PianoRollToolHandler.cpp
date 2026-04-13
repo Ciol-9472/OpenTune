@@ -18,6 +18,17 @@ PianoRollToolHandler::PianoRollToolHandler(Context context)
 void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
 // 鼠标移动处理：更新光标形状（音符边缘调整、线锚点预览）
 {
+    constexpr int inset = 12;
+    constexpr int rulerHeight = 30;
+    constexpr int timelineExtendedHitArea = 20;
+    const int timelineBottomExtended = inset + rulerHeight + timelineExtendedHitArea;
+
+    if (e.y < timelineBottomExtended && e.x > ctx_.getPianoKeyWidth())
+    {
+        ctx_.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        return;
+    }
+
     if (currentTool_ == ToolId::LineAnchor) {
         ctx_.getState().drawing.currentMousePos = e.position;
         auto hit = hitTestAnchor(static_cast<float>(e.x), static_cast<float>(e.y));
@@ -128,6 +139,7 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
         double clickedTime = ctx_.xToTime(e.x);
         if (clickedTime >= 0) {
             ctx_.notifyPlayheadChange(clickedTime);
+            isDraggingTimelinePlayhead_ = true;
         }
         return;
     }
@@ -177,6 +189,16 @@ void PianoRollToolHandler::mouseDrag(const juce::MouseEvent& e)
     AppLogger::debug("[PianoRollToolHandler] mouseDrag: pos=(" + juce::String(e.x) + "," + juce::String(e.y) 
         + "), tool=" + juce::String(static_cast<int>(currentTool_)));
 
+    if (isDraggingTimelinePlayhead_)
+    {
+        double draggedTime = ctx_.xToTime(e.x);
+        if (draggedTime >= 0.0)
+            ctx_.notifyPlayheadChange(draggedTime);
+
+        ctx_.requestRepaint();
+        return;
+    }
+
     switch (currentTool_) {
         case ToolId::Select:
             handleSelectDrag(e);
@@ -211,6 +233,13 @@ void PianoRollToolHandler::mouseDrag(const juce::MouseEvent& e)
 void PianoRollToolHandler::mouseUp(const juce::MouseEvent& e)
 {
     AppLogger::debug("[PianoRollToolHandler] mouseUp: tool=" + juce::String(static_cast<int>(currentTool_)));
+
+    if (isDraggingTimelinePlayhead_)
+    {
+        isDraggingTimelinePlayhead_ = false;
+        ctx_.requestRepaint();
+        return;
+    }
 
     switch (currentTool_) {
         case ToolId::Select:

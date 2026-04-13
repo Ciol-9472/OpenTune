@@ -2,6 +2,8 @@
 #include "AuroraTheme.h"
 #include "FrameScheduler.h"
 
+#include <cmath>
+
 namespace OpenTune {
 
 ArrangementViewComponent::ArrangementViewComponent(OpenTuneAudioProcessor& processor)
@@ -18,6 +20,12 @@ ArrangementViewComponent::ArrangementViewComponent(OpenTuneAudioProcessor& proce
     verticalScrollBar_.addListener(this);
     horizontalScrollBar_.setAutoHide(false);
     verticalScrollBar_.setAutoHide(false);
+    horizontalScrollBar_.onThumbResizeRequested = [this](double thumbStartNormalized, double thumbEndNormalized) {
+        applyScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
+    };
+    verticalScrollBar_.onThumbResizeRequested = [this](double thumbStartNormalized, double thumbEndNormalized) {
+        applyVerticalScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
+    };
 
     scrollModeToggleButton_.setButtonText(scrollMode_ == ScrollMode::Continuous ? "Cont" : "Page");
     scrollModeToggleButton_.setLookAndFeel(&smallButtonLookAndFeel_);
@@ -102,6 +110,28 @@ void ArrangementViewComponent::setScrollOffset(int pixels)
     // 同步滚动偏移到高性能播放头覆盖层
     playheadOverlay_.setScrollOffset(static_cast<double>(scrollOffset_));
     FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
+}
+
+void ArrangementViewComponent::syncPlayheadPosition(double timeSeconds)
+{
+    playheadOverlay_.setPlayheadSeconds(timeSeconds);
+
+    if (!isPlaying_.load(std::memory_order_relaxed))
+    {
+        playheadOverlay_.repaint();
+        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
+    }
+}
+
+double ArrangementViewComponent::getVisibleStartTimeSeconds() const
+{
+    return static_cast<double>(scrollOffset_) / (100.0 * zoomLevel_);
+}
+
+void ArrangementViewComponent::setVisibleStartTimeSeconds(double timeSeconds)
+{
+    const int newOffset = static_cast<int>(std::llround(juce::jmax(0.0, timeSeconds) * 100.0 * zoomLevel_));
+    setScrollOffset(newOffset);
 }
 
 void ArrangementViewComponent::setVerticalScrollOffset(int offset)
@@ -195,6 +225,7 @@ void ArrangementViewComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double
     {
         setScrollOffset(static_cast<int>(newRangeStart));
         smoothScrollCurrent_ = (float)newRangeStart; // Sync for manual scroll
+        notifyVisibleStartTimeChanged();
     }
     else if (scrollBar == &verticalScrollBar_)
     {
@@ -207,9 +238,7 @@ void ArrangementViewComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double
 
 void ArrangementViewComponent::updateScrollBars()
 {
-    constexpr double kTimelineEndPadSec = 2.0;
-    double maxEndTime = processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec;
-    maxEndTime = juce::jmax(maxEndTime, 8.0);
+    const double maxEndTime = getTimelineSpanSeconds();
 
     double pixelsPerSecond = 100.0 * zoomLevel_;
     int totalContentWidth = static_cast<int>(maxEndTime * pixelsPerSecond);
@@ -223,6 +252,75 @@ void ArrangementViewComponent::updateScrollBars()
     int visibleHeight = juce::jmax(1, getHeight() - kScrollbarBreadth_);
     verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(totalTrackHeight));
     verticalScrollBar_.setCurrentRange(verticalScrollOffset_, visibleHeight);
+}
+
+void ArrangementViewComponent::notifyVisibleStartTimeChanged()
+{
+    if (onVisibleStartTimeChanged)
+        onVisibleStartTimeChanged(getVisibleStartTimeSeconds());
+}
+
+void ArrangementViewComponent::applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized)
+{
+    const int visibleWidth = juce::jmax(1, getWidth() - kScrollbarBreadth_);
+    const double normalizedSpan = thumbEndNormalized - thumbStartNormalized;
+    const double timelineSpanSeconds = getTimelineSpanSeconds();
+
+    if (timelineSpanSeconds <= 0.0 || normalizedSpan <= 1.0e-6)
+        return;
+
+    const double newTotalRange = static_cast<double>(visibleWidth) / normalizedSpan;
+    const double newContentWidth = juce::jmax(0.0, newTotalRange - static_cast<double>(visibleWidth));
+    const double newZoom = juce::jlimit(0.02, 10.0, newContentWidth / (timelineSpanSeconds * 100.0));
+
+    if (!std::isfinite(newZoom))
+        return;
+
+    setZoomLevel(newZoom);
+    userHasManuallyZoomed_ = true;
+
+    const int newScrollOffset = static_cast<int>(std::llround(thumbStartNormalized * newTotalRange));
+    setScrollOffset(newScrollOffset);
+
+    if (onUserTimelineZoomChanged)
+        onUserTimelineZoomChanged(newZoom);
+
+    notifyVisibleStartTimeChanged();
+}
+
+void ArrangementViewComponent::applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized)
+{
+    const int visibleHeight = juce::jmax(1, getHeight() - kScrollbarBreadth_);
+    const int rows = getTimelineLayoutTrackRows();
+    const double normalizedSpan = thumbEndNormalized - thumbStartNormalized;
+
+    if (rows <= 0 || normalizedSpan <= 1.0e-6)
+        return;
+
+    const double newTotalRange = static_cast<double>(visibleHeight) / normalizedSpan;
+    const double trackRegionHeight = newTotalRange - static_cast<double>(rulerHeight_ + kTrackAddButtonRegion_);
+    const int newTrackHeight = juce::jlimit(70,
+                                            300,
+                                            static_cast<int>(std::lround(trackRegionHeight / static_cast<double>(rows))));
+
+    if (newTrackHeight != processor_.getTrackHeight())
+    {
+        processor_.setTrackHeight(newTrackHeight);
+        updateScrollBars();
+        listeners_.call([newTrackHeight](Listener& l) { l.trackHeightChanged(newTrackHeight); });
+    }
+
+    const double actualTotalRange =
+        static_cast<double>(rulerHeight_ + rows * processor_.getTrackHeight() + kTrackAddButtonRegion_);
+    const int newOffset = static_cast<int>(std::lround(thumbStartNormalized * actualTotalRange));
+    setVerticalScrollOffset(newOffset);
+    listeners_.call([this](Listener& l) { l.verticalScrollChanged(verticalScrollOffset_); });
+}
+
+double ArrangementViewComponent::getTimelineSpanSeconds() const
+{
+    constexpr double kTimelineEndPadSec = 2.0;
+    return juce::jmax(processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec, 8.0);
 }
 
 int ArrangementViewComponent::getTimelineLayoutTrackRows() const

@@ -529,6 +529,26 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
         arrangementView_.setZoomLevel(z);
         suppressLinkedTimelineZoom_ = false;
     };
+
+    arrangementView_.onVisibleStartTimeChanged = [this](double visibleStartTimeSeconds) {
+        if (suppressLinkedTimelineScroll_) {
+            return;
+        }
+
+        suppressLinkedTimelineScroll_ = true;
+        pianoRoll_.setVisibleStartTimeSeconds(visibleStartTimeSeconds);
+        suppressLinkedTimelineScroll_ = false;
+    };
+
+    pianoRoll_.onVisibleStartTimeChanged = [this](double visibleStartTimeSeconds) {
+        if (suppressLinkedTimelineScroll_) {
+            return;
+        }
+
+        suppressLinkedTimelineScroll_ = true;
+        arrangementView_.setVisibleStartTimeSeconds(visibleStartTimeSeconds);
+        suppressLinkedTimelineScroll_ = false;
+    };
     
     // 璁剧疆楂樻€ц兘鎾斁澶翠綅缃簮 - 鐩存帴浠?Processor 璇诲彇锛岀粫杩?60Hz Timer 鐡堕
     pianoRoll_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
@@ -647,11 +667,13 @@ void OpenTuneAudioProcessorEditor::restorePersistedPianoRollZoomState()
     }
 
     suppressLinkedTimelineZoom_ = true;
+    suppressLinkedTimelineScroll_ = true;
     processorRef_.setZoomLevel(horizontalZoom);
     arrangementView_.setZoomLevel(horizontalZoom);
     pianoRoll_.restoreZoomState(horizontalZoom, verticalZoom);
     pianoRoll_.setVerticalScrollOffset(verticalScroll);
     suppressLinkedTimelineZoom_ = false;
+    suppressLinkedTimelineScroll_ = false;
 }
 
 void OpenTuneAudioProcessorEditor::restorePersistedWorkspaceSplitRatio()
@@ -1283,6 +1305,7 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     }
 
     pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, clipIndex));
+    pianoRoll_.setVisibleStartTimeSeconds(arrangementView_.getVisibleStartTimeSeconds());
 
     const int sr = static_cast<int>(processorRef_.getSampleRate());
     std::shared_ptr<const juce::AudioBuffer<float>> clipBuffer =
@@ -1734,6 +1757,8 @@ void OpenTuneAudioProcessorEditor::requestOriginalF0ExtractionForImport(int trac
 void OpenTuneAudioProcessorEditor::playheadPositionChangeRequested(double timeSeconds)
 {
     processorRef_.setPosition(timeSeconds);
+    arrangementView_.syncPlayheadPosition(timeSeconds);
+    pianoRoll_.syncPlayheadPosition(timeSeconds);
 }
 
 void OpenTuneAudioProcessorEditor::playPauseToggleRequested()

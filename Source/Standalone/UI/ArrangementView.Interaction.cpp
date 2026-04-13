@@ -111,7 +111,10 @@ void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
 
         const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
         if (newScrollInt != scrollOffset_)
+        {
             setScrollOffset(newScrollInt);
+            notifyVisibleStartTimeChanged();
+        }
 
         playheadOverlay_.setScrollOffset(static_cast<double>(smoothScrollCurrent_));
         return;
@@ -127,6 +130,7 @@ void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
             int visibleW = getWidth() - 8;
             setScrollOffset(scrollOffset_ + visibleW);
             smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
+            notifyVisibleStartTimeChanged();
         }
         else if (playheadVisualX < 8)
         {
@@ -137,6 +141,7 @@ void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
 
             setScrollOffset(newScroll);
             smoothScrollCurrent_ = static_cast<float>(newScroll);
+            notifyVisibleStartTimeChanged();
         }
     }
 }
@@ -207,6 +212,7 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
     processor_.setPosition(newPosSeconds);
     playheadOverlay_.setPlayheadSeconds(newPosSeconds);
     playheadOverlay_.repaint();
+    listeners_.call([newPosSeconds](Listener& l) { l.playheadPositionChangeRequested(newPosSeconds); });
     repaint();
 
     if (e.y <= rulerHeight_)
@@ -356,6 +362,7 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
         listeners_.call([this](Listener& l) { l.verticalScrollChanged(verticalScrollOffset_); });
 
         lastMousePos_ = e.getPosition();
+        notifyVisibleStartTimeChanged();
         repaint();
         return;
     }
@@ -370,6 +377,7 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
         processor_.setPosition(newPosSeconds);
         playheadOverlay_.setPlayheadSeconds(newPosSeconds);
         playheadOverlay_.repaint();
+        listeners_.call([newPosSeconds](Listener& l) { l.playheadPositionChangeRequested(newPosSeconds); });
         FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
         return;
     }
@@ -559,6 +567,7 @@ void ArrangementViewComponent::applyWheelHorizontalPan(float deltaX, float delta
         return;
 
     setScrollOffset(scrollOffset_ - static_cast<int>(scrollDelta * settings.scrollSpeed * 10.0f));
+    notifyVisibleStartTimeChanged();
 }
 
 void ArrangementViewComponent::applyWheelTrackHeightChange(float deltaY)
@@ -576,6 +585,7 @@ void ArrangementViewComponent::applyWheelTrackHeightChange(float deltaY)
     if (newHeight != currentHeight)
     {
         processor_.setTrackHeight(newHeight);
+        updateScrollBars();
         listeners_.call([newHeight](Listener& l) { l.trackHeightChanged(newHeight); });
         repaint();
     }
@@ -606,6 +616,8 @@ void ArrangementViewComponent::applyWheelTimelineZoom(float deltaY, int anchorCo
     if (onUserTimelineZoomChanged) {
         onUserTimelineZoomChanged(newZoom);
     }
+
+    notifyVisibleStartTimeChanged();
 
     FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
 }
@@ -657,7 +669,10 @@ void ArrangementViewComponent::mouseWheelMove(const juce::MouseEvent& e, const j
     }
 
     if (wheel.deltaX != 0.0f)
+    {
         setScrollOffset(scrollOffset_ - static_cast<int>(wheel.deltaX * settings.scrollSpeed * 5.0f));
+        notifyVisibleStartTimeChanged();
+    }
 }
 
 bool ArrangementViewComponent::keyPressed(const juce::KeyPress& key)

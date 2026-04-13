@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <thread>
 #include "SmallButton.h"
+#include "TimelineZoomScrollBar.h"
 #include "PianoRoll/PianoRollUndoSupport.h"
 #include "PianoRoll/PianoRollRenderer.h"
 #include "PianoRoll/PianoRollToolHandler.h"
@@ -121,6 +122,7 @@ public:
     void setShowLanes(bool shouldShow);
     void setInferenceActive(bool active);
     std::function<void(double zoomLevel)> onUserTimelineZoomChanged;
+    std::function<void(double visibleStartTimeSeconds)> onVisibleStartTimeChanged;
     void setBpm(double bpm);
     void setTimeSignature(int numerator, int denominator);
     void setTimeUnit(TimeUnit unit);
@@ -129,6 +131,8 @@ public:
     ScrollMode getScrollMode() const { return scrollMode_; }
     void setScrollOffset(int offset);
     int getScrollOffset() const { return scrollOffset_; }
+    double getVisibleStartTimeSeconds() const;
+    void setVisibleStartTimeSeconds(double timeSeconds);
     void setHopSize(int hopSize) { hopSize_ = hopSize; }
     void setF0SampleRate(double rate) { f0SampleRate_ = rate; }
     void setHasUserAudio(bool hasAudio);
@@ -187,6 +191,7 @@ public:
     void setPlayheadPositionSource(std::weak_ptr<std::atomic<double>> source) {
         positionSource_ = source;
     }
+    void syncPlayheadPosition(double timeSeconds);
 
     void fitToScreen();
 
@@ -226,8 +231,8 @@ private:
 
     bool applyRetuneSpeedToSelectedNotes(float speed);
 
-    juce::ScrollBar horizontalScrollBar_{ false };
-    juce::ScrollBar verticalScrollBar_{ true };
+    TimelineZoomScrollBar horizontalScrollBar_{ false };
+    TimelineZoomScrollBar verticalScrollBar_{ true };
     SmallButton scrollModeToggleButton_;
     SmallButton timeUnitToggleButton_;
 
@@ -247,6 +252,7 @@ private:
     void updateAutoScroll();
     void onScrollVBlankCallback(double timestampSec);
     double readPlayheadTime() const;
+    void notifyVisibleStartTimeChanged();
 
     void drawSelectedOriginalF0Curve(juce::Graphics& g, const std::vector<float>& originalF0, double offsetSeconds);
     void drawHandDrawPreview(juce::Graphics& g, double offsetSeconds);
@@ -259,6 +265,10 @@ private:
     void handleHorizontalScrollWheel(float deltaX, float deltaY);
     void handleVerticalScrollWheel(float deltaY);
     void handleHorizontalZoomWheel(const juce::MouseEvent& e, float deltaY);
+    void applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
+    void applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
+    double getTimelineSpanSeconds() const;
+    int getTimelineVisibleWidth() const noexcept;
 
     void initializeUIComponents();
     void initializeUndoSupport();
@@ -281,6 +291,7 @@ private:
     float midiToFreq(float midiNote) const;
 
     float getTotalHeight() const;
+    float getMinimumVerticalZoom() const noexcept;
     /** 与 resized() 中 reduced(12)、标尺、底边横向滚动条一致的音高网格可视高度 */
     int getNoteGridViewportHeight() const noexcept;
     

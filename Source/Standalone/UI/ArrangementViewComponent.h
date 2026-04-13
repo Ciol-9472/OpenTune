@@ -21,6 +21,7 @@
 #include "../PluginProcessor.h"
 #include "UIColors.h"
 #include "TimeConverter.h"
+#include "TimelineZoomScrollBar.h"
 #include "../Utils/UndoAction.h"
 #include "SmallButton.h"
 #include "PlayheadOverlayComponent.h"
@@ -41,6 +42,7 @@ public:
         virtual void clipTimingChanged(int trackId, int clipIndex) = 0;
         virtual void clipDoubleClicked(int /*trackId*/, int /*clipIndex*/) {}
         virtual void arrangementClipContextMenu(int /*trackId*/, int /*clipIndex*/, juce::Point<int> /*screenPos*/) {}
+        virtual void playheadPositionChangeRequested(double timeSeconds) { juce::ignoreUnused(timeSeconds); }
         // Y轴缩放回调 - 通知外部轨道高度变化（用于同步TrackPanel）
         virtual void trackHeightChanged(int newHeight) { juce::ignoreUnused(newHeight); }
         // Y轴滚动回调 - 通知外部垂直滚动偏移变化（用于同步TrackPanel）
@@ -78,10 +80,13 @@ public:
     void setPlayheadPositionSource(std::weak_ptr<std::atomic<double>> source) {
         positionSource_ = source;
     }
+    void syncPlayheadPosition(double timeSeconds);
     void setZoomLevel(double zoom);
     double getZoomLevel() const { return zoomLevel_; }
     void setScrollOffset(int pixels);
     int getScrollOffset() const { return scrollOffset_; }
+    double getVisibleStartTimeSeconds() const;
+    void setVisibleStartTimeSeconds(double timeSeconds);
     int getVerticalScrollOffset() const { return verticalScrollOffset_; }
     void setVerticalScrollOffset(int offset);
 
@@ -94,6 +99,7 @@ public:
     void setInferenceActive(bool active) { inferenceActive_ = active; }
     /** Fired after user-driven horizontal timeline zoom (wheel), for syncing other views. */
     std::function<void(double zoomLevel)> onUserTimelineZoomChanged;
+    std::function<void(double visibleStartTimeSeconds)> onVisibleStartTimeChanged;
     void fitToContent();
     void prioritizeWaveformBuildForClip(int trackId, uint64_t clipId);
     bool isWaveformCacheCompleteForClip(int trackId, uint64_t clipId) const;
@@ -133,6 +139,10 @@ private:
     void onScrollVBlankCallback(double timestampSec);
     double readPlayheadTime() const;
     void updateScrollBars();
+    void notifyVisibleStartTimeChanged();
+    void applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
+    void applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
+    double getTimelineSpanSeconds() const;
     int getTimelineLayoutTrackRows() const;
     void drawTimeRuler(juce::Graphics& g);
     void drawGridLines(juce::Graphics& g);
@@ -148,8 +158,8 @@ private:
     int lastContextTimeSigNum_{ 0 };
     int lastContextTimeSigDenom_{ 0 };
 
-    juce::ScrollBar horizontalScrollBar_{ false };
-    juce::ScrollBar verticalScrollBar_{ true };
+    TimelineZoomScrollBar horizontalScrollBar_{ false };
+    TimelineZoomScrollBar verticalScrollBar_{ true };
     juce::TextButton scrollModeToggleButton_;
     juce::TextButton timeUnitToggleButton_;
     SmallButtonLookAndFeel smallButtonLookAndFeel_;

@@ -178,6 +178,7 @@ private:
 
     Context ctx_;
     ToolId currentTool_ = ToolId::Select;
+    bool isDraggingTimelinePlayhead_ = false;
 
     juce::Point<int> dragStartPos_;
     juce::Point<float> lastDrawPoint_;

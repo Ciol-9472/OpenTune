@@ -246,6 +246,7 @@ private:
     int arrangementWorkspaceHeight_{-1};
     double arrangementWorkspaceSplitRatio_{-1.0};
     bool suppressLinkedTimelineZoom_{false};
+    bool suppressLinkedTimelineScroll_{false};
 
     // 现代布局：左右面板可折叠（用于“沉浸主画布”模式）
     bool isParameterPanelVisible_ = true;

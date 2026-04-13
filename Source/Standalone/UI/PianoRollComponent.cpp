@@ -44,6 +44,12 @@ void PianoRollComponent::initializeUIComponents() {
     verticalScrollBar_.addListener(this);
     horizontalScrollBar_.setAutoHide(false);
     verticalScrollBar_.setAutoHide(false);
+    horizontalScrollBar_.onThumbResizeRequested = [this](double thumbStartNormalized, double thumbEndNormalized) {
+        applyScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
+    };
+    verticalScrollBar_.onThumbResizeRequested = [this](double thumbStartNormalized, double thumbEndNormalized) {
+        applyVerticalScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
+    };
 
     scrollModeToggleButton_.setButtonText(scrollMode_ == ScrollMode::Continuous ? "Cont" : "Page");
     scrollModeToggleButton_.setFontHeight(11.0f);
@@ -504,6 +510,17 @@ float PianoRollComponent::yToMidi(float y) const {
 
 float PianoRollComponent::getTotalHeight() const {
     return (maxMidi_ - minMidi_) * pixelsPerSemitone_;
+}
+
+float PianoRollComponent::getMinimumVerticalZoom() const noexcept
+{
+    const float midiRange = maxMidi_ - minMidi_;
+    if (midiRange <= 0.0f)
+        return 5.0f;
+
+    const float viewportHeight = static_cast<float>(getNoteGridViewportHeight());
+    const float fitZoom = viewportHeight / midiRange;
+    return juce::jlimit(5.0f, 120.0f, fitZoom);
 }
 
 int PianoRollComponent::getNoteGridViewportHeight() const noexcept

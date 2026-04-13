@@ -79,6 +79,29 @@ void PianoRollComponent::setScrollOffset(int offset)
     }
 }
 
+double PianoRollComponent::getVisibleStartTimeSeconds() const
+{
+    return static_cast<double>(scrollOffset_) / (100.0 * zoomLevel_) + trackOffsetSeconds_ - alignmentOffsetSeconds_;
+}
+
+void PianoRollComponent::setVisibleStartTimeSeconds(double timeSeconds)
+{
+    const double relativeStart = juce::jmax(0.0, timeSeconds - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+    const int newOffset = static_cast<int>(std::llround(relativeStart * 100.0 * zoomLevel_));
+    setScrollOffset(newOffset);
+}
+
+void PianoRollComponent::syncPlayheadPosition(double timeSeconds)
+{
+    playheadOverlay_.setPlayheadSeconds(timeSeconds);
+
+    if (!isPlaying_.load(std::memory_order_relaxed))
+    {
+        playheadOverlay_.repaint();
+        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
+    }
+}
+
 double PianoRollComponent::readPlayheadTime() const
 {
     if (auto source = positionSource_.lock())
@@ -227,7 +250,10 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
 
         const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
         if (newScrollInt != scrollOffset_)
+        {
             setScrollOffset(newScrollInt);
+            notifyVisibleStartTimeChanged();
+        }
         return;
     }
 
@@ -241,6 +267,7 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
             int visibleW = getWidth() - pianoKeyWidth_;
             setScrollOffset(scrollOffset_ + visibleW);
             smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
+            notifyVisibleStartTimeChanged();
         }
         else if (playheadVisualX < pianoKeyWidth_)
         {
@@ -252,6 +279,7 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
 
             setScrollOffset(newScroll);
             smoothScrollCurrent_ = static_cast<float>(newScroll);
+            notifyVisibleStartTimeChanged();
         }
     }
 }
@@ -267,7 +295,8 @@ void PianoRollComponent::setZoomLevel(double zoom)
 
 void PianoRollComponent::setVerticalZoom(float pixelsPerSemitone)
 {
-    pixelsPerSemitone_ = juce::jlimit(5.0f, 120.0f, pixelsPerSemitone);
+    const float minZoom = getMinimumVerticalZoom();
+    pixelsPerSemitone_ = juce::jlimit(minZoom, 120.0f, pixelsPerSemitone);
 
     const float totalHeight = getTotalHeight();
     const float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
@@ -297,6 +326,101 @@ void PianoRollComponent::restoreZoomState(double horizontalZoom, float verticalZ
     userHasManuallyZoomed_ = true;
     updateScrollBars();
     requestInteractiveRepaint();
+}
+
+void PianoRollComponent::notifyVisibleStartTimeChanged()
+{
+    if (onVisibleStartTimeChanged)
+        onVisibleStartTimeChanged(getVisibleStartTimeSeconds());
+}
+
+double PianoRollComponent::getTimelineSpanSeconds() const
+{
+    constexpr double kTimelinePadSec = 2.0;
+    double maxTime = 0.0;
+
+    if (audioBuffer_)
+    {
+        maxTime = static_cast<double>(audioBuffer_->getNumSamples()) / PianoRollComponent::kAudioSampleRate;
+    }
+    else
+    {
+        const auto notes = getCurrentClipNotesCopy();
+        for (const auto& note : notes)
+        {
+            if (note.endTime > maxTime)
+                maxTime = note.endTime;
+        }
+    }
+
+    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0)
+    {
+        const int idx = processor_->getClipIndexById(currentTrackId_, currentClipId_);
+        if (idx >= 0)
+        {
+            const double clipStart = processor_->getClipStartSeconds(currentTrackId_, idx);
+            const double projEnd = processor_->getProjectTimelineEndSeconds();
+            maxTime = std::max(maxTime, std::max(0.0, projEnd - clipStart));
+        }
+    }
+
+    return std::max(maxTime + kTimelinePadSec, 1.0);
+}
+
+int PianoRollComponent::getTimelineVisibleWidth() const noexcept
+{
+    return juce::jmax(1, getWidth() - pianoKeyWidth_ - 15);
+}
+
+void PianoRollComponent::applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized)
+{
+    const int visibleWidth = getTimelineVisibleWidth();
+    const double normalizedSpan = thumbEndNormalized - thumbStartNormalized;
+    const double timelineSpanSeconds = getTimelineSpanSeconds();
+
+    if (timelineSpanSeconds <= 0.0 || normalizedSpan <= 1.0e-6)
+        return;
+
+    const double newTotalRange = static_cast<double>(visibleWidth) / normalizedSpan;
+    const double newContentWidth = juce::jmax(0.0, newTotalRange - static_cast<double>(visibleWidth));
+    const double newZoom = juce::jlimit(0.02, 10.0, newContentWidth / (timelineSpanSeconds * 100.0));
+
+    if (!std::isfinite(newZoom))
+        return;
+
+    setZoomLevel(newZoom);
+    userHasManuallyZoomed_ = true;
+
+    const int newScrollOffset = static_cast<int>(std::llround(thumbStartNormalized * newTotalRange));
+    setScrollOffset(newScrollOffset);
+
+    if (onUserTimelineZoomChanged)
+        onUserTimelineZoomChanged(newZoom);
+
+    notifyVisibleStartTimeChanged();
+}
+
+void PianoRollComponent::applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized)
+{
+    const float visibleHeight = static_cast<float>(getNoteGridViewportHeight());
+    const double normalizedSpan = thumbEndNormalized - thumbStartNormalized;
+    const float midiRange = maxMidi_ - minMidi_;
+
+    if (visibleHeight <= 0.0f || midiRange <= 0.0f || normalizedSpan <= 1.0e-6)
+        return;
+
+    const double newTotalHeight = static_cast<double>(visibleHeight) / normalizedSpan;
+    const float minZoom = getMinimumVerticalZoom();
+    const float newVerticalZoom = juce::jlimit(minZoom, 120.0f, static_cast<float>(newTotalHeight) / midiRange);
+
+    setVerticalZoom(newVerticalZoom);
+    userHasManuallyZoomed_ = true;
+
+    const float updatedVisibleHeight = static_cast<float>(getNoteGridViewportHeight());
+    const float updatedTotalHeight = getTotalHeight();
+    const float updatedRangeLimit = juce::jmax(updatedTotalHeight, updatedVisibleHeight);
+    const float newOffset = static_cast<float>(thumbStartNormalized * static_cast<double>(updatedRangeLimit));
+    setVerticalScrollOffset(newOffset);
 }
 
 void PianoRollComponent::setCurrentTool(ToolId tool)
@@ -493,6 +617,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent& e)
         const float vh = static_cast<float>(getNoteGridViewportHeight());
         float maxScroll = getTotalHeight() - vh;
         verticalScrollOffset_ = juce::jlimit(0.0f, std::max(0.0f, maxScroll), newScrollY);
+        notifyVisibleStartTimeChanged();
         requestInteractiveRepaint();
         return;
     }
@@ -531,7 +656,7 @@ void PianoRollComponent::handleVerticalZoomWheel(const juce::MouseEvent& e, floa
     float mouseMidi = yToMidi(static_cast<float>(e.y));
 
     pixelsPerSemitone_ *= zoomFactor;
-    pixelsPerSemitone_ = juce::jlimit(5.0f, 120.0f, pixelsPerSemitone_);
+    pixelsPerSemitone_ = juce::jlimit(getMinimumVerticalZoom(), 120.0f, pixelsPerSemitone_);
     userHasManuallyZoomed_ = true;
 
     float targetY = (maxMidi_ - mouseMidi) * pixelsPerSemitone_;
@@ -555,6 +680,7 @@ void PianoRollComponent::handleHorizontalScrollWheel(float deltaX, float deltaY)
     float scrollDelta = (deltaX != 0 ? deltaX : deltaY);
     int pixelDelta = static_cast<int>(scrollDelta * settings.scrollSpeed);
     setScrollOffset(scrollOffset_ - pixelDelta);
+    notifyVisibleStartTimeChanged();
 }
 
 void PianoRollComponent::handleVerticalScrollWheel(float deltaY)
@@ -595,6 +721,8 @@ void PianoRollComponent::handleHorizontalZoomWheel(const juce::MouseEvent& e, fl
     if (onUserTimelineZoomChanged) {
         onUserTimelineZoomChanged(zoomLevel_);
     }
+
+    notifyVisibleStartTimeChanged();
 }
 
 void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -659,6 +787,7 @@ void PianoRollComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double newRa
     {
         setScrollOffset(static_cast<int>(newRangeStart));
         smoothScrollCurrent_ = static_cast<float>(newRangeStart);
+        notifyVisibleStartTimeChanged();
     }
     else if (scrollBar == &verticalScrollBar_)
     {
@@ -668,49 +797,24 @@ void PianoRollComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double newRa
 
 void PianoRollComponent::updateScrollBars()
 {
-    constexpr double kTimelinePadSec = 2.0;
-    double maxTime = 0.0;
-    if (audioBuffer_)
-    {
-        maxTime = static_cast<double>(audioBuffer_->getNumSamples()) / PianoRollComponent::kAudioSampleRate;
-    }
-    else
-    {
-        const auto& notes = getCurrentClipNotes();
-        for (const auto& note : notes)
-        {
-            if (note.endTime > maxTime)
-                maxTime = note.endTime;
-        }
-    }
+    pixelsPerSemitone_ = juce::jmax(pixelsPerSemitone_, getMinimumVerticalZoom());
 
-    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0)
-    {
-        const int idx = processor_->getClipIndexById(currentTrackId_, currentClipId_);
-        if (idx >= 0)
-        {
-            const double clipStart = processor_->getClipStartSeconds(currentTrackId_, idx);
-            const double projEnd = processor_->getProjectTimelineEndSeconds();
-            const double spanToProjEnd = std::max(0.0, projEnd - clipStart);
-            maxTime = std::max(maxTime, spanToProjEnd);
-        }
-    }
-
-    maxTime += kTimelinePadSec;
-    maxTime = std::max(maxTime, 1.0);
+    const double maxTime = getTimelineSpanSeconds();
 
     double pixelsPerSecond = 100.0 * zoomLevel_;
     int totalContentWidth = static_cast<int>(maxTime * pixelsPerSecond);
-    int visibleWidth = getWidth() - pianoKeyWidth_ - 15;
-    visibleWidth = juce::jmax(1, visibleWidth);
+    int visibleWidth = getTimelineVisibleWidth();
 
     horizontalScrollBar_.setRangeLimits(0.0, totalContentWidth + visibleWidth);
     horizontalScrollBar_.setCurrentRange(scrollOffset_, visibleWidth);
 
     float totalHeight = getTotalHeight();
     int visibleHeight = getNoteGridViewportHeight();
+    verticalScrollOffset_ = juce::jlimit(0.0f,
+                                         juce::jmax(0.0f, totalHeight - static_cast<float>(visibleHeight)),
+                                         verticalScrollOffset_);
 
-    verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(totalHeight + static_cast<float>(visibleHeight)));
+    verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(juce::jmax(totalHeight, static_cast<float>(visibleHeight))));
     verticalScrollBar_.setCurrentRange(verticalScrollOffset_, visibleHeight);
 }
 
