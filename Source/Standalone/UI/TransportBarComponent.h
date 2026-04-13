@@ -51,6 +51,9 @@ public:
     DigitalTimeDisplay();
     void setTimeString(const juce::String& time);
     void paint(juce::Graphics& g) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+
+    std::function<void()> onClicked;
 
 private:
     void drawChar(juce::Graphics& g, juce::juce_wchar c, juce::Rectangle<float> area);
@@ -108,6 +111,12 @@ private:
 class TransportBarComponent : public juce::Component
 {
 public:
+    enum class TimeDisplayMode
+    {
+        Time,
+        Bars
+    };
+
     class Listener
     {
     public:
@@ -119,6 +128,7 @@ public:
         virtual void bpmChanged(double newBpm) = 0;
         virtual void scaleChanged(int rootNote, int scaleType) = 0;
         virtual void audioSettingsRequested() {}
+        virtual void timeDisplayModeChanged(TimeDisplayMode mode) { juce::ignoreUnused(mode); }
     };
 
     // Callback functions for Menu requests (File/Edit/View)
@@ -153,6 +163,9 @@ public:
     double getBpm() const;
 
     void setScale(int rootNote, int scaleType);
+    void setTimeSignature(int numerator, int denominator);
+    void setTimeDisplayMode(TimeDisplayMode mode);
+    TimeDisplayMode getTimeDisplayMode() const { return timeDisplayMode_; }
 
     void setPositionSeconds(double seconds);
     void setRenderStatusText(const juce::String& text);
@@ -170,6 +183,8 @@ private:
     void onBpmChanged();
     void onTapClicked();
     void onScaleChanged();
+    void toggleTimeDisplayMode();
+    void updateTimeDisplayText();
 
     juce::ListenerList<Listener> listeners_;
 
@@ -200,6 +215,10 @@ private:
     juce::String renderStatusText_;
     juce::Time lastTapTime_;
     std::vector<double> tapIntervals_;
+    TimeDisplayMode timeDisplayMode_ = TimeDisplayMode::Time;
+    int timeSigNum_ = 4;
+    int timeSigDenom_ = 4;
+    double lastPositionSeconds_ = 0.0;
     static const int maxTapSamples_ = 5;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransportBarComponent);

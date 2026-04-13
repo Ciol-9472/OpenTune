@@ -9,7 +9,8 @@ enum class ToolId : int
     DrawNote = 2,
     LineAnchor = 3,
     HandDraw = 4,
-    SplitNote = 5
+    Vibrato = 5,
+    SplitNote = 6
 };
 
 } // namespace OpenTune

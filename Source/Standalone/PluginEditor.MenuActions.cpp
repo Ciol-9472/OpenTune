@@ -1216,9 +1216,7 @@ void OpenTuneAudioProcessorEditor::themeChanged(ThemeId themeId)
     }
 
     topBar_.applyTheme();
-        topBar_.setParameterPanelToggleState(isParameterPanelVisible_);
     trackPanel_.applyTheme();
-    parameterPanel_.applyTheme();
 
     // 鍚屾鎾斁澶撮鑹插埌楂樻€ц兘鎾斁澶磋鐩栧眰
     pianoRoll_.setPlayheadColour(UIColors::playhead);
@@ -1227,7 +1225,6 @@ void OpenTuneAudioProcessorEditor::themeChanged(ThemeId themeId)
     menuBar_.repaint();
     topBar_.repaint();
     trackPanel_.repaint();
-    parameterPanel_.repaint();
     arrangementView_.repaint();
     pianoRoll_.repaint();
 
@@ -1266,11 +1263,7 @@ void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
     // 鍒锋柊椤堕儴宸ュ叿鏍?
     transportBar_.refreshLocalizedText();
     topBar_.refreshLocalizedText();
-    
-    // 鍒锋柊鍙傛暟闈㈡澘
-    parameterPanel_.refreshLocalizedText();
-    
-    // 鍒锋柊鏁翠釜鐣岄潰
+
     repaint();
 }
 
@@ -1325,7 +1318,6 @@ void OpenTuneAudioProcessorEditor::syncUiAfterProjectLoad()
     syncPianoRollFromClipSelection(activeTrack, clipIndex);
     restorePersistedPianoRollZoomState();
 
-    syncParameterPanelFromSelection();
     menuBar_.menuItemsChanged();
     refreshAfterUndoRedo();
 

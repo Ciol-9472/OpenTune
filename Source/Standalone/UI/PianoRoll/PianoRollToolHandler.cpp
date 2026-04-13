@@ -41,6 +41,12 @@ void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
         return;
     }
 
+    if (currentTool_ == ToolId::Vibrato)
+    {
+        handleVibratoToolMouseMove(e);
+        return;
+    }
+
     if (currentTool_ == ToolId::Select || currentTool_ == ToolId::DrawNote) {
         const int edgeThreshold = 6;
         const double offsetSeconds = ctx_.getTrackOffsetSeconds();
@@ -174,6 +180,10 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
             AppLogger::debug("[PianoRollToolHandler] mouseDown: handling LineAnchor tool");
             handleLineAnchorMouseDown(e);
             break;
+        case ToolId::Vibrato:
+            AppLogger::debug("[PianoRollToolHandler] mouseDown: handling Vibrato tool");
+            handleVibratoToolMouseDown(e);
+            break;
         case ToolId::SplitNote:
             AppLogger::debug("[PianoRollToolHandler] mouseDown: handling SplitNote tool");
             handleSplitNoteTool(e);
@@ -223,6 +233,9 @@ void PianoRollToolHandler::mouseDrag(const juce::MouseEvent& e)
         case ToolId::LineAnchor:
             handleLineAnchorMouseDrag(e);
             break;
+        case ToolId::Vibrato:
+            handleVibratoToolMouseDrag(e);
+            break;
         default:
             break;
     }
@@ -257,6 +270,9 @@ void PianoRollToolHandler::mouseUp(const juce::MouseEvent& e)
         case ToolId::LineAnchor:
             AppLogger::debug("[PianoRollToolHandler] mouseUp: handling LineAnchor tool");
             handleLineAnchorMouseUp(e);
+            break;
+        case ToolId::Vibrato:
+            handleVibratoToolMouseUp(e);
             break;
         default:
             ctx_.getState().noteDrag.draggedNote = nullptr;
@@ -324,12 +340,18 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
         }
 
         if (key.getTextCharacter() == '5') {
+            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Vibrato tool");
+            ctx_.setCurrentTool(ToolId::Vibrato);
+            return true;
+        }
+
+        if (key.getTextCharacter() == '6') {
             AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to SplitNote tool");
             ctx_.setCurrentTool(ToolId::SplitNote);
             return true;
         }
 
-        if (key.getTextCharacter() == '6') {
+        if (key.getTextCharacter() == '7') {
             AppLogger::debug("[PianoRollToolHandler] keyPressed: AutoTune requested");
             ctx_.notifyAutoTuneRequested();
             return true;

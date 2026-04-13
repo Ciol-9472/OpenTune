@@ -32,7 +32,6 @@
 #include <functional>
 #include <cstdint>
 #include <thread>
-#include "SmallButton.h"
 #include "TimelineZoomScrollBar.h"
 #include "PianoRoll/PianoRollUndoSupport.h"
 #include "PianoRoll/PianoRollRenderer.h"
@@ -82,12 +81,6 @@ public:
         Bars
     };
 
-    enum class ScrollMode
-    {
-        Page,
-        Continuous
-    };
-
     PianoRollComponent();
     ~PianoRollComponent() override;
 
@@ -129,11 +122,10 @@ public:
     void setTimeSignature(int numerator, int denominator);
     void setTimeUnit(TimeUnit unit);
     TimeUnit getTimeUnit() const { return timeUnit_; }
-    void setScrollMode(ScrollMode mode) { scrollMode_ = mode; }
-    ScrollMode getScrollMode() const { return scrollMode_; }
     void setScrollOffset(int offset);
     int getScrollOffset() const { return scrollOffset_; }
     double getVisibleStartTimeSeconds() const;
+    double getVisibleDurationSeconds() const;
     void setVisibleStartTimeSeconds(double timeSeconds);
     void setHopSize(int hopSize) { hopSize_ = hopSize; }
     void setF0SampleRate(double rate) { f0SampleRate_ = rate; }
@@ -235,13 +227,12 @@ private:
 
     TimelineZoomScrollBar horizontalScrollBar_{ false };
     TimelineZoomScrollBar verticalScrollBar_{ true };
-    SmallButton scrollModeToggleButton_;
-    SmallButton timeUnitToggleButton_;
     std::unique_ptr<PianoRollToolIconButton> autoTuneToolButton_;
     std::unique_ptr<PianoRollToolIconButton> selectToolButton_;
     std::unique_ptr<PianoRollToolIconButton> drawNoteToolButton_;
     std::unique_ptr<PianoRollToolIconButton> lineAnchorToolButton_;
     std::unique_ptr<PianoRollToolIconButton> handDrawToolButton_;
+    std::unique_ptr<PianoRollToolIconButton> vibratoToolButton_;
     std::unique_ptr<PianoRollToolIconButton> splitNoteToolButton_;
     juce::String hoveredToolName_;
     ToolId hoveredToolId_ = ToolId::Select;
@@ -281,6 +272,7 @@ private:
     void applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
     void applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
     double getTimelineSpanSeconds() const;
+    double getMinimumHorizontalZoomLevel() const;
     int getTimelineVisibleWidth() const noexcept;
 
     void initializeUIComponents();
@@ -361,7 +353,6 @@ private:
     double zoomLevel_ = 1.0;
     int scrollOffset_ = 0;
     float verticalScrollOffset_ = 0.0f;
-    ScrollMode scrollMode_ = ScrollMode::Continuous;
     std::atomic<bool> isPlaying_{false};
 
     float smoothScrollCurrent_{0.0f};
@@ -420,6 +411,8 @@ private:
     bool isRendering_ = false;
     
     std::atomic<bool> correctionInFlight_{false};
+    /** When true, correction worker completion does not auto-commit undo (vibrato tool drag commits on mouse up). */
+    bool vibratoToolCorrectionCommitSuppressed_ = false;
 
     juce::Colour currentTrackColor_ = juce::Colours::white;
     juce::String currentTrackName_;
@@ -449,6 +442,17 @@ private:
     
     enum class VibratoParam { Depth, Rate };
     bool applyVibratoParameterToSelection(VibratoParam param, float value);
+
+    void enqueueVibratoCorrectionForTimeSpan(
+        VibratoParam primaryParam,
+        float primaryValue,
+        double dirtyStartTime,
+        double dirtyEndTime);
+
+    void beginVibratoToolUndo(const juce::String& description);
+    void commitVibratoToolUndo();
+    /** Live update during vibrato tool drag; expects undo group opened when first applied. */
+    void applyVibratoToolLiveOnNote(Note* note, bool adjustRate, float absoluteValue);
     
     std::vector<Note>& getCurrentClipNotes();
     std::vector<Note> getCurrentClipNotesCopy() const;
@@ -464,6 +468,7 @@ private:
     static constexpr int rulerHeight_ = 30;
     static constexpr int timelineExtendedHitArea_ = 20;
     static constexpr int dragThreshold_ = 5;
+    juce::Rectangle<int> pianoKeyFooterBounds_;
     
     bool hasUserAudio_ = false;
 

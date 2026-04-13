@@ -106,6 +106,11 @@ void PianoRollToolHandler::handleDeleteKey()
 void PianoRollToolHandler::cancelDrag()
 {
     AppLogger::debug("[PianoRollToolHandler] cancelDrag: canceling all drag operations");
+    auto& vtd = ctx_.getState().vibratoToolDrag;
+    if (vtd.undoOpen && ctx_.vibratoToolCommitUndo)
+        ctx_.vibratoToolCommitUndo();
+    vtd.clear();
+
     ctx_.getState().selection.isSelectingArea = false;
     ctx_.getState().selection.marqueeAdditive = false;
     ctx_.getState().selection.marqueeBaseSelected.clear();

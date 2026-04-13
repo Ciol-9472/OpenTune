@@ -51,33 +51,7 @@ void ArrangementViewComponent::onHeartbeatTick()
 
 void ArrangementViewComponent::updateAutoScroll()
 {
-    if (!isPlaying_.load(std::memory_order_relaxed))
-        return;
-
-    const double playheadTime = readPlayheadTime();
-
-    if (scrollMode_ == ScrollMode::Page)
-    {
-        double pixelsPerSecond = 100.0 * zoomLevel_;
-        int playheadVisualX = static_cast<int>(playheadTime * pixelsPerSecond) - scrollOffset_ + 8;
-
-        if (playheadVisualX >= getWidth())
-        {
-            int visibleW = getWidth() - 8;
-            setScrollOffset(scrollOffset_ + visibleW);
-            smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
-        }
-        else if (playheadVisualX < 8)
-        {
-            int absX = static_cast<int>(playheadTime * pixelsPerSecond);
-            int visibleW = getWidth() - 8;
-            int pageIndex = absX / visibleW;
-            int newScroll = pageIndex * visibleW;
-
-            setScrollOffset(newScroll);
-            smoothScrollCurrent_ = static_cast<float>(newScroll);
-        }
-    }
+    // Page auto-scroll mode has been removed; playback uses continuous follow logic in onScrollVBlankCallback.
 }
 
 void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
@@ -90,60 +64,31 @@ void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
     const double playheadTime = readPlayheadTime();
     playheadOverlay_.setPlayheadSeconds(playheadTime);
 
-    if (scrollMode_ == ScrollMode::Continuous)
+    const double pixelsPerSecond = 100.0 * zoomLevel_;
+    const float playheadAbsX = static_cast<float>(playheadTime * pixelsPerSecond);
+
+    float targetScroll = playheadAbsX + 8.0f - (getWidth() / 2.0f);
+    if (targetScroll < 0.0f)
+        targetScroll = 0.0f;
+
+    const float diff = targetScroll - smoothScrollCurrent_;
+    if (std::abs(diff) < 1.0f)
     {
-        const double pixelsPerSecond = 100.0 * zoomLevel_;
-        const float playheadAbsX = static_cast<float>(playheadTime * pixelsPerSecond);
-
-        float targetScroll = playheadAbsX + 8.0f - (getWidth() / 2.0f);
-        if (targetScroll < 0.0f)
-            targetScroll = 0.0f;
-
-        const float diff = targetScroll - smoothScrollCurrent_;
-        if (std::abs(diff) < 1.0f)
-        {
-            smoothScrollCurrent_ = targetScroll;
-        }
-        else
-        {
-            smoothScrollCurrent_ += diff * 0.1f;
-        }
-
-        const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
-        if (newScrollInt != scrollOffset_)
-        {
-            setScrollOffset(newScrollInt);
-            notifyVisibleStartTimeChanged();
-        }
-
-        playheadOverlay_.setScrollOffset(static_cast<double>(smoothScrollCurrent_));
-        return;
+        smoothScrollCurrent_ = targetScroll;
+    }
+    else
+    {
+        smoothScrollCurrent_ += diff * 0.1f;
     }
 
-    if (scrollMode_ == ScrollMode::Page)
+    const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
+    if (newScrollInt != scrollOffset_)
     {
-        double pixelsPerSecond = 100.0 * zoomLevel_;
-        int playheadVisualX = static_cast<int>(playheadTime * pixelsPerSecond) - scrollOffset_ + 8;
-
-        if (playheadVisualX >= getWidth())
-        {
-            int visibleW = getWidth() - 8;
-            setScrollOffset(scrollOffset_ + visibleW);
-            smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
-            notifyVisibleStartTimeChanged();
-        }
-        else if (playheadVisualX < 8)
-        {
-            int absX = static_cast<int>(playheadTime * pixelsPerSecond);
-            int visibleW = getWidth() - 8;
-            int pageIndex = absX / visibleW;
-            int newScroll = pageIndex * visibleW;
-
-            setScrollOffset(newScroll);
-            smoothScrollCurrent_ = static_cast<float>(newScroll);
-            notifyVisibleStartTimeChanged();
-        }
+        setScrollOffset(newScrollInt);
+        notifyVisibleStartTimeChanged();
     }
+
+    playheadOverlay_.setScrollOffset(static_cast<double>(smoothScrollCurrent_));
 }
 
 double ArrangementViewComponent::readPlayheadTime() const
@@ -156,6 +101,8 @@ double ArrangementViewComponent::readPlayheadTime() const
 
 void ArrangementViewComponent::mouseMove(const juce::MouseEvent& e)
 {
+    lastMousePos_ = e.getPosition();
+
     if (juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))
     {
         setMouseCursor(juce::MouseCursor::DraggingHandCursor);
@@ -185,8 +132,15 @@ void ArrangementViewComponent::mouseMove(const juce::MouseEvent& e)
 void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+    lastMousePos_ = e.getPosition();
 
     if (e.mods.isPopupMenu()) {
+        const double splitRefSeconds = xToTime(e.x);
+        processor_.setPosition(splitRefSeconds);
+        playheadOverlay_.setPlayheadSeconds(splitRefSeconds);
+        playheadOverlay_.repaint();
+        listeners_.call([splitRefSeconds](Listener& l) { l.playheadPositionChangeRequested(splitRefSeconds); });
+
         auto hit = hitTestClip(e.getPosition());
         if (hit.trackId >= 0 && hit.clipIndex >= 0) {
             listeners_.call([&](Listener& l) {
@@ -373,11 +327,28 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
 
     if (isDraggingPlayhead_)
     {
-        double newPosSeconds = xToTime(e.x);
+        const int timelineRight = juce::jmax(0, getWidth() - kScrollbarBreadth_);
+        bool scrolled = false;
+
+        if (e.x < 0)
+        {
+            setScrollOffset(scrollOffset_ + e.x);
+            scrolled = true;
+        }
+        else if (e.x > timelineRight)
+        {
+            setScrollOffset(scrollOffset_ + (e.x - timelineRight));
+            scrolled = true;
+        }
+
+        const int cursorX = juce::jlimit(0, timelineRight, e.x);
+        double newPosSeconds = xToTime(cursorX);
         processor_.setPosition(newPosSeconds);
         playheadOverlay_.setPlayheadSeconds(newPosSeconds);
         playheadOverlay_.repaint();
         listeners_.call([newPosSeconds](Listener& l) { l.playheadPositionChangeRequested(newPosSeconds); });
+        if (scrolled)
+            notifyVisibleStartTimeChanged();
         FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
         return;
     }
@@ -599,7 +570,7 @@ void ArrangementViewComponent::applyWheelTimelineZoom(float deltaY, int anchorCo
     const auto& settings = ZoomSensitivityConfig::getSettings();
     double zoomFactor = 1.0 + deltaY * settings.horizontalZoomFactor * 1.7;
     zoomFactor = juce::jlimit(0.5, 1.5, zoomFactor);
-    double newZoom = juce::jlimit(0.02, 10.0, zoomLevel_ * zoomFactor);
+    double newZoom = juce::jlimit(getMinimumHorizontalZoomLevel(), 10.0, zoomLevel_ * zoomFactor);
 
     if (std::abs(newZoom - zoomLevel_) <= 0.001)
         return;
@@ -733,6 +704,16 @@ bool ArrangementViewComponent::keyPressed(const juce::KeyPress& key)
         }
 
         double splitSeconds = processor_.getPosition();
+        const auto selectedClipBounds = getClipBounds(selectedTrack_, selectedClip_);
+        if (!selectedClipBounds.isEmpty() && selectedClipBounds.contains(lastMousePos_))
+        {
+            splitSeconds = xToTime(lastMousePos_.x);
+        }
+
+        const double clipStart = processor_.getClipStartSeconds(selectedTrack_, selectedClip_);
+        const double clipEnd = clipStart + originalDuration;
+        splitSeconds = juce::jlimit(clipStart, clipEnd, splitSeconds);
+
         if (processor_.splitClipAtSeconds(selectedTrack_, selectedClip_, splitSeconds))
         {
             int newClipIndex = processor_.getSelectedClip(selectedTrack_);

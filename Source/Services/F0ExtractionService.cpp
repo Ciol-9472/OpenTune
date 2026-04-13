@@ -9,7 +9,7 @@ F0ExtractionService::F0ExtractionService(int workerCount, size_t maxQueueSize)
     : queue_(maxQueueSize)
     , maxQueueSize_(maxQueueSize)
 {
-    const int count = (workerCount <= 0) ? 2 : workerCount;
+    const int count = (workerCount <= 0) ? 1 : workerCount;
     workers_.reserve(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
         workers_.emplace_back([this]() { workerLoop(); });

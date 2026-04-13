@@ -1,5 +1,6 @@
 ﻿#include "PluginEditor.h"
 #include "Utils/UndoAction.h"
+#include <algorithm>
 #include <cmath>
 
 namespace OpenTune {
@@ -31,6 +32,7 @@ void OpenTuneAudioProcessorEditor::stopRequested()
     transportBar_.setPlaying(false);
     pianoRoll_.setIsPlaying(false);  // Notify PianoRoll to stop auto-scroll
     arrangementView_.setIsPlaying(false);  // Notify ArrangementView to stop overlay updates
+    playheadPositionChangeRequested(0.0);
 }
 
 void OpenTuneAudioProcessorEditor::loopToggled(bool enabled)
@@ -251,6 +253,80 @@ void OpenTuneAudioProcessorEditor::clipSelectionChanged(int trackId, int clipInd
     });
 }
 
+void OpenTuneAudioProcessorEditor::timeDisplayModeChanged(TransportBarComponent::TimeDisplayMode mode)
+{
+    const bool useSeconds = (mode == TransportBarComponent::TimeDisplayMode::Time);
+    arrangementView_.setTimeUnitSeconds(useSeconds);
+    pianoRoll_.setTimeUnit(useSeconds
+        ? PianoRollComponent::TimeUnit::Seconds
+        : PianoRollComponent::TimeUnit::Bars);
+}
+
+bool OpenTuneAudioProcessorEditor::requestNextPendingOriginalF0ExtractionOnTrack(int trackId)
+{
+    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS)
+        return false;
+
+    struct PendingClip
+    {
+        int index = -1;
+        double startSeconds = 0.0;
+    };
+
+    bool hasLiveActiveRequest = false;
+    const int numClips = processorRef_.getNumClips(trackId);
+    for (int idx = 0; idx < numClips; ++idx)
+    {
+        const uint64_t clipId = processorRef_.getClipId(trackId, idx);
+        const uint64_t requestKey = F0ExtractionService::makeRequestKey(clipId, trackId, idx);
+        if (!f0ExtractionService_.isActive(requestKey))
+            continue;
+
+        const auto state = processorRef_.getClipOriginalF0State(trackId, idx);
+        if (state == OriginalF0State::NotRequested)
+        {
+            // This active request belongs to stale pre-split audio range; cancel and let fresh request be re-scheduled.
+            f0ExtractionService_.cancel(requestKey);
+            continue;
+        }
+
+        hasLiveActiveRequest = true;
+    }
+
+    if (hasLiveActiveRequest)
+        return false;
+
+    std::vector<PendingClip> pending;
+    for (int idx = 0; idx < numClips; ++idx)
+    {
+        const auto state = processorRef_.getClipOriginalF0State(trackId, idx);
+        if (state != OriginalF0State::NotRequested)
+            continue;
+
+        auto curve = processorRef_.getClipPitchCurve(trackId, idx);
+        if (curve != nullptr)
+        {
+            auto snap = curve->getSnapshot();
+            if (snap != nullptr && !snap->getOriginalF0().empty())
+                continue;
+        }
+
+        pending.push_back({ idx, processorRef_.getClipStartSeconds(trackId, idx) });
+    }
+
+    if (pending.empty())
+        return false;
+
+    std::sort(pending.begin(), pending.end(), [](const PendingClip& a, const PendingClip& b) {
+        if (std::abs(a.startSeconds - b.startSeconds) <= 1.0e-6)
+            return a.index < b.index;
+        return a.startSeconds < b.startSeconds;
+    });
+
+    requestOriginalF0ExtractionForImport(trackId, pending.front().index);
+    return true;
+}
+
 void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
 {
     // Update PianoRoll if this clip is active
@@ -258,6 +334,9 @@ void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
     {
         pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, clipIndex));
     }
+
+    // Split/import aftermath: always schedule pending clips from left to right.
+    requestNextPendingOriginalF0ExtractionOnTrack(trackId);
 }
 
 // Y杞存粴鍔ㄥ悓姝ワ細ArrangementView鎴朤rackPanel婊氬姩鏃堕€氱煡鍙︿竴涓粍浠惰窡闅?

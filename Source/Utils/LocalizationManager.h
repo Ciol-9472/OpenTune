@@ -224,6 +224,7 @@ constexpr const char* kDrawNoteTool = "Draw Note Tool";
 constexpr const char* kLineAnchorTool = "Line Anchor Tool";
 constexpr const char* kHandDrawTool = "Hand Draw Tool";
 constexpr const char* kSplitNoteTool = "Split Note Tool";
+constexpr const char* kVibratoTool = "Vibrato Tool";
 
 constexpr const char* kPianoRollHintSelect1 = "PR hint: select click";
 constexpr const char* kPianoRollHintSelect2 = "PR hint: select modifiers";
@@ -240,6 +241,9 @@ constexpr const char* kPianoRollHintAnchor5 = "PR hint: anchor key";
 constexpr const char* kPianoRollHintHandDraw1 = "PR hint: hand drag";
 constexpr const char* kPianoRollHintHandDraw2 = "PR hint: hand note bound";
 constexpr const char* kPianoRollHintHandDraw3 = "PR hint: hand key";
+constexpr const char* kPianoRollHintVibrato1 = "PR hint: vibrato edges";
+constexpr const char* kPianoRollHintVibrato2 = "PR hint: vibrato drag";
+constexpr const char* kPianoRollHintVibrato3 = "PR hint: vibrato key";
 constexpr const char* kPianoRollHintSplit1 = "PR hint: split click";
 constexpr const char* kPianoRollHintSplit2 = "PR hint: split key";
 constexpr const char* kPianoRollHintAuto1 = "PR hint: auto click";
@@ -390,6 +394,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kLineAnchorTool, "Line Anchor Tool", "锚点工具", "ラインアンカーツール", "Инструмент якоря", "Herram. ancla" },
         { Keys::kHandDrawTool, "Hand Draw Tool", "手绘工具", "手描きツール", "Рисование", "Herram. libre" },
         { Keys::kSplitNoteTool, "Split Note Tool", "分割音符工具", "ノート分割ツール", "Инструмент разделения", "Herram. dividir" },
+        { Keys::kVibratoTool, "Vibrato Tool", "颤音工具", "ビブラートツール", "Вибрато", "Herram. vibrato" },
 
         { Keys::kPianoRollHintSelect1, "Click a note to select; drag on empty area to box-select.", "单击音符可选中；在空白处拖拽可框选。", "ノートをクリックで選択；空き領域をドラッグで範囲選択。", "Клик по ноте — выбор; рамка на пустом месте.", "Clic en nota para seleccionar; arrastra en vacío para marco." },
         { Keys::kPianoRollHintSelect2, "Ctrl/Cmd+click toggles; Shift+click extends selection between notes.", "Ctrl/Cmd+单击反选；Shift+单击在音符间扩展选区。", "Ctrl/Cmd+クリックで切替；Shift+クリックで範囲拡張。", "Ctrl/Cmd — переключить; Shift — диапазон.", "Ctrl/Cmd alterna; Shift extiende la selección." },
@@ -406,10 +411,13 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kPianoRollHintHandDraw1, "Click-drag on the roll to hand-paint pitch (inside notes).", "在卷帘上按住拖拽手绘音高（限制在音符范围内）。", "ドラッグで手描きピッチ（ノート内のみ有効）。", "Рисуйте перетаскиванием (внутри нот).", "Arrastra para pintar tono (solo dentro de notas)." },
         { Keys::kPianoRollHintHandDraw2, "Strokes outside any note are discarded automatically.", "音符外的笔划会被自动丢弃。", "ノート外のストロークは破棄されます。", "Вне нот штрихи отбрасываются.", "Fuera de notas el trazo se descarta." },
         { Keys::kPianoRollHintHandDraw3, "Shortcut [4] Hand Draw tool.", "快捷键 [4] 手绘工具。", "[4] 手描きツール。", "[4] — ручное рисование.", "Atajo [4] dibujo libre." },
+        { Keys::kPianoRollHintVibrato1, "Hover note left/right edges for rate; top/bottom for depth.", "音符左右边缘调整速率；上下边缘调整深度。", "左右端で速度、上下端で深さ。", "Края слева/справа — скорость; сверху/снизу — глубина.", "Bordes izq./der.: velocidad; arriba/abajo: profundidad." },
+        { Keys::kPianoRollHintVibrato2, "Drag horizontally to change vibrato rate; vertically to change depth.", "水平拖动改变颤音速率，垂直拖动改变深度。", "横ドラッグで速度、縦で深さ。", "Горизонтально — скорость вибрато; вертикально — глубина.", "Arrastra en horizontal: velocidad; vertical: profundidad." },
+        { Keys::kPianoRollHintVibrato3, "Shortcut [5] Vibrato tool.", "快捷键 [5] 颤音工具。", "[5] ビブラート。", "[5] — вибрато.", "Atajo [5] vibrato." },
         { Keys::kPianoRollHintSplit1, "Click a note at the mouse position to split it into two.", "在鼠标位置单击音符可将其一分为二。", "マウス位置でノートをクリックして分割。", "Клик по ноте под курсором — разрез.", "Clic en la nota bajo el cursor para partirla." },
-        { Keys::kPianoRollHintSplit2, "Shortcut [5] Split Note tool.", "快捷键 [5] 分割音符工具。", "[5] ノート分割。", "[5] — разрезать.", "Atajo [5] dividir nota." },
+        { Keys::kPianoRollHintSplit2, "Shortcut [6] Split Note tool.", "快捷键 [6] 分割音符工具。", "[6] ノート分割。", "[6] — разрезать.", "Atajo [6] dividir nota." },
         { Keys::kPianoRollHintAuto1, "Click to run Auto note generation for the current F0 range/selection.", "单击可根据当前 F0 与选区自动生成音符。", "クリックでF0範囲から自動ノート生成。", "Клик — авто-ноты по F0/выделению.", "Clic: generar notas automáticas según F0/selección." },
-        { Keys::kPianoRollHintAuto2, "Right-click AUTO to open options; shortcut [6] when the piano roll has keyboard focus.", "右键点击 AUTO 可打开参数对话框；钢琴窗拥有键盘焦点时快捷键 [6]。", "AUTO を右クリックでオプションを開く。ピアノロールにフォーカスがあるとき [6]。", "ПКМ по AUTO открывает параметры; при фокусе ролла — [6].", "Clic derecho en AUTO abre opciones; con foco en el piano roll, atajo [6]." },
+        { Keys::kPianoRollHintAuto2, "Right-click AUTO to open options; shortcut [7] when the piano roll has keyboard focus.", "右键点击 AUTO 可打开参数对话框；钢琴窗拥有键盘焦点时快捷键 [7]。", "AUTO を右クリックでオプションを開く。ピアノロールにフォーカスがあるとき [7]。", "ПКМ по AUTO открывает параметры; при фокусе ролла — [7].", "Clic derecho en AUTO abre opciones; con foco en el piano roll, atajo [7]." },
     };
     
     for (const auto& t : translations)

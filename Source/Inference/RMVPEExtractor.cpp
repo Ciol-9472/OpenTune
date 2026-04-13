@@ -418,11 +418,15 @@ std::vector<float> RMVPEExtractor::extractF0(
     inputTensors.push_back(std::move(waveformTensor));
     inputTensors.push_back(std::move(thresholdTensor));
 
-    auto outputTensors = session_->Run(
-        Ort::RunOptions{nullptr},
-        inputNames, inputTensors.data(), 2,
-        outputNames, 2
-    );
+    std::vector<Ort::Value> outputTensors;
+    {
+        std::lock_guard<std::mutex> lock(inferenceRunMutex_);
+        outputTensors = session_->Run(
+            Ort::RunOptions{nullptr},
+            inputNames, inputTensors.data(), 2,
+            outputNames, 2
+        );
+    }
 
     // Step 5: Extract F0 and UV from model output
     const float* f0Data = outputTensors[0].GetTensorData<float>();

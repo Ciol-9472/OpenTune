@@ -237,6 +237,18 @@ public:
         return path;
     }
 
+    /** Continuous horizontal wave for vibrato tool (24×24 viewBox). */
+    static juce::Path getVibratoIcon() {
+        juce::Path path;
+        const float y0 = 12.0f;
+        const float amp = 3.25f;
+        path.startNewSubPath(2.0f, y0);
+        path.cubicTo(5.0f, y0 - amp, 7.0f, y0 + amp, 10.0f, y0);
+        path.cubicTo(13.0f, y0 - amp, 15.0f, y0 + amp, 18.0f, y0);
+        path.cubicTo(20.0f, y0 - amp, 21.0f, y0 + amp, 22.0f, y0);
+        return path;
+    }
+
     static juce::Path getHandDrawIcon() {
         juce::Path path;
         path.startNewSubPath(2.0f, 15.0f);

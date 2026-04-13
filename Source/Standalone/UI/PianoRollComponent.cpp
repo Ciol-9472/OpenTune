@@ -158,34 +158,6 @@ void PianoRollComponent::initializeUIComponents() {
         applyVerticalScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
     };
 
-    scrollModeToggleButton_.setButtonText(scrollMode_ == ScrollMode::Continuous ? "Cont" : "Page");
-    scrollModeToggleButton_.setFontHeight(11.0f);
-    scrollModeToggleButton_.onClick = [this] {
-        if (scrollMode_ == ScrollMode::Page) {
-            scrollMode_ = ScrollMode::Continuous;
-            scrollModeToggleButton_.setButtonText("Cont");
-        } else {
-            scrollMode_ = ScrollMode::Page;
-            scrollModeToggleButton_.setButtonText("Page");
-        }
-        updateAutoScroll();
-    };
-    addAndMakeVisible(scrollModeToggleButton_);
-
-    timeUnitToggleButton_.setButtonText("Time");
-    timeUnitToggleButton_.setFontHeight(11.0f);
-    timeUnitToggleButton_.onClick = [this] {
-        if (timeUnit_ == TimeUnit::Seconds) {
-            timeUnit_ = TimeUnit::Bars;
-            timeUnitToggleButton_.setButtonText("BPM");
-        } else {
-            timeUnit_ = TimeUnit::Seconds;
-            timeUnitToggleButton_.setButtonText("Time");
-        }
-        repaint();
-    };
-    addAndMakeVisible(timeUnitToggleButton_);
-
     initializeToolButtons();
 
     addAndMakeVisible(playheadOverlay_);
@@ -205,6 +177,7 @@ void PianoRollComponent::initializeToolButtons()
     drawNoteToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::DrawNote);
     lineAnchorToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::LineAnchor);
     handDrawToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::HandDraw);
+    vibratoToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::Vibrato);
     splitNoteToolButton_ = std::make_unique<PianoRollToolIconButton>(ToolId::SplitNote);
 
     autoTuneToolButton_->setTextLabel("AUTO");
@@ -212,6 +185,7 @@ void PianoRollComponent::initializeToolButtons()
     drawNoteToolButton_->setIcon(ToolbarIcons::getDrawNoteIcon(), false);
     lineAnchorToolButton_->setIcon(ToolbarIcons::getLineAnchorIcon(), false);
     handDrawToolButton_->setIcon(ToolbarIcons::getHandDrawIcon(), false);
+    vibratoToolButton_->setIcon(ToolbarIcons::getVibratoIcon(), false);
     splitNoteToolButton_->setIcon(ToolbarIcons::getCutIcon(), false);
 
     const int radioGroup = 2201;
@@ -220,6 +194,7 @@ void PianoRollComponent::initializeToolButtons()
     drawNoteToolButton_->setRadioGroupId(radioGroup);
     lineAnchorToolButton_->setRadioGroupId(radioGroup);
     handDrawToolButton_->setRadioGroupId(radioGroup);
+    vibratoToolButton_->setRadioGroupId(radioGroup);
     splitNoteToolButton_->setRadioGroupId(radioGroup);
 
     autoTuneToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::AutoTune); };
@@ -227,6 +202,7 @@ void PianoRollComponent::initializeToolButtons()
     drawNoteToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::DrawNote); };
     lineAnchorToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::LineAnchor); };
     handDrawToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::HandDraw); };
+    vibratoToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::Vibrato); };
     splitNoteToolButton_->onClick = [this] { handleToolButtonClicked(ToolId::SplitNote); };
     autoTuneToolButton_->onRightClick = [this](ToolId) {
         listeners_.call([](Listener& l) { l.autoTuneOptionsRequested(); });
@@ -246,6 +222,7 @@ void PianoRollComponent::initializeToolButtons()
     wireHoverCallbacks(drawNoteToolButton_.get());
     wireHoverCallbacks(lineAnchorToolButton_.get());
     wireHoverCallbacks(handDrawToolButton_.get());
+    wireHoverCallbacks(vibratoToolButton_.get());
     wireHoverCallbacks(splitNoteToolButton_.get());
 
     addAndMakeVisible(*autoTuneToolButton_);
@@ -253,6 +230,7 @@ void PianoRollComponent::initializeToolButtons()
     addAndMakeVisible(*drawNoteToolButton_);
     addAndMakeVisible(*lineAnchorToolButton_);
     addAndMakeVisible(*handDrawToolButton_);
+    addAndMakeVisible(*vibratoToolButton_);
     addAndMakeVisible(*splitNoteToolButton_);
 
     refreshToolButtonTooltips();
@@ -262,7 +240,7 @@ void PianoRollComponent::initializeToolButtons()
 void PianoRollComponent::layoutToolButtons()
 {
     if (!autoTuneToolButton_ || !selectToolButton_ || !drawNoteToolButton_
-        || !lineAnchorToolButton_ || !handDrawToolButton_ || !splitNoteToolButton_)
+        || !lineAnchorToolButton_ || !handDrawToolButton_ || !vibratoToolButton_ || !splitNoteToolButton_)
     {
         return;
     }
@@ -280,10 +258,10 @@ void PianoRollComponent::layoutToolButtons()
 
     const int x0 = contentBounds.getX() + pianoKeyWidth_ + juce::roundToInt(8.0f * componentScale);
     const int y = contentBounds.getY() + juce::roundToInt(4.0f * componentScale);
-    const int rightLimit = juce::jmax(x0, timeUnitToggleButton_.getX() - juce::roundToInt(8.0f * componentScale));
+    const int rightLimit = juce::jmax(x0, contentBounds.getRight() - juce::roundToInt(8.0f * componentScale));
 
     auto computeTotalWidth = [](int iconSize, int spacing, int autoWidth) {
-        return 5 * iconSize + autoWidth + 5 * spacing;
+        return 6 * iconSize + autoWidth + 6 * spacing;
     };
 
     int totalWidth = computeTotalWidth(buttonSize, gap, autoButtonWidth);
@@ -306,6 +284,8 @@ void PianoRollComponent::layoutToolButtons()
     x += buttonSize + gap;
     handDrawToolButton_->setBounds(x, y, buttonSize, buttonSize);
     x += buttonSize + gap;
+    vibratoToolButton_->setBounds(x, y, buttonSize, buttonSize);
+    x += buttonSize + gap;
     splitNoteToolButton_->setBounds(x, y, buttonSize, buttonSize);
     x += buttonSize + gap;
     autoTuneToolButton_->setBounds(x, y, autoButtonWidth, buttonSize);
@@ -317,6 +297,7 @@ void PianoRollComponent::layoutToolButtons()
             drawNoteToolButton_.get(),
             lineAnchorToolButton_.get(),
             handDrawToolButton_.get(),
+            vibratoToolButton_.get(),
             splitNoteToolButton_.get(),
             autoTuneToolButton_.get()
         };
@@ -335,7 +316,7 @@ void PianoRollComponent::layoutToolButtons()
 void PianoRollComponent::updateToolButtonStates()
 {
     if (!autoTuneToolButton_ || !selectToolButton_ || !drawNoteToolButton_
-        || !lineAnchorToolButton_ || !handDrawToolButton_ || !splitNoteToolButton_)
+        || !lineAnchorToolButton_ || !handDrawToolButton_ || !vibratoToolButton_ || !splitNoteToolButton_)
     {
         return;
     }
@@ -345,6 +326,7 @@ void PianoRollComponent::updateToolButtonStates()
     drawNoteToolButton_->setToggleState(currentTool_ == ToolId::DrawNote, juce::dontSendNotification);
     lineAnchorToolButton_->setToggleState(currentTool_ == ToolId::LineAnchor, juce::dontSendNotification);
     handDrawToolButton_->setToggleState(currentTool_ == ToolId::HandDraw, juce::dontSendNotification);
+    vibratoToolButton_->setToggleState(currentTool_ == ToolId::Vibrato, juce::dontSendNotification);
     splitNoteToolButton_->setToggleState(currentTool_ == ToolId::SplitNote, juce::dontSendNotification);
 }
 
@@ -357,6 +339,7 @@ juce::String PianoRollComponent::getToolDisplayName(ToolId tool) const
         case ToolId::DrawNote: return LOC(kDrawNotes);
         case ToolId::LineAnchor: return LOC(kLineAnchor);
         case ToolId::HandDraw: return LOC(kHandDraw);
+        case ToolId::Vibrato: return LOC(kVibratoTool);
         case ToolId::SplitNote: return LOC(kSplitNote);
         default: return {};
     }
@@ -374,6 +357,8 @@ void PianoRollComponent::refreshToolButtonTooltips()
         lineAnchorToolButton_->setTooltip(getToolDisplayName(ToolId::LineAnchor));
     if (handDrawToolButton_)
         handDrawToolButton_->setTooltip(getToolDisplayName(ToolId::HandDraw));
+    if (vibratoToolButton_)
+        vibratoToolButton_->setTooltip(getToolDisplayName(ToolId::Vibrato));
     if (splitNoteToolButton_)
         splitNoteToolButton_->setTooltip(getToolDisplayName(ToolId::SplitNote));
 }
@@ -596,6 +581,23 @@ PianoRollToolHandler::Context PianoRollComponent::buildToolHandlerContext() {
     toolCtx.setPitchPreview = [this](bool active, float hz) {
         if (processor_ != nullptr) processor_->setPitchPreview(active, hz);
     };
+    toolCtx.getNoteScreenBounds = [this](const Note& note, int& x1, int& x2, float& yOut, float& hOut) -> bool {
+        const float ap = note.getAdjustedPitch();
+        if (ap <= 0.0f)
+            return false;
+        const float midi = freqToMidi(ap);
+        const float y = midiToY(midi) - pixelsPerSemitone_ * 0.5f;
+        yOut = y;
+        hOut = pixelsPerSemitone_;
+        x1 = timeToX(note.startTime + trackOffsetSeconds_);
+        x2 = timeToX(note.endTime + trackOffsetSeconds_);
+        return true;
+    };
+    toolCtx.vibratoToolBeginUndo = [this](const juce::String& name) { beginVibratoToolUndo(name); };
+    toolCtx.vibratoToolCommitUndo = [this]() { commitVibratoToolUndo(); };
+    toolCtx.vibratoToolApplyLive = [this](Note* note, bool adjustRate, float value) {
+        applyVibratoToolLiveOnNote(note, adjustRate, value);
+    };
     return toolCtx;
 }
 
@@ -636,22 +638,13 @@ void PianoRollComponent::languageChanged(Language newLanguage)
 void PianoRollComponent::resized() {
     auto bounds = getLocalBounds().reduced(12);
 
-    // Reserve space for scrollbars
-    horizontalScrollBar_.setBounds(bounds.removeFromBottom(15));
+    // Reserve space for scrollbars (timeline bar does not cover piano-key area).
+    auto bottomBarArea = bounds.removeFromBottom(15);
+    pianoKeyFooterBounds_ = bottomBarArea.removeFromLeft(pianoKeyWidth_);
+    horizontalScrollBar_.setBounds(bottomBarArea);
     verticalScrollBar_.setBounds(bounds.removeFromRight(15));
 
     updateScrollBars();
-
-    // Position toggle buttons in top right of ruler
-    int btnW = 50;
-    int btnH = 20;
-    int spacing = 5;
-    int currentX = bounds.getRight() - spacing - btnW;
-    const int buttonY = bounds.getY() + 5;
-    
-    scrollModeToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
-    currentX -= (btnW + spacing);
-    timeUnitToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
     layoutToolButtons();
 
     playheadOverlay_.setBounds(getLocalBounds());
@@ -786,6 +779,10 @@ void PianoRollComponent::fitToScreen() {
         return;
     }
 
+    const double preservedRelativeStartSeconds = juce::jmax(
+        0.0,
+        getVisibleStartTimeSeconds() - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+
     // 1. Vertical Fit: Show C1 to C8 (minMidi_ to maxMidi_)
     // Total range: maxMidi_ - minMidi_
     // Available height: getHeight()
@@ -821,7 +818,7 @@ void PianoRollComponent::fitToScreen() {
     }
 
     if (hasUserAudio_ && audioBuffer_ && PianoRollComponent::kAudioSampleRate > 0) {
-        int newScroll = (int) std::llround(trackOffsetSeconds_ * 100.0 * zoomLevel_);
+        const int newScroll = static_cast<int>(std::llround(preservedRelativeStartSeconds * 100.0 * zoomLevel_));
         setScrollOffset(newScroll);
     } else {
         setScrollOffset(0);

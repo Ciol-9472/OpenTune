@@ -327,8 +327,6 @@ target_sources(OpenTune
         Source/Standalone/UI/AuroraLookAndFeel.cpp
         Source/Standalone/UI/ToolIds.h
         Source/Standalone/UI/ToolbarIcons.h
-        Source/Standalone/UI/ParameterPanel.cpp
-        Source/Standalone/UI/ParameterPanel.h
         Source/Standalone/UI/TimelineComponent.cpp
         Source/Standalone/UI/TimelineComponent.h
         Source/Standalone/UI/PianoRollComponent.cpp
@@ -343,6 +341,7 @@ target_sources(OpenTune
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Anchor.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Draw.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Select.cpp
+        Source/Standalone/UI/PianoRoll/PianoRollToolHandler.Vibrato.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.cpp
         Source/Standalone/UI/PianoRoll/PianoRollToolHandler.h
         Source/Standalone/UI/PianoRoll/PianoRollCorrectionWorker.cpp

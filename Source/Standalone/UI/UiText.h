@@ -26,9 +26,14 @@ inline juce::String pianoRollToolHandDraw()
     return LOC(kHandDrawTool) + "\t[4]";
 }
 
+inline juce::String pianoRollToolVibrato()
+{
+    return LOC(kVibratoTool) + "\t[5]";
+}
+
 inline juce::String pianoRollToolSplitNote()
 {
-    return LOC(kSplitNoteTool) + "\t[5]";
+    return LOC(kSplitNoteTool) + "\t[6]";
 }
 
 } // namespace UiText

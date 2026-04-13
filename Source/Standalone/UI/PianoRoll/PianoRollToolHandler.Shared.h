@@ -157,5 +157,77 @@ bool pickBestNoteEdgeHit(
     return outNote != nullptr;
 }
 
+template<typename GetRectFn>
+bool pickVibratoToolEdgeHit(
+    std::vector<Note>& notes,
+    int mouseX,
+    int mouseY,
+    int edgeThreshold,
+    GetRectFn&& getRect,
+    Note*& outNote,
+    NoteResizeEdge& outEdge)
+{
+    outNote = nullptr;
+    outEdge = NoteResizeEdge::None;
+    float bestDist = std::numeric_limits<float>::max();
+
+    for (auto& note : notes)
+    {
+        int x1 = 0;
+        int x2 = 0;
+        float y = 0.0f;
+        float h = 0.0f;
+        if (!getRect(note, x1, x2, y, h))
+            continue;
+        if (x2 < x1)
+            std::swap(x1, x2);
+        const float yb = y + h;
+
+        const float dLeft = static_cast<float>(std::abs(mouseX - x1));
+        const float dRight = static_cast<float>(std::abs(mouseX - x2));
+        const float dTop = std::abs(static_cast<float>(mouseY) - y);
+        const float dBottom = std::abs(static_cast<float>(mouseY) - yb);
+
+        if (dLeft <= static_cast<float>(edgeThreshold) && static_cast<float>(mouseY) >= y && static_cast<float>(mouseY) <= yb)
+        {
+            if (dLeft < bestDist)
+            {
+                bestDist = dLeft;
+                outNote = &note;
+                outEdge = NoteResizeEdge::Left;
+            }
+        }
+        if (dRight <= static_cast<float>(edgeThreshold) && static_cast<float>(mouseY) >= y && static_cast<float>(mouseY) <= yb)
+        {
+            if (dRight < bestDist)
+            {
+                bestDist = dRight;
+                outNote = &note;
+                outEdge = NoteResizeEdge::Right;
+            }
+        }
+        if (dTop <= static_cast<float>(edgeThreshold) && mouseX >= x1 && mouseX <= x2)
+        {
+            if (dTop < bestDist)
+            {
+                bestDist = dTop;
+                outNote = &note;
+                outEdge = NoteResizeEdge::Top;
+            }
+        }
+        if (dBottom <= static_cast<float>(edgeThreshold) && mouseX >= x1 && mouseX <= x2)
+        {
+            if (dBottom < bestDist)
+            {
+                bestDist = dBottom;
+                outNote = &note;
+                outEdge = NoteResizeEdge::Bottom;
+            }
+        }
+    }
+
+    return outNote != nullptr;
+}
+
 } // namespace
 } // namespace OpenTune

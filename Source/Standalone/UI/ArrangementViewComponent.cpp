@@ -27,40 +27,6 @@ ArrangementViewComponent::ArrangementViewComponent(OpenTuneAudioProcessor& proce
         applyVerticalScrollBarThumbResize(thumbStartNormalized, thumbEndNormalized);
     };
 
-    scrollModeToggleButton_.setButtonText(scrollMode_ == ScrollMode::Continuous ? "Cont" : "Page");
-    scrollModeToggleButton_.setLookAndFeel(&smallButtonLookAndFeel_);
-    scrollModeToggleButton_.setColour(juce::TextButton::buttonColourId, UIColors::backgroundLight);
-    scrollModeToggleButton_.setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
-    scrollModeToggleButton_.onClick = [this] {
-        if (scrollMode_ == ScrollMode::Page) {
-            scrollMode_ = ScrollMode::Continuous;
-            scrollModeToggleButton_.setButtonText("Cont");
-        } else {
-            scrollMode_ = ScrollMode::Page;
-            scrollModeToggleButton_.setButtonText("Page");
-        }
-        updateAutoScroll();
-    };
-    scrollModeToggleButton_.setColour(juce::TextButton::buttonColourId, UIColors::backgroundLight);
-    scrollModeToggleButton_.setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
-    addAndMakeVisible(scrollModeToggleButton_);
-
-    timeUnitToggleButton_.setButtonText("Time");
-    timeUnitToggleButton_.setLookAndFeel(&smallButtonLookAndFeel_);
-    timeUnitToggleButton_.onClick = [this] {
-        if (timeUnit_ == TimeUnit::Seconds) {
-            timeUnit_ = TimeUnit::Bars;
-            timeUnitToggleButton_.setButtonText("BPM");
-        } else {
-            timeUnit_ = TimeUnit::Seconds;
-            timeUnitToggleButton_.setButtonText("Time");
-        }
-        repaint();
-    };
-    timeUnitToggleButton_.setColour(juce::TextButton::buttonColourId, UIColors::backgroundLight);
-    timeUnitToggleButton_.setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
-    addAndMakeVisible(timeUnitToggleButton_);
-
     addAndMakeVisible(playheadOverlay_);
     playheadOverlay_.setPianoKeyWidth(8);
     scrollVBlankAttachment_ = std::make_unique<juce::VBlankAttachment>(
@@ -70,8 +36,6 @@ ArrangementViewComponent::ArrangementViewComponent(OpenTuneAudioProcessor& proce
 ArrangementViewComponent::~ArrangementViewComponent()
 {
     scrollVBlankAttachment_.reset();
-    scrollModeToggleButton_.setLookAndFeel(nullptr);
-    timeUnitToggleButton_.setLookAndFeel(nullptr);
     stopTimer();
     horizontalScrollBar_.removeListener(this);
     verticalScrollBar_.removeListener(this);
@@ -89,8 +53,8 @@ void ArrangementViewComponent::removeListener(Listener* listener)
 
 void ArrangementViewComponent::setZoomLevel(double zoom)
 {
-    // 限制缩放范围：0.02~10.0（支持更长音频的完整显示）
-    zoomLevel_ = juce::jlimit(0.02, 10.0, zoom);
+    const double minZoom = getMinimumHorizontalZoomLevel();
+    zoomLevel_ = juce::jlimit(minZoom, 10.0, zoom);
     timeConverter_.setZoom(zoomLevel_);
     // 同步缩放级别到高性能播放头覆盖层
     playheadOverlay_.setZoomLevel(zoomLevel_);
@@ -100,7 +64,11 @@ void ArrangementViewComponent::setZoomLevel(double zoom)
 
 void ArrangementViewComponent::setScrollOffset(int pixels)
 {
-    const int newOffset = juce::jmax(0, pixels);
+    const int visibleWidth = juce::jmax(1, getWidth() - kScrollbarBreadth_);
+    const double pixelsPerSecond = 100.0 * zoomLevel_;
+    const int totalContentWidth = static_cast<int>(std::ceil(getTimelineSpanSeconds() * pixelsPerSecond));
+    const int maxScrollOffset = juce::jmax(0, totalContentWidth - visibleWidth);
+    const int newOffset = juce::jlimit(0, maxScrollOffset, pixels);
     if (newOffset == scrollOffset_)
         return;
 
@@ -128,10 +96,27 @@ double ArrangementViewComponent::getVisibleStartTimeSeconds() const
     return static_cast<double>(scrollOffset_) / (100.0 * zoomLevel_);
 }
 
+double ArrangementViewComponent::getVisibleDurationSeconds() const
+{
+    const int visibleWidth = juce::jmax(1, getWidth() - kScrollbarBreadth_);
+    const double pixelsPerSecond = juce::jmax(1.0e-6, 100.0 * zoomLevel_);
+    return static_cast<double>(visibleWidth) / pixelsPerSecond;
+}
+
 void ArrangementViewComponent::setVisibleStartTimeSeconds(double timeSeconds)
 {
     const int newOffset = static_cast<int>(std::llround(juce::jmax(0.0, timeSeconds) * 100.0 * zoomLevel_));
     setScrollOffset(newOffset);
+}
+
+void ArrangementViewComponent::setTimeUnitSeconds(bool useSeconds)
+{
+    const TimeUnit newUnit = useSeconds ? TimeUnit::Seconds : TimeUnit::Bars;
+    if (timeUnit_ == newUnit)
+        return;
+
+    timeUnit_ = newUnit;
+    repaint();
 }
 
 void ArrangementViewComponent::setVerticalScrollOffset(int offset)
@@ -154,10 +139,9 @@ void ArrangementViewComponent::fitToContent()
         return;
     }
 
-    constexpr double kTimelineEndPadSec = 2.0;
-    double maxEndTime = processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec;
+    const double maxEndTime = getTimelineSpanSeconds();
 
-    if (maxEndTime <= kTimelineEndPadSec || getWidth() <= 8) {
+    if (maxEndTime <= 0.0 || getWidth() <= 8) {
         return;
     }
 
@@ -202,17 +186,6 @@ void ArrangementViewComponent::resized()
     verticalScrollBar_.setBounds(vBarArea);
     horizontalScrollBar_.setBounds(bounds.removeFromBottom(kScrollbarBreadth_));
 
-    // Position toggle buttons in top right of ruler
-    int btnW = 50;
-    int btnH = 20;
-    int spacing = 5;
-    int currentX = bounds.getRight() - spacing - btnW;
-    const int buttonY = bounds.getY() + 5;
-    
-    scrollModeToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
-    currentX -= (btnW + spacing);
-    timeUnitToggleButton_.setBounds(currentX, buttonY, btnW, btnH);
-
     updateScrollBars();
 
     // 播放头覆盖层覆盖整个组件区域
@@ -243,8 +216,12 @@ void ArrangementViewComponent::updateScrollBars()
     double pixelsPerSecond = 100.0 * zoomLevel_;
     int totalContentWidth = static_cast<int>(maxEndTime * pixelsPerSecond);
     int visibleWidth = getWidth() - kScrollbarBreadth_;
-    
-    horizontalScrollBar_.setRangeLimits(0.0, totalContentWidth + visibleWidth);
+    visibleWidth = juce::jmax(1, visibleWidth);
+
+    const int maxRange = juce::jmax(totalContentWidth, visibleWidth);
+    scrollOffset_ = juce::jlimit(0, juce::jmax(0, maxRange - visibleWidth), scrollOffset_);
+
+    horizontalScrollBar_.setRangeLimits(0.0, static_cast<double>(maxRange));
     horizontalScrollBar_.setCurrentRange(scrollOffset_, visibleWidth);
 
     const int rows = getTimelineLayoutTrackRows();
@@ -270,8 +247,10 @@ void ArrangementViewComponent::applyScrollBarThumbResize(double thumbStartNormal
         return;
 
     const double newTotalRange = static_cast<double>(visibleWidth) / normalizedSpan;
-    const double newContentWidth = juce::jmax(0.0, newTotalRange - static_cast<double>(visibleWidth));
-    const double newZoom = juce::jlimit(0.02, 10.0, newContentWidth / (timelineSpanSeconds * 100.0));
+    const double newZoom = juce::jlimit(
+        getMinimumHorizontalZoomLevel(),
+        10.0,
+        newTotalRange / (timelineSpanSeconds * 100.0));
 
     if (!std::isfinite(newZoom))
         return;
@@ -319,8 +298,25 @@ void ArrangementViewComponent::applyVerticalScrollBarThumbResize(double thumbSta
 
 double ArrangementViewComponent::getTimelineSpanSeconds() const
 {
-    constexpr double kTimelineEndPadSec = 2.0;
-    return juce::jmax(processor_.getProjectTimelineEndSeconds() + kTimelineEndPadSec, 8.0);
+    const double projectEndSeconds = processor_.getProjectTimelineEndSeconds();
+    if (projectEndSeconds <= 0.0)
+        return 1.0;
+
+    constexpr double kTimelineSnapSeconds = 5.0;
+    const double snappedTimelineEnd =
+        std::ceil((projectEndSeconds - 1.0e-6) / kTimelineSnapSeconds) * kTimelineSnapSeconds;
+    return juce::jmax(snappedTimelineEnd, 1.0);
+}
+
+double ArrangementViewComponent::getMinimumHorizontalZoomLevel() const
+{
+    const double spanSeconds = getTimelineSpanSeconds();
+    if (spanSeconds <= 0.0)
+        return 0.02;
+
+    const int visibleWidth = juce::jmax(1, getWidth() - kScrollbarBreadth_);
+    const double fitZoom = static_cast<double>(visibleWidth) / (spanSeconds * 100.0);
+    return juce::jlimit(0.02, 10.0, fitZoom);
 }
 
 int ArrangementViewComponent::getTimelineLayoutTrackRows() const
@@ -473,7 +469,7 @@ void ArrangementViewComponent::paint(juce::Graphics& g)
     }
     timeConverter_.setZoom(zoomLevel_);
     
-    if (processor_.isPlaying() && scrollMode_ == ScrollMode::Continuous)
+    if (processor_.isPlaying())
         timeConverter_.setScrollOffset(static_cast<double>(smoothScrollCurrent_));
     else
         timeConverter_.setScrollOffset(static_cast<double>(scrollOffset_));
@@ -490,26 +486,30 @@ void ArrangementViewComponent::paint(juce::Graphics& g)
         g.fillAll(UIColors::backgroundMedium);
     }
 
-    drawGridLines(g);
-
-    const int activeTrack = processor_.getActiveTrackId();
-    const int trackH = processor_.getTrackHeight();
-    if (activeTrack >= 0 && activeTrack < OpenTuneAudioProcessor::MAX_TRACKS && trackH > 0)
     {
-        const int y = rulerHeight_ + activeTrack * trackH - verticalScrollOffset_;
-        if (y + trackH > 0 && y < getHeight())
+        const juce::Graphics::ScopedSaveState viewportClip(g);
+        g.reduceClipRegion(juce::Rectangle<int>(0, 0, getWidth() - kScrollbarBreadth_, getHeight() - kScrollbarBreadth_));
+
+        drawGridLines(g);
+
+        const int activeTrack = processor_.getActiveTrackId();
+        const int trackH = processor_.getTrackHeight();
+        if (activeTrack >= 0 && activeTrack < OpenTuneAudioProcessor::MAX_TRACKS && trackH > 0)
         {
-            juce::Rectangle<int> row(0, y, getWidth(), trackH);
-            g.setColour(UIColors::accent.withAlpha(0.10f));
-            g.fillRect(row);
+            const int y = rulerHeight_ + activeTrack * trackH - verticalScrollOffset_;
+            if (y + trackH > 0 && y < getHeight())
+            {
+                juce::Rectangle<int> row(0, y, getWidth(), trackH);
+                g.setColour(UIColors::accent.withAlpha(0.10f));
+                g.fillRect(row);
+            }
         }
-    }
 
-    for (int trackId = 0; trackId < OpenTuneAudioProcessor::MAX_TRACKS; ++trackId)
-    {
-        int numClips = processor_.getNumClips(trackId);
-        for (int clipIndex = 0; clipIndex < numClips; ++clipIndex)
+        for (int trackId = 0; trackId < OpenTuneAudioProcessor::MAX_TRACKS; ++trackId)
         {
+            int numClips = processor_.getNumClips(trackId);
+            for (int clipIndex = 0; clipIndex < numClips; ++clipIndex)
+            {
             auto clipBounds = getClipBounds(trackId, clipIndex);
             if (clipBounds.isEmpty())
                 continue;
@@ -689,6 +689,7 @@ void ArrangementViewComponent::paint(juce::Graphics& g)
             g.setColour(UIColors::textSecondary.withAlpha(0.9f));
             g.setFont(UIColors::getUIFont(11.0f));
             g.drawText(gainStr, clipBounds.reduced(6, 4), juce::Justification::topRight);
+            }
         }
     }
 
@@ -873,6 +874,7 @@ void ArrangementViewComponent::drawTimeRuler(juce::Graphics& g)
             g.drawText(timeStr, pixelX - 20, 2, 40, rulerHeight_ - 12, juce::Justification::centred);
         }
     }
+
 }
 
 void ArrangementViewComponent::drawGridLines(juce::Graphics& g)

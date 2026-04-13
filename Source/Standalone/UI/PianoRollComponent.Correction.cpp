@@ -70,7 +70,7 @@ void PianoRollComponent::consumeCompletedCorrectionResults()
     if (completed->success && wasAutoTune)
         setNotes(completed->notes);
 
-    if (undoSupport_ && undoSupport_->isTransactionActive())
+    if (undoSupport_ && undoSupport_->isTransactionActive() && !vibratoToolCorrectionCommitSuppressed_)
         undoSupport_->commitTransaction();
 
     if (completed->success)
@@ -302,6 +302,79 @@ bool PianoRollComponent::applyVibratoRateToSelection(float rate)
     return applyVibratoParameterToSelection(VibratoParam::Rate, rate);
 }
 
+void PianoRollComponent::enqueueVibratoCorrectionForTimeSpan(
+    VibratoParam primaryParam,
+    float primaryValue,
+    double dirtyStartTime,
+    double dirtyEndTime)
+{
+    if (!currentCurve_ || isAutoTuneProcessing())
+        return;
+    if (dirtyEndTime <= dirtyStartTime)
+        return;
+
+    const double frameDuration = hopSize_ / f0SampleRate_;
+    int startFrame = static_cast<int>(dirtyStartTime / frameDuration);
+    int endFrame = static_cast<int>(dirtyEndTime / frameDuration);
+    if (startFrame < 0)
+        startFrame = 0;
+    if (endFrame < startFrame)
+        endFrame = startFrame;
+
+    auto request = std::make_shared<PianoRollCorrectionWorker::AsyncCorrectionRequest>();
+    request->curve = currentCurve_;
+    request->notes = getCurrentClipNotesCopy();
+    request->startFrame = startFrame;
+    request->endFrameExclusive = endFrame + 1;
+    request->retuneSpeed = currentRetuneSpeed_;
+    request->vibratoDepth = (primaryParam == VibratoParam::Depth) ? primaryValue : currentVibratoDepth_;
+    request->vibratoRate = (primaryParam == VibratoParam::Rate) ? primaryValue : currentVibratoRate_;
+    request->audioSampleRate = static_cast<double>(PianoRollComponent::kAudioSampleRate);
+    if (correctionWorker_)
+        request->clipContextGenerationSnapshot = correctionWorker_->getClipContextGeneration();
+    request->trackIdSnapshot = currentTrackId_;
+    request->clipIdSnapshot = currentClipId_;
+    correctionWorker_->enqueue(request);
+}
+
+void PianoRollComponent::beginVibratoToolUndo(const juce::String& description)
+{
+    if (!undoSupport_ || undoSupport_->isTransactionActive())
+        return;
+    undoSupport_->beginTransaction(description);
+    vibratoToolCorrectionCommitSuppressed_ = true;
+}
+
+void PianoRollComponent::commitVibratoToolUndo()
+{
+    vibratoToolCorrectionCommitSuppressed_ = false;
+    if (undoSupport_ && undoSupport_->isTransactionActive())
+        undoSupport_->commitTransaction();
+}
+
+void PianoRollComponent::applyVibratoToolLiveOnNote(Note* note, bool adjustRate, float absoluteValue)
+{
+    if (note == nullptr || !currentCurve_ || isAutoTuneProcessing())
+        return;
+
+    if (adjustRate)
+        note->vibratoRate = juce::jlimit(3.0f, 12.0f, absoluteValue);
+    else
+        note->vibratoDepth = juce::jlimit(0.0f, 100.0f, absoluteValue);
+
+    note->dirty = true;
+    enqueueVibratoCorrectionForTimeSpan(
+        adjustRate ? VibratoParam::Rate : VibratoParam::Depth,
+        adjustRate ? note->vibratoRate : note->vibratoDepth,
+        note->startTime,
+        note->endTime);
+
+    if (adjustRate)
+        repaint();
+    else
+        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
+}
+
 bool PianoRollComponent::applyVibratoParameterToSelection(VibratoParam param, float value)
 {
     if (isAutoTuneProcessing())
@@ -331,7 +404,6 @@ bool PianoRollComponent::applyVibratoParameterToSelection(VibratoParam param, fl
     undoSupport_->beginTransaction(param == VibratoParam::Depth ? "Vibrato Depth" : "Vibrato Rate");
     double dirtyStartTime = 1e30;
     double dirtyEndTime = -1e30;
-    const double frameDuration = hopSize_ / f0SampleRate_;
 
     for (auto& n : getCurrentClipNotes())
     {
@@ -349,29 +421,9 @@ bool PianoRollComponent::applyVibratoParameterToSelection(VibratoParam param, fl
     }
 
     if (dirtyEndTime > dirtyStartTime)
-    {
-        int startFrame = static_cast<int>(dirtyStartTime / frameDuration);
-        int endFrame = static_cast<int>(dirtyEndTime / frameDuration);
-        if (startFrame < 0)
-            startFrame = 0;
-        if (endFrame < startFrame)
-            endFrame = startFrame;
-
-        auto request = std::make_shared<PianoRollCorrectionWorker::AsyncCorrectionRequest>();
-        request->curve = currentCurve_;
-        request->notes = getCurrentClipNotesCopy();
-        request->startFrame = startFrame;
-        request->endFrameExclusive = endFrame + 1;
-        request->retuneSpeed = currentRetuneSpeed_;
-        request->vibratoDepth = (param == VibratoParam::Depth) ? value : currentVibratoDepth_;
-        request->vibratoRate = (param == VibratoParam::Rate) ? value : currentVibratoRate_;
-        request->audioSampleRate = static_cast<double>(PianoRollComponent::kAudioSampleRate);
-        correctionWorker_->enqueue(request);
-    }
+        enqueueVibratoCorrectionForTimeSpan(param, value, dirtyStartTime, dirtyEndTime);
     else
-    {
         undoSupport_->commitTransaction();
-    }
 
     if (param == VibratoParam::Depth)
         FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
@@ -501,47 +553,26 @@ bool PianoRollComponent::applyAutoTuneToSelection()
 
     double startTime = 0.0;
     double endTime = 0.0;
+
+    // AUTO always targets the full clip range to avoid selection-dependent partial rendering.
+    const size_t f0Length = snapshot->size();
+    if (f0Length < 2)
     {
-        bool hasSelected = false;
-        double selMinTime = 1e30;
-        double selMaxTime = -1e30;
-        for (const auto& n : getCurrentClipNotes())
-        {
-            if (n.selected)
-            {
-                hasSelected = true;
-                selMinTime = std::min(selMinTime, n.startTime);
-                selMaxTime = std::max(selMaxTime, n.endTime);
-            }
-        }
-
-        if (hasSelected)
-        {
-            startTime = selMinTime;
-            endTime = selMaxTime;
-        }
-        else
-        {
-            const size_t f0Length = snapshot->size();
-            if (f0Length < 2)
-            {
-                correctionInFlight_.store(false, std::memory_order_release);
-                if (onRenderComplete_)
-                    onRenderComplete_();
-                return false;
-            }
-
-            startTime = 0.0;
-            int lastFrame = static_cast<int>(f0Length) - 1;
-            endTime = (lastFrame + 1) * frameDuration;
-            if (audioBuffer_ != nullptr)
-            {
-                double maxTime = static_cast<double>(audioBuffer_->getNumSamples()) / PianoRollComponent::kAudioSampleRate;
-                endTime = std::min(endTime, maxTime);
-            }
-            endTime = std::max(0.0, endTime);
-        }
+        correctionInFlight_.store(false, std::memory_order_release);
+        if (onRenderComplete_)
+            onRenderComplete_();
+        return false;
     }
+
+    startTime = 0.0;
+    int lastFrame = static_cast<int>(f0Length) - 1;
+    endTime = (lastFrame + 1) * frameDuration;
+    if (audioBuffer_ != nullptr)
+    {
+        double maxTime = static_cast<double>(audioBuffer_->getNumSamples()) / PianoRollComponent::kAudioSampleRate;
+        endTime = std::min(endTime, maxTime);
+    }
+    endTime = std::max(0.0, endTime);
 
     if (endTime <= startTime)
     {

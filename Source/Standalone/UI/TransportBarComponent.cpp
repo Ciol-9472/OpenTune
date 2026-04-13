@@ -8,7 +8,7 @@ namespace OpenTune {
 
 DigitalTimeDisplay::DigitalTimeDisplay()
 {
-    setInterceptsMouseClicks(false, false);
+    setInterceptsMouseClicks(true, false);
 }
 
 void DigitalTimeDisplay::setTimeString(const juce::String& time)
@@ -57,6 +57,15 @@ void DigitalTimeDisplay::paint(juce::Graphics& g)
         drawChar(g, c, { x, bounds.getY(), w, bounds.getHeight() });
         x += w;
     }
+}
+
+void DigitalTimeDisplay::mouseUp(const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+        return;
+
+    if (onClicked)
+        onClicked();
 }
 
 void DigitalTimeDisplay::drawChar(juce::Graphics& g, juce::juce_wchar c, juce::Rectangle<float> area)
@@ -621,6 +630,7 @@ TransportBarComponent::TransportBarComponent()
     addAndMakeVisible(tapButton_);
 
     timeDisplay_.setTimeString("00:00");
+    timeDisplay_.onClicked = [this]() { toggleTimeDisplayMode(); };
     addAndMakeVisible(timeDisplay_);
 
     // Apply styling (transport buttons use custom paintButton)
@@ -870,6 +880,7 @@ bool TransportBarComponent::isLoopEnabled() const
 void TransportBarComponent::setBpm(double bpm)
 {
     bpmField_.setValue(bpm);
+    updateTimeDisplayText();
 }
 
 double TransportBarComponent::getBpm() const
@@ -885,14 +896,29 @@ void TransportBarComponent::setScale(int rootNote, int scaleType)
     scaleTypeSelector_.setSelectedId(scaleType, juce::dontSendNotification);
 }
 
+void TransportBarComponent::setTimeSignature(int numerator, int denominator)
+{
+    if (numerator <= 0 || denominator <= 0)
+        return;
+
+    timeSigNum_ = numerator;
+    timeSigDenom_ = denominator;
+    updateTimeDisplayText();
+}
+
+void TransportBarComponent::setTimeDisplayMode(TimeDisplayMode mode)
+{
+    if (timeDisplayMode_ == mode)
+        return;
+
+    timeDisplayMode_ = mode;
+    updateTimeDisplayText();
+}
+
 void TransportBarComponent::setPositionSeconds(double seconds)
 {
-    const int totalSeconds = static_cast<int>(seconds);
-    const int minutes = totalSeconds / 60;
-    const int secs = totalSeconds % 60;
-    const int milliseconds = static_cast<int>(std::fmod(seconds * 1000.0, 1000.0));
-
-    timeDisplay_.setTimeString(juce::String::formatted("%02d:%02d.%03d", minutes, secs, milliseconds));
+    lastPositionSeconds_ = juce::jmax(0.0, seconds);
+    updateTimeDisplayText();
 }
 
 void TransportBarComponent::onPlayClicked()
@@ -987,6 +1013,54 @@ void TransportBarComponent::onScaleChanged()
     int rootNote = scaleRootSelector_.getSelectedId() - 1;  // 0-11
     int scaleType = scaleTypeSelector_.getSelectedId();  // 1=Major, 2=Minor, 3=Chromatic
     listeners_.call([rootNote, scaleType](Listener& l) { l.scaleChanged(rootNote, scaleType); });
+}
+
+void TransportBarComponent::toggleTimeDisplayMode()
+{
+    const TimeDisplayMode newMode = (timeDisplayMode_ == TimeDisplayMode::Time)
+        ? TimeDisplayMode::Bars
+        : TimeDisplayMode::Time;
+
+    setTimeDisplayMode(newMode);
+    listeners_.call([newMode](Listener& l) { l.timeDisplayModeChanged(newMode); });
+}
+
+void TransportBarComponent::updateTimeDisplayText()
+{
+    if (timeDisplayMode_ == TimeDisplayMode::Time)
+    {
+        const int totalSeconds = static_cast<int>(lastPositionSeconds_);
+        const int minutes = totalSeconds / 60;
+        const int secs = totalSeconds % 60;
+        const int milliseconds = static_cast<int>(std::fmod(lastPositionSeconds_ * 1000.0, 1000.0));
+        timeDisplay_.setTimeString(juce::String::formatted("%02d:%02d.%03d", minutes, secs, milliseconds));
+        return;
+    }
+
+    const double bpm = juce::jmax(1.0, bpmField_.getValue());
+    const int numerator = juce::jmax(1, timeSigNum_);
+    const int denominator = juce::jmax(1, timeSigDenom_);
+
+    const double beatsPerSecond = (bpm / 60.0);
+    const double beats = juce::jmax(0.0, lastPositionSeconds_) * beatsPerSecond;
+    const double quarterPerBeat = 4.0 / static_cast<double>(denominator);
+    const double barLengthBeats = static_cast<double>(numerator) * quarterPerBeat;
+
+    int bar = 1;
+    int beat = 1;
+    int tick = 0;
+    if (barLengthBeats > 0.0)
+    {
+        const int totalBars = static_cast<int>(std::floor(beats / barLengthBeats));
+        const double beatInBar = beats - static_cast<double>(totalBars) * barLengthBeats;
+        const int wholeBeatInBar = static_cast<int>(std::floor(beatInBar / quarterPerBeat));
+        const double beatFraction = (beatInBar / quarterPerBeat) - static_cast<double>(wholeBeatInBar);
+        bar = totalBars + 1;
+        beat = wholeBeatInBar + 1;
+        tick = juce::jlimit(0, 99, static_cast<int>(std::round(beatFraction * 100.0)));
+    }
+
+    timeDisplay_.setTimeString(juce::String::formatted("%03d:%02d.%02d", bar, beat, tick));
 }
 
 } // namespace OpenTune

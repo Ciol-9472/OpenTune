@@ -48,7 +48,7 @@ public:
         InvalidTask
     };
 
-    explicit F0ExtractionService(int workerCount = 2, size_t maxQueueSize = 64);
+    explicit F0ExtractionService(int workerCount = 1, size_t maxQueueSize = 64);
     ~F0ExtractionService();
 
     static uint64_t makeRequestKey(uint64_t clipId, int trackId, int clipIndex);

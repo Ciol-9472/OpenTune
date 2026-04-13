@@ -16,7 +16,6 @@
 #include <mutex>
 #include "PluginProcessor.h"
 #include "UI/ToolIds.h"
-#include "UI/ParameterPanel.h"
 #include "UI/PianoRollComponent.h"
 #include "UI/MenuBarComponent.h"
 #include "UI/TransportBarComponent.h"
@@ -56,7 +55,6 @@ private:
 };
 
 class OpenTuneAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                      public ParameterPanel::Listener,
                                       public MenuBarComponent::Listener,
                                       public TransportBarComponent::Listener,
                                       public TrackPanelComponent::Listener,
@@ -76,13 +74,7 @@ public:
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
-    // ParameterPanel::Listener
-    void retuneSpeedChanged(float speed) override;
-    void vibratoDepthChanged(float value) override;
-    void vibratoRateChanged(float value) override;
-    void noteSplitChanged(float value) override;
-    void toolSelected(int toolId) override;
-    void parameterDragEnded(int paramId, float oldValue, float newValue) override;
+    void toolSelected(int toolId);
 
     // MenuBarComponent::Listener
     void importAudioRequested() override;  // 新版本：不再需要trackId参数
@@ -110,6 +102,7 @@ public:
     void loopToggled(bool enabled) override;
     void bpmChanged(double newBpm) override;
     void scaleChanged(int rootNote, int scaleType) override;
+    void timeDisplayModeChanged(TransportBarComponent::TimeDisplayMode mode) override;
 
     // TrackPanelComponent::Listener
     void trackSelected(int trackId) override;
@@ -160,10 +153,10 @@ private:
 
     void performScaleInferenceForClip(int trackId, int clipIndex);
     void requestOriginalF0ExtractionForImport(int trackId, int clipIndex);
+    bool requestNextPendingOriginalF0ExtractionOnTrack(int trackId);
 
     void timerCallback() override;
     void setInferenceActive(bool active);
-    void syncParameterPanelFromSelection();
     void audioSettingsRequested();
     void playFromStartToggleRequested();  // 播放/暂停并回到起始位置
     void importAudioFileToTrack(int trackId, const juce::File& file);
@@ -223,7 +216,6 @@ private:
     TransportBarComponent transportBar_;
     TopBarComponent topBar_;
     TrackPanelComponent trackPanel_;
-    ParameterPanel parameterPanel_;
     ArrangementViewComponent arrangementView_;
     MainWorkspaceSplitterBar workspaceSplitter_;
     PianoRollComponent pianoRoll_;
@@ -233,7 +225,7 @@ private:
 
     // Async loaders
     AsyncAudioLoader asyncAudioLoader_;
-    F0ExtractionService f0ExtractionService_{2, 64};
+    F0ExtractionService f0ExtractionService_{1, 64};
     bool isImportInProgress_ = false;
     
     // 多文件导入队列（解决并发导入问题）
@@ -255,9 +247,6 @@ private:
     bool suppressLinkedTimelineZoom_{false};
     bool suppressLinkedTimelineScroll_{false};
 
-    // 现代布局：左右面板可折叠（用于“沉浸主画布”模式）
-    bool isParameterPanelVisible_ = true;
-
     bool f0ParamsSyncedFromInference_ = false;
     bool inferenceActive_ = false;
     int inferenceActiveTickCounter_ = 0;
@@ -267,8 +256,6 @@ private:
     double lastSyncedBpm_ = 0.0;
     int lastSyncedTimeSigNum_ = 0;
     int lastSyncedTimeSigDenom_ = 0;
-    bool showingSingleNoteParams_ = false;
-
     // Undo 状态追踪
     int lastScaleRootNote_ = 0;
     int lastScaleType_ = 1;  // 1=Major
@@ -311,7 +298,6 @@ private:
     static constexpr int TOP_PANEL_HEIGHT = 45;  // Single row: Scale and transport controls
     static constexpr int TRANSPORT_BAR_HEIGHT = 64; // Increased for larger buttons (was 60)
     static constexpr int TRACK_PANEL_WIDTH = 180;      // 左侧 Track Inspector (Reduced from 220)
-    static constexpr int PARAMETER_PANEL_WIDTH = 240;  // 右侧 Properties Panel
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenTuneAudioProcessorEditor)
 };

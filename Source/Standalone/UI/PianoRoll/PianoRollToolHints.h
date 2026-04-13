@@ -36,6 +36,11 @@ inline std::vector<juce::String> getPianoRollToolHintLines(ToolId tool)
             lines.push_back(LOC(kPianoRollHintHandDraw2));
             lines.push_back(LOC(kPianoRollHintHandDraw3));
             break;
+        case ToolId::Vibrato:
+            lines.push_back(LOC(kPianoRollHintVibrato1));
+            lines.push_back(LOC(kPianoRollHintVibrato2));
+            lines.push_back(LOC(kPianoRollHintVibrato3));
+            break;
         case ToolId::SplitNote:
             lines.push_back(LOC(kPianoRollHintSplit1));
             lines.push_back(LOC(kPianoRollHintSplit2));

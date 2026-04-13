@@ -390,7 +390,6 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     computeClipSilentGaps(newClip);
 
     newClip.detectedKey = originalClip.detectedKey;
-    newClip.originalF0State = originalClip.originalF0State;
 
     std::vector<Note> leftNotes;
     std::vector<Note> rightNotes;
@@ -418,6 +417,8 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
             if (leftCurve && rightCurve) {
                 originalClip.pitchCurve = leftCurve;
                 newClip.pitchCurve = rightCurve;
+                originalClip.originalF0State = OriginalF0State::Ready;
+                newClip.originalF0State = OriginalF0State::Ready;
             } else {
                 originalClip.pitchCurve.reset();
                 newClip.pitchCurve.reset();
@@ -427,7 +428,14 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
         } else {
             originalClip.pitchCurve.reset();
             newClip.pitchCurve.reset();
+            originalClip.originalF0State = OriginalF0State::NotRequested;
+            newClip.originalF0State = OriginalF0State::NotRequested;
         }
+    } else {
+        // If OriginalF0 was still being extracted, splitting invalidates the old request range.
+        // Let the UI re-submit extraction requests for both child clips.
+        originalClip.originalF0State = OriginalF0State::NotRequested;
+        newClip.originalF0State = OriginalF0State::NotRequested;
     }
 
     originalClip.renderCache = std::make_shared<RenderCache>();

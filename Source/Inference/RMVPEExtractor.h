@@ -3,6 +3,7 @@
 #include "IF0Extractor.h"
 #include <onnxruntime_cxx_api.h>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <juce_dsp/juce_dsp.h>
 
@@ -98,6 +99,7 @@ private:
     std::unique_ptr<Ort::Session> session_;
     std::shared_ptr<ResamplingManager> resampler_;
     std::unique_ptr<Ort::MemoryInfo> memoryInfo_;
+    mutable std::mutex inferenceRunMutex_;
     bool useDedicatedVramPreflight_{false};
     
     // Post-processing

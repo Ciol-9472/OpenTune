@@ -1,5 +1,5 @@
 #include "TopBarComponent.h"
-#include "ToolbarIcons.h"
+#include "ThemeTokens.h"
 
 namespace OpenTune {
 
@@ -10,62 +10,35 @@ TopBarComponent::TopBarComponent(MenuBarComponent& menuBar, TransportBarComponen
     transportBar_.setEmbeddedInTopBar(true);
     addAndMakeVisible(menuBar_);
     addAndMakeVisible(transportBar_);
-
-    parameterPanelToggleButton_.setIcon(ToolbarIcons::getPanelLeftIcon());
-    parameterPanelToggleButton_.setClickingTogglesState(true);
-    parameterPanelToggleButton_.setToggleState(true, juce::dontSendNotification);
-    parameterPanelToggleButton_.setTooltip("Show/Hide Right Panel");
-    parameterPanelToggleButton_.onClick = [this]() {
-        if (onToggleParameterPanel) onToggleParameterPanel();
-    };
-    addAndMakeVisible(parameterPanelToggleButton_);
 }
 
 void TopBarComponent::applyTheme()
 {
     transportBar_.applyTheme();
-
-    // 按钮颜色由 UnifiedToolbarButton 内部处理，这里触发重绘即可
-    repaint();
-}
-
-void TopBarComponent::setParameterPanelToggleState(bool parameterPanelVisible)
-{
-    parameterPanelToggleButton_.setToggleState(parameterPanelVisible, juce::dontSendNotification);
     repaint();
 }
 
 void TopBarComponent::refreshLocalizedText()
 {
-    parameterPanelToggleButton_.setButtonText(LOC(kProps));
-    parameterPanelToggleButton_.setTooltip(LOC(kProps));
-    
-    // 刷新运输栏
     transportBar_.refreshLocalizedText();
-    
     repaint();
 }
 
 void TopBarComponent::paint(juce::Graphics& g)
 {
     const auto& style = Theme::getActiveStyle();
-    // 阴影边距：背景在 reduced(12) 区域内绘制，阴影在边距内渲染
     const float shadowMargin = 12.0f;
     auto bounds = getLocalBounds().toFloat().reduced(shadowMargin);
 
-    // 顶部条属于"悬浮层级"，使用更明显但仍柔和的 L2 阴影
     if (Theme::getActiveTheme() == ThemeId::Aurora)
     {
-        // Aurora Theme: No rounded corners, soft bottom edge
         UIColors::drawShadow(g, bounds, UIColors::ShadowLevel::Float);
-        
-        // Background - Dark gradient
+
         juce::ColourGradient bgGrad(UIColors::backgroundDark, 0.0f, 0.0f,
                                     UIColors::backgroundMedium, 0.0f, bounds.getHeight(), false);
         g.setGradientFill(bgGrad);
         g.fillRect(bounds);
 
-        // Bottom Edge - Gradient Blur (Dilute boundary)
         juce::ColourGradient bottomBlur(juce::Colours::transparentBlack, 0.0f, bounds.getBottom() - 4.0f,
                                         juce::Colour(Aurora::Colors::BorderGlow).withAlpha(0.2f), 0.0f, bounds.getBottom(), false);
         g.setGradientFill(bottomBlur);
@@ -81,28 +54,16 @@ void TopBarComponent::paint(juce::Graphics& g)
 
 void TopBarComponent::resized()
 {
-    // 阴影边距：内容区域在 reduced(12) 范围内布局
     const int shadowMargin = 12;
     auto bounds = getLocalBounds().reduced(shadowMargin);
-
-    // 顶部菜单条
 
     if (menuBar_.isVisible())
         menuBar_.setBounds(bounds.removeFromTop(25));
     else
         menuBar_.setBounds({});
 
-    // Transport 行：右侧为属性面板开关
     const int pad = 6;
-    const int toggleW = 50;
-    const int toggleH = 40;
-
     auto row = bounds.reduced(pad, pad);
-
-    auto rightArea = row.removeFromRight(toggleW);
-    parameterPanelToggleButton_.setBounds(rightArea.withSizeKeepingCentre(toggleW, toggleH));
-
-    row.removeFromRight(pad);
     transportBar_.setBounds(row);
 }
 

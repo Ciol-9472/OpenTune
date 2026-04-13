@@ -114,6 +114,11 @@ public:
         std::function<std::vector<float>()> getOriginalF0;
 
         std::function<void(bool, float)> setPitchPreview;
+
+        std::function<bool(const Note&, int& x1, int& x2, float& y, float& h)> getNoteScreenBounds;
+        std::function<void(const juce::String&)> vibratoToolBeginUndo;
+        std::function<void()> vibratoToolCommitUndo;
+        std::function<void(Note*, bool adjustRate, float value)> vibratoToolApplyLive;
     };
 
     explicit PianoRollToolHandler(Context context);
@@ -128,6 +133,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel);
 
     bool keyPressed(const juce::KeyPress& key);
+    bool isDraggingTimelinePlayhead() const noexcept { return isDraggingTimelinePlayhead_; }
 
     void cancelDrag();
     void loadAnchorsFromCurve();
@@ -158,6 +164,11 @@ private:
     void handleSelectUp(const juce::MouseEvent& e);
     void handleDrawCurveUp(const juce::MouseEvent& e);
     void handleDrawNoteUp(const juce::MouseEvent& e);
+
+    void handleVibratoToolMouseMove(const juce::MouseEvent& e);
+    void handleVibratoToolMouseDown(const juce::MouseEvent& e);
+    void handleVibratoToolMouseDrag(const juce::MouseEvent& e);
+    void handleVibratoToolMouseUp(const juce::MouseEvent& e);
 
     void deleteSelectedNotes();
     void handleDeleteKey();

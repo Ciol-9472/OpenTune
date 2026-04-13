@@ -12,7 +12,9 @@ enum class NoteResizeEdge
 {
     None,
     Left,
-    Right
+    Right,
+    Top,
+    Bottom
 };
 
 struct SelectionState
@@ -58,6 +60,26 @@ struct NoteResizeState
     double originalEndTime = 0.0;
     
     void clear();
+};
+
+struct VibratoToolDragState
+{
+    bool active = false;
+    bool undoOpen = false;
+    Note* note = nullptr;
+    NoteResizeEdge edge = NoteResizeEdge::None;
+    float initialRateHz = 7.5f;
+    float initialDepthPercent = 0.0f;
+
+    void clear()
+    {
+        active = false;
+        undoOpen = false;
+        note = nullptr;
+        edge = NoteResizeEdge::None;
+        initialRateHz = 7.5f;
+        initialDepthPercent = 0.0f;
+    }
 };
 
 struct AnchorEditState
@@ -123,6 +145,7 @@ public:
     SelectionState selection;
     NoteDragState noteDrag;
     NoteResizeState noteResize;
+    VibratoToolDragState vibratoToolDrag;
     DrawingState drawing;
     
     bool isPanning = false;

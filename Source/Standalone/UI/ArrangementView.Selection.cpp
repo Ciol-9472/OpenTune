@@ -33,6 +33,25 @@ void ArrangementViewComponent::clearClipSelection()
     hasShiftAnchor_ = false;
 }
 
+void ArrangementViewComponent::syncSelectionFromProcessor(int trackId)
+{
+    if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS)
+        return;
+
+    selectedTrack_ = trackId;
+    selectedClip_ = processor_.getSelectedClip(trackId);
+    if (selectedClip_ >= 0 && selectedClip_ < processor_.getNumClips(trackId))
+        selectedClipId_ = processor_.getClipId(trackId, selectedClip_);
+    else
+        selectedClipId_ = 0;
+
+    clearClipSelection();
+    if (selectedClipId_ != 0)
+        selectedClips_.insert(ClipSelectionKey{ selectedTrack_, selectedClipId_ });
+
+    repaint();
+}
+
 void ArrangementViewComponent::selectClipsInRange(const ClipSelectionKey& from, const ClipSelectionKey& to)
 {
     if (from.trackId == to.trackId)

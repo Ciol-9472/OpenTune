@@ -23,7 +23,6 @@
 #include "TimeConverter.h"
 #include "TimelineZoomScrollBar.h"
 #include "../Utils/UndoAction.h"
-#include "SmallButton.h"
 #include "PlayheadOverlayComponent.h"
 #include "WaveformMipmap.h"
 
@@ -86,9 +85,12 @@ public:
     void setScrollOffset(int pixels);
     int getScrollOffset() const { return scrollOffset_; }
     double getVisibleStartTimeSeconds() const;
+    double getVisibleDurationSeconds() const;
     void setVisibleStartTimeSeconds(double timeSeconds);
     int getVerticalScrollOffset() const { return verticalScrollOffset_; }
     void setVerticalScrollOffset(int offset);
+    void setTimeUnitSeconds(bool useSeconds);
+    bool isTimeUnitSeconds() const { return timeUnit_ == TimeUnit::Seconds; }
 
     /** 与 mouse 滚轮一致：水平平移时间线（Shift+滚轮） */
     void applyWheelHorizontalPan(float deltaX, float deltaY);
@@ -115,6 +117,7 @@ public:
 
     void addListener(Listener* listener);
     void removeListener(Listener* listener);
+    void syncSelectionFromProcessor(int trackId);
 
 #if JUCE_DEBUG
     static bool runDebugSelfTest();
@@ -143,6 +146,7 @@ private:
     void applyScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
     void applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
     double getTimelineSpanSeconds() const;
+    double getMinimumHorizontalZoomLevel() const;
     int getTimelineLayoutTrackRows() const;
     void drawTimeRuler(juce::Graphics& g);
     void drawGridLines(juce::Graphics& g);
@@ -160,12 +164,6 @@ private:
 
     TimelineZoomScrollBar horizontalScrollBar_{ false };
     TimelineZoomScrollBar verticalScrollBar_{ true };
-    juce::TextButton scrollModeToggleButton_;
-    juce::TextButton timeUnitToggleButton_;
-    SmallButtonLookAndFeel smallButtonLookAndFeel_;
-
-    enum class ScrollMode { Page, Continuous };
-    ScrollMode scrollMode_{ ScrollMode::Continuous };
 
     enum class TimeUnit { Seconds, Bars };
     TimeUnit timeUnit_{ TimeUnit::Seconds };
