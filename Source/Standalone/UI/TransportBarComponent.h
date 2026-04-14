@@ -125,6 +125,7 @@ public:
         virtual void pauseRequested() = 0;
         virtual void stopRequested() = 0;
         virtual void loopToggled(bool enabled) = 0;
+        virtual void bypassToggled(bool enabled) = 0;
         virtual void bpmChanged(double newBpm) = 0;
         virtual void scaleChanged(int rootNote, int scaleType) = 0;
         virtual void audioSettingsRequested() {}
@@ -156,6 +157,8 @@ public:
 
     void setLoopEnabled(bool enabled);
     bool isLoopEnabled() const;
+    void setBypassEnabled(bool enabled);
+    bool isBypassEnabled() const;
     // Alias for compatibility
     void setLooping(bool looping) { setLoopEnabled(looping); }
 
@@ -198,6 +201,7 @@ private:
     UnifiedToolbarButton pauseButton_;
     UnifiedToolbarButton stopButton_;
     UnifiedToolbarButton loopButton_;
+    UnifiedToolbarButton bypassButton_;
     
     // Labels & Editors
     DigitalTimeDisplay timeDisplay_;

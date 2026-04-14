@@ -205,6 +205,7 @@ struct ProjectFileGlobals {
     bool showWaveform{true};
     bool showLanes{true};
     bool loopEnabled{false};
+    bool bypassEnabled{false};
     uint64_t nextClipId{1};
 };
 
@@ -481,6 +482,7 @@ static bool parseProjectFileTree(const juce::ValueTree& root,
     outGlobals.showWaveform = static_cast<bool>(root.getProperty("showWaveform", true));
     outGlobals.showLanes = static_cast<bool>(root.getProperty("showLanes", true));
     outGlobals.loopEnabled = static_cast<bool>(root.getProperty("loopEnabled", false));
+    outGlobals.bypassEnabled = static_cast<bool>(root.getProperty("bypassEnabled", false));
     outGlobals.nextClipId =
         static_cast<uint64_t>(static_cast<juce::int64>(root.getProperty("nextClipId", static_cast<juce::int64>(1))));
 
@@ -542,6 +544,7 @@ void OpenTuneAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     state.setProperty("bpm", getBpm(), nullptr);
     state.setProperty("zoomLevel", zoomLevel_, nullptr);
     state.setProperty("trackHeight", trackHeight_, nullptr);
+    state.setProperty("bypassEnabled", isBypassEnabled(), nullptr);
 
     juce::ValueTree tracksState("Tracks");
     for (int trackId = 0; trackId < MAX_TRACKS; ++trackId) {
@@ -579,6 +582,7 @@ void OpenTuneAudioProcessor::setStateInformation(const void* data, int sizeInByt
     setBpm(static_cast<double>(state.getProperty("bpm", 120.0)));
     zoomLevel_ = state.getProperty("zoomLevel", 1.0);
     trackHeight_ = state.getProperty("trackHeight", 120);
+    setBypassEnabled(static_cast<bool>(state.getProperty("bypassEnabled", false)));
 
     const auto tracksState = state.getChildWithName("Tracks");
     if (!tracksState.isValid()) {
@@ -645,6 +649,7 @@ bool OpenTuneAudioProcessor::saveProjectToFile(const juce::File& file)
     root.setProperty("showWaveform", getShowWaveform(), nullptr);
     root.setProperty("showLanes", getShowLanes(), nullptr);
     root.setProperty("loopEnabled", isLoopEnabled(), nullptr);
+    root.setProperty("bypassEnabled", isBypassEnabled(), nullptr);
     root.setProperty("nextClipId", static_cast<juce::int64>(nextClipId_.load()), nullptr);
 
     juce::ValueTree tracksTree("Tracks");
@@ -822,6 +827,7 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
     setShowWaveform(globals.showWaveform);
     setShowLanes(globals.showLanes);
     setLoopEnabled(globals.loopEnabled);
+    setBypassEnabled(globals.bypassEnabled);
 
     bumpEditVersion();
 
@@ -884,6 +890,7 @@ void OpenTuneAudioProcessor::resetToNewEmptyProject()
     setShowWaveform(true);
     setShowLanes(true);
     setLoopEnabled(false);
+    setBypassEnabled(false);
 
     bumpEditVersion();
 }

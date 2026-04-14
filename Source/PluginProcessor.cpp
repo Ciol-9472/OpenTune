@@ -860,7 +860,7 @@ void OpenTuneAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             double visibleEndSec = 0.0;
             bool inVisibleRange = false;
             std::shared_ptr<const PitchCurveSnapshot> snap;
-            if (!useDrySignalFallback_.load() && clip.renderCache && clip.pitchCurve) {
+            if (!bypassEnabled_.load() && !useDrySignalFallback_.load() && clip.renderCache && clip.pitchCurve) {
                 snap = clip.pitchCurve->getSnapshot();
                 if (snap->hasRenderableCorrectedF0() &&
                     snap->getCorrectedVisibleTimeBounds(visibleStartSec, visibleEndSec)) {

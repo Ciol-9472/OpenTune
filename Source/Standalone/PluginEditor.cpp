@@ -402,6 +402,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     transportBar_.addListener(this);
     transportBar_.setPlaying(processorRef_.isPlaying());
     transportBar_.setLooping(processorRef_.isLoopEnabled());
+    transportBar_.setBypassEnabled(processorRef_.isBypassEnabled());
     transportBar_.setBpm(processorRef_.getBpm());
 
     // Initialize Scale (clip > recent > default)

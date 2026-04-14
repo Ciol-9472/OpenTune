@@ -326,6 +326,11 @@ void OpenTuneAudioProcessor::setLoopEnabled(bool enabled)
     loopEnabled_.store(enabled);
 }
 
+void OpenTuneAudioProcessor::setBypassEnabled(bool enabled)
+{
+    bypassEnabled_.store(enabled);
+}
+
 void OpenTuneAudioProcessor::setPosition(double seconds)
 {
     positionAtomic_->store(seconds, std::memory_order_relaxed);

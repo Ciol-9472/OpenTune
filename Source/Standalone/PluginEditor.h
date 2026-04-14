@@ -100,6 +100,7 @@ public:
     void pauseRequested() override;
     void stopRequested() override;
     void loopToggled(bool enabled) override;
+    void bypassToggled(bool enabled) override;
     void bpmChanged(double newBpm) override;
     void scaleChanged(int rootNote, int scaleType) override;
     void timeDisplayModeChanged(TransportBarComponent::TimeDisplayMode mode) override;
