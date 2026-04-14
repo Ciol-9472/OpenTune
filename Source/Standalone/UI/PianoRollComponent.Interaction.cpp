@@ -362,6 +362,7 @@ void PianoRollComponent::applyScrollBarThumbResize(double thumbStartNormalized, 
             newScrollOffset = static_cast<int>(std::llround(anchoredScroll));
     }
     setScrollOffset(newScrollOffset);
+    snapNextScroll_ = true;
 
     if (onUserTimelineZoomChanged)
         onUserTimelineZoomChanged(newZoom);
@@ -712,6 +713,7 @@ void PianoRollComponent::handleHorizontalZoomWheel(const juce::MouseEvent& e, fl
     int absolutePixel = timeConverter_.timeToPixel(mouseTime);
     int newScrollOffset = absolutePixel - mouseX;
     setScrollOffset(newScrollOffset);
+    snapNextScroll_ = true;
 
     if (onUserTimelineZoomChanged) {
         onUserTimelineZoomChanged(zoomLevel_);

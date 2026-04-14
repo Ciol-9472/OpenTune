@@ -482,7 +482,14 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     };
 
     arrangementView_.onUserTimelineZoomChanged = [this](double z) {
+        if (suppressLinkedTimelineZoom_) {
+            return;
+        }
+
+        suppressLinkedTimelineZoom_ = true;
         processorRef_.setZoomLevel(z);
+        pianoRoll_.setZoomLevel(z);
+        suppressLinkedTimelineZoom_ = false;
     };
 
     // Setup Piano Roll (main editor area)
@@ -508,7 +515,16 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     restorePersistedPianoRollZoomState();
     restorePersistedWorkspaceSplitRatio();
 
-    pianoRoll_.onUserTimelineZoomChanged = [](double) {};
+    pianoRoll_.onUserTimelineZoomChanged = [this](double z) {
+        if (suppressLinkedTimelineZoom_) {
+            return;
+        }
+
+        suppressLinkedTimelineZoom_ = true;
+        processorRef_.setZoomLevel(z);
+        arrangementView_.setZoomLevel(z);
+        suppressLinkedTimelineZoom_ = false;
+    };
     arrangementView_.onVisibleStartTimeChanged = [this](double visibleStartTimeSeconds) {
         if (suppressLinkedTimelineScroll_) {
             return;

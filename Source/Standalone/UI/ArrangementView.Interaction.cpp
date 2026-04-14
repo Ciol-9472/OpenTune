@@ -583,6 +583,7 @@ void ArrangementViewComponent::applyWheelTimelineZoom(float deltaY, int anchorCo
     double pps = 100.0 * newZoom;
     int newOffset = static_cast<int>(timeAtMouse * pps) + 8 - anchorContentX;
     setScrollOffset(newOffset);
+    smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
 
     if (onUserTimelineZoomChanged) {
         onUserTimelineZoomChanged(newZoom);
