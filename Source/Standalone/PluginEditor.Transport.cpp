@@ -41,6 +41,12 @@ void OpenTuneAudioProcessorEditor::loopToggled(bool enabled)
     markSessionNeedsSave();
 }
 
+void OpenTuneAudioProcessorEditor::bypassToggled(bool enabled)
+{
+    processorRef_.setBypassEnabled(enabled);
+    markSessionNeedsSave();
+}
+
 void OpenTuneAudioProcessorEditor::bpmChanged(double newBpm)
 {
     processorRef_.setBpm(newBpm);

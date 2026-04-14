@@ -282,6 +282,7 @@ private:
     // Transport control
     std::atomic<bool> isPlaying_{false};
     std::atomic<bool> loopEnabled_{false};
+    std::atomic<bool> bypassEnabled_{false};
     double bpm_{120.0};  // Standalone 模式下的默认 BPM（插件模式下从主机同步）
     std::atomic<double> playStartPosition_{0.0};  // 播放起始位置（按下 Play 时的位置）
 
@@ -472,6 +473,8 @@ public:
     bool isPlaying() const { return isPlaying_; }
     void setLoopEnabled(bool enabled);
     bool isLoopEnabled() const { return loopEnabled_; }
+    void setBypassEnabled(bool enabled);
+    bool isBypassEnabled() const { return bypassEnabled_; }
     void setPosition(double seconds);
     double getPosition() const;
     

@@ -577,6 +577,7 @@ TransportBarComponent::TransportBarComponent()
     , pauseButton_(LOC(kPause), ToolbarIcons::getPauseIcon())
     , stopButton_(LOC(kStop), ToolbarIcons::getStopIcon())
     , loopButton_(LOC(kLoop), ToolbarIcons::getLoopIcon())
+    , bypassButton_("Bypass", ToolbarIcons::getWaveformIcon())
     , tapButton_("Tap", ToolbarIcons::getTapIcon())
 {
     // Setup Menu Buttons
@@ -613,6 +614,15 @@ TransportBarComponent::TransportBarComponent()
     loopButton_.onClick = [this] { onLoopToggled(); };
     loopButton_.setTooltip(LOC(kLoop));
     addAndMakeVisible(loopButton_);
+
+    // Setup Bypass Button (toggle original voice vs corrected voice)
+    bypassButton_.setClickingTogglesState(true);
+    bypassButton_.onClick = [this] {
+        const bool enabled = bypassButton_.getToggleState();
+        listeners_.call([enabled](Listener& l) { l.bypassToggled(enabled); });
+    };
+    bypassButton_.setTooltip("Bypass");
+    addAndMakeVisible(bypassButton_);
 
     // Setup BPM Label
     bpmLabel_.setText("BPM", juce::dontSendNotification);
@@ -695,6 +705,7 @@ void TransportBarComponent::refreshLocalizedText()
     pauseButton_.setTooltip(LOC(kPause));
     stopButton_.setTooltip(LOC(kStop));
     loopButton_.setTooltip(LOC(kLoop));
+    bypassButton_.setTooltip("Bypass");
     tapButton_.setTooltip(LOC(kTapTempo));
     
     // 刷新 scaleLabel
@@ -816,6 +827,8 @@ void TransportBarComponent::resized()
     stopButton_.setBounds(row.removeFromLeft(buttonWidth));
     row.removeFromLeft(spacing);
     loopButton_.setBounds(row.removeFromLeft(buttonWidth));
+    row.removeFromLeft(spacing);
+    bypassButton_.setBounds(row.removeFromLeft(buttonWidth));
     row.removeFromLeft(groupGap);
 
     const int timeDisplayWidth = 156;
@@ -875,6 +888,16 @@ void TransportBarComponent::setLoopEnabled(bool enabled)
 bool TransportBarComponent::isLoopEnabled() const
 {
     return loopButton_.getToggleState();
+}
+
+void TransportBarComponent::setBypassEnabled(bool enabled)
+{
+    bypassButton_.setToggleState(enabled, juce::dontSendNotification);
+}
+
+bool TransportBarComponent::isBypassEnabled() const
+{
+    return bypassButton_.getToggleState();
 }
 
 void TransportBarComponent::setBpm(double bpm)
