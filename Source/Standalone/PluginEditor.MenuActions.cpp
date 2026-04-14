@@ -881,6 +881,7 @@ void OpenTuneAudioProcessorEditor::checkUnsavedChangesThen(std::function<void()>
         }
 
         if (safeThis->sessionProjectFile_.existsAsFile()) {
+            safeThis->pianoRoll_.flushWorkingNotesToProcessor();
             if (!safeThis->processorRef_.saveProjectToFile(safeThis->sessionProjectFile_)) {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::WarningIcon,
@@ -929,6 +930,7 @@ void OpenTuneAudioProcessorEditor::runSaveProjectDialogThen(std::function<void()
 
         LastFileDialogPaths::rememberSaveSelection(FileDialogKind::SaveProject, file);
 
+        pianoRoll_.flushWorkingNotesToProcessor();
         if (!processorRef_.saveProjectToFile(file)) {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
@@ -982,6 +984,7 @@ void OpenTuneAudioProcessorEditor::newProjectRequested()
         }
 
         if (safeThis->sessionProjectFile_.existsAsFile()) {
+            safeThis->pianoRoll_.flushWorkingNotesToProcessor();
             if (!safeThis->processorRef_.saveProjectToFile(safeThis->sessionProjectFile_)) {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::WarningIcon,
@@ -1007,6 +1010,7 @@ void OpenTuneAudioProcessorEditor::newProjectRequested()
 void OpenTuneAudioProcessorEditor::quickSaveProject()
 {
     if (sessionProjectFile_.existsAsFile()) {
+        pianoRoll_.flushWorkingNotesToProcessor();
         if (processorRef_.saveProjectToFile(sessionProjectFile_)) {
             recentProjects_.add(sessionProjectFile_);
             menuBar_.menuItemsChanged();
@@ -1056,6 +1060,7 @@ void OpenTuneAudioProcessorEditor::saveProjectRequested()
 
         LastFileDialogPaths::rememberSaveSelection(FileDialogKind::SaveProject, file);
 
+        pianoRoll_.flushWorkingNotesToProcessor();
         if (processorRef_.saveProjectToFile(file)) {
             sessionProjectFile_ = file;
             recentProjects_.add(file);
@@ -1328,12 +1333,18 @@ void OpenTuneAudioProcessorEditor::performUndoWithRangeTracking()
 {
     CorrectedSegmentsChangeAction::resetLastAffectedRange();
     processorRef_.performUndo();
-    
+
+    const int activeTrack = processorRef_.getActiveTrackId();
+    const int clipIndex = processorRef_.getSelectedClip(activeTrack);
+    if (clipIndex >= 0) {
+        pianoRoll_.setNotesViewOnly(processorRef_.getClipNotes(activeTrack, clipIndex));
+    }
+
     int start = CorrectedSegmentsChangeAction::getLastAffectedStartFrame();
     int end = CorrectedSegmentsChangeAction::getLastAffectedEndFrame();
-    
+
     AppLogger::log("performUndoWithRangeTracking: diffRange=[" + juce::String(start) + "," + juce::String(end) + "]");
-    
+
     pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
     arrangementView_.repaint();
     trackPanel_.repaint();
@@ -1343,12 +1354,18 @@ void OpenTuneAudioProcessorEditor::performRedoWithRangeTracking()
 {
     CorrectedSegmentsChangeAction::resetLastAffectedRange();
     processorRef_.performRedo();
-    
+
+    const int activeTrack = processorRef_.getActiveTrackId();
+    const int clipIndex = processorRef_.getSelectedClip(activeTrack);
+    if (clipIndex >= 0) {
+        pianoRoll_.setNotesViewOnly(processorRef_.getClipNotes(activeTrack, clipIndex));
+    }
+
     int start = CorrectedSegmentsChangeAction::getLastAffectedStartFrame();
     int end = CorrectedSegmentsChangeAction::getLastAffectedEndFrame();
-    
+
     AppLogger::log("performRedoWithRangeTracking: diffRange=[" + juce::String(start) + "," + juce::String(end) + "]");
-    
+
     pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
     arrangementView_.repaint();
     trackPanel_.repaint();

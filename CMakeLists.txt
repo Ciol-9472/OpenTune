@@ -9,6 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 # Project Definition
 # ==============================================================================
 project(OpenTune VERSION 1.0.0 LANGUAGES CXX C)
+option(OPENTUNE_ENABLE_PY_BRIDGE "Enable dev-only python refine bridge" ON)
 
 # 为 clangd/LSP 导出编译数据库（compile_commands.json）
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -276,6 +277,23 @@ target_sources(OpenTune
         Source/PluginProcessor.MediaIO.cpp
         Source/PluginProcessor.h
 
+        Source/Utils/VocalSegment.h
+        Source/Utils/VocalSegment.cpp
+        Source/Utils/SingingEditDocument.h
+        Source/Utils/SingingEditDocument.cpp
+        Source/Utils/SingingEditPatch.h
+        Source/Utils/SingingEditPatch.cpp
+
+        Source/Services/DsJsonIO.h
+        Source/Services/DsJsonIO.cpp
+        Source/Services/DiffSingerBridgeClient.h
+        Source/Services/DiffSingerBridgeClient.cpp
+        Source/Services/RefineTaskQueue.h
+        Source/Services/RefineTaskQueue.cpp
+
+        Source/Standalone/UI/VocalTimelineStrip.h
+        Source/Standalone/UI/VocalTimelineStrip.cpp
+
         # Inference Layer
         Source/Inference/RenderCache.cpp
         Source/Inference/VocoderFactory.h
@@ -482,6 +500,7 @@ target_compile_definitions(OpenTune
     PRIVATE
         # OpenTune specific
         OPENTUNE_VERSION="${PROJECT_VERSION}"
+        OPENTUNE_ENABLE_PY_BRIDGE=$<BOOL:${OPENTUNE_ENABLE_PY_BRIDGE}>
         OPENTUNE_D3D12_AGILITY_SDK_VERSION=${OPENTUNE_D3D12_SDK_VERSION}
         ORT_API_MANUAL_INIT
         # Audio format support (import)
@@ -582,6 +601,13 @@ if(WIN32)
         COMMENT "Copying AI models to Standalone..."
     )
 
+    add_custom_command(TARGET OpenTune_Standalone POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/python"
+            "$<TARGET_FILE_DIR:OpenTune_Standalone>/python"
+        COMMENT "Copying opentune_ds_service Python package next to Standalone..."
+    )
+
 elseif(APPLE)
     add_custom_command(TARGET OpenTune_Standalone POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -602,6 +628,13 @@ elseif(APPLE)
             "${RMVPE_MODEL}"
             "$<TARGET_BUNDLE_DIR:OpenTune_Standalone>/Contents/Resources/models/rmvpe.onnx"
         COMMENT "Copying AI models to app bundle Resources..."
+    )
+
+    add_custom_command(TARGET OpenTune_Standalone POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/python"
+            "$<TARGET_FILE_DIR:OpenTune_Standalone>/python"
+        COMMENT "Copying opentune_ds_service Python package into app bundle..."
     )
 endif()
 

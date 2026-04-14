@@ -17,6 +17,7 @@
 #include "PluginProcessor.h"
 #include "UI/ToolIds.h"
 #include "UI/PianoRollComponent.h"
+#include "UI/VocalTimelineStrip.h"
 #include "UI/MenuBarComponent.h"
 #include "UI/TransportBarComponent.h"
 #include "UI/TopBarComponent.h"
@@ -219,6 +220,7 @@ private:
     ArrangementViewComponent arrangementView_;
     MainWorkspaceSplitterBar workspaceSplitter_;
     PianoRollComponent pianoRoll_;
+    VocalTimelineStrip vocalTimelineStrip_;
     AutoRenderOverlayComponent autoRenderOverlay_;
 
     RecentProjectsManager recentProjects_;

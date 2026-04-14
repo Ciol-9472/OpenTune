@@ -307,7 +307,12 @@ void OpenTuneAudioProcessorEditor::setInferenceActive(bool active)
 }
 
 OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcessor& p)
-    : AudioProcessorEditor(&p), processorRef_(p), menuBar_(p), topBar_(menuBar_, transportBar_), arrangementView_(p)
+    : AudioProcessorEditor(&p),
+      processorRef_(p),
+      menuBar_(p),
+      topBar_(menuBar_, transportBar_),
+      arrangementView_(p),
+      vocalTimelineStrip_(p, pianoRoll_, p.getUndoManager())
 {
     // Initialize track volumes array
     lastTrackVolumes_.fill(1.0f);
@@ -534,6 +539,8 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     arrangementView_.setPlayheadPositionSource(processorRef_.getPositionAtomic());
     
     addAndMakeVisible(pianoRoll_);
+    addAndMakeVisible(vocalTimelineStrip_);
+    vocalTimelineStrip_.setTrackClip(activeTrack, clipIndex);
 
     // Add AutoRenderOverlay (initially hidden, covers PianoRoll during AUTO)
     addAndMakeVisible(autoRenderOverlay_);
@@ -995,6 +1002,10 @@ void OpenTuneAudioProcessorEditor::resized()
         arrangementView_.setBounds(arrArea);
         workspaceSplitter_.setVisible(true);
         workspaceSplitter_.setBounds(bounds.removeFromTop(kSplitterH));
+        constexpr int kVocalTimelineStripHeight = 28;
+        vocalTimelineStrip_.setVisible(true);
+        vocalTimelineStrip_.setBounds(bounds.removeFromTop(kVocalTimelineStripHeight));
+        bounds.removeFromTop(2);
         pianoRoll_.setBounds(bounds);
     }
     else
@@ -1008,6 +1019,10 @@ void OpenTuneAudioProcessorEditor::resized()
         arrangementView_.setBounds(arrArea);
         workspaceSplitter_.setVisible(false);
         workspaceSplitter_.setBounds({});
+        constexpr int kVocalTimelineStripHeight = 28;
+        vocalTimelineStrip_.setVisible(true);
+        vocalTimelineStrip_.setBounds(bounds.removeFromTop(kVocalTimelineStripHeight));
+        bounds.removeFromTop(2);
         pianoRoll_.setBounds(bounds);
     }
 
@@ -1325,7 +1340,7 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
 
     if (!hasUserAudio) {
         pianoRoll_.setPitchCurve(nullptr);
-        pianoRoll_.setNotes({});
+        pianoRoll_.setNotesViewOnly({});
     }
 
     // Restore Pitch Curve
@@ -1336,7 +1351,13 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     applyResolvedScaleForClip(trackId, clipIndex);
 
     // Restore Notes
-    pianoRoll_.setNotes(processorRef_.getClipNotes(trackId, clipIndex));
+    pianoRoll_.setNotesViewOnly(processorRef_.getClipNotes(trackId, clipIndex));
+
+    if (clipIndex >= 0) {
+        vocalTimelineStrip_.setTrackClip(trackId, clipIndex);
+    } else {
+        vocalTimelineStrip_.setTrackClip(-1, -1);
+    }
 }
 
 void OpenTuneAudioProcessorEditor::toolSelected(int toolId)
@@ -1969,10 +1990,12 @@ void OpenTuneAudioProcessorEditor::clearAutoTuneEditsForClip(int trackId, int cl
         return;
     }
 
-    processorRef_.setClipNotes(trackId, clipIndex, notes);
+    if (!processorRef_.setClipNotes(trackId, clipIndex, notes)) {
+        return;
+    }
 
     if (pianoRoll_.getCurrentTrackId() == trackId && pianoRoll_.getCurrentClipId() == clipId) {
-        pianoRoll_.setNotes(notes);
+        pianoRoll_.setNotesViewOnly(notes);
     }
 }
 

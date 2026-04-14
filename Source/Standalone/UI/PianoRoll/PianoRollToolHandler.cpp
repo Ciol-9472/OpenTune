@@ -12,7 +12,20 @@ namespace OpenTune {
 PianoRollToolHandler::PianoRollToolHandler(Context context)
     : ctx_(std::move(context))
 {
+    jassert(ctx_.notesWorking != nullptr);
     AppLogger::debug("[PianoRollToolHandler] Created with default tool");
+}
+
+std::vector<Note>& PianoRollToolHandler::workNotes() noexcept
+{
+    jassert(ctx_.notesWorking != nullptr);
+    return *ctx_.notesWorking;
+}
+
+const std::vector<Note>& PianoRollToolHandler::workNotes() const noexcept
+{
+    jassert(ctx_.notesWorking != nullptr);
+    return *ctx_.notesWorking;
 }
 
 void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
@@ -53,7 +66,7 @@ void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
         const float mousePitch = ctx_.yToFreq((float)e.y);
         const float mouseMidiVal = 69.0f + 12.0f * std::log2(mousePitch / 440.0f) - 0.5f;
 
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         Note* edgeNote = nullptr;
         NoteResizeEdge pickedEdge = NoteResizeEdge::None;
         const bool edgeHit = pickBestNoteEdgeHit(
@@ -303,7 +316,7 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
         }
 
         AppLogger::debug("[PianoRollToolHandler] keyPressed: select all");
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         if (notes.empty()) {
             return true;
         }

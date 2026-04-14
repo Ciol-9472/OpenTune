@@ -8,7 +8,9 @@
 #include "Note.h"
 #include "HermiteInterpolation.h"
 #include "ClipSnapshot.h"
-#include "../Utils/PitchCurve.h"
+#include "PitchCurve.h"
+#include "SingingEditDocument.h"
+#include "SingingEditPatch.h"
 
 namespace OpenTune {
 
@@ -103,6 +105,73 @@ private:
     uint64_t clipId_;
     std::vector<Note> oldNotes_;
     std::vector<Note> newNotes_;
+    juce::String description_;
+};
+
+class SingingEditDocumentChangeAction : public UndoAction
+{
+public:
+    SingingEditDocumentChangeAction(OpenTuneAudioProcessor& processor, int trackId, uint64_t clipId,
+                                    std::shared_ptr<const SingingEditDocument> before,
+                                    std::shared_ptr<const SingingEditDocument> after,
+                                    const juce::String& description)
+        : processor_(processor),
+          trackId_(trackId),
+          clipId_(clipId),
+          before_(std::make_shared<SingingEditDocument>(*before)),
+          after_(std::make_shared<SingingEditDocument>(*after)),
+          description_(description.isEmpty() ? "Singing edit" : description)
+    {
+    }
+
+    void undo() override;
+    void redo() override;
+
+    juce::String getDescription() const override { return description_; }
+
+    uint64_t getClipId() const override { return clipId_; }
+
+private:
+    OpenTuneAudioProcessor& processor_;
+    int trackId_;
+    uint64_t clipId_;
+    std::shared_ptr<SingingEditDocument> before_;
+    std::shared_ptr<SingingEditDocument> after_;
+    juce::String description_;
+};
+
+class SingingEditPhonemePatchAction : public UndoAction
+{
+public:
+    SingingEditPhonemePatchAction(OpenTuneAudioProcessor& processor, int trackId, uint64_t clipId,
+                                  std::vector<uint64_t> affectedIds,
+                                  std::vector<PhonemeItem> beforeSubset,
+                                  std::vector<PhonemeItem> afterSubset,
+                                  const juce::String& description)
+        : processor_(processor),
+          trackId_(trackId),
+          clipId_(clipId),
+          affectedIds_(std::move(affectedIds)),
+          beforeSubset_(std::move(beforeSubset)),
+          afterSubset_(std::move(afterSubset)),
+          description_(description.isEmpty() ? "Refine phoneme patch" : description)
+    {
+    }
+
+    void undo() override;
+    void redo() override;
+    juce::String getDescription() const override { return description_; }
+    uint64_t getClipId() const override { return clipId_; }
+
+private:
+    bool applySubset(const std::vector<PhonemeItem>& subset);
+
+    OpenTuneAudioProcessor& processor_;
+    int trackId_;
+    uint64_t clipId_;
+    std::vector<uint64_t> affectedIds_;
+    std::vector<PhonemeItem> beforeSubset_;
+    std::vector<PhonemeItem> afterSubset_;
     juce::String description_;
 };
 

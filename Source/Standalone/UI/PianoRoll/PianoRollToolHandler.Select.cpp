@@ -252,7 +252,7 @@ void PianoRollToolHandler::handleSelectTool(const juce::MouseEvent& e)
     float mouseMidi = 69.0f + 12.0f * std::log2(clickedPitch / 440.0f) - 0.5f;
     bool isShiftDown = e.mods.isShiftDown();
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     Note* edgeNote = nullptr;
     NoteResizeEdge pickedEdge = NoteResizeEdge::None;
     if (pickBestNoteEdgeHit(
@@ -379,7 +379,7 @@ void PianoRollToolHandler::handleSelectDrag(const juce::MouseEvent& e)
         float selMinMidi = std::min(ctx_.getState().selection.dragStartMidi, ctx_.getState().selection.dragEndMidi);
         float selMaxMidi = std::max(ctx_.getState().selection.dragStartMidi, ctx_.getState().selection.dragEndMidi);
 
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         const bool additive = ctx_.getState().selection.marqueeAdditive;
         const auto& baseSel = ctx_.getState().selection.marqueeBaseSelected;
         for (auto& note : notes)
@@ -415,7 +415,7 @@ void PianoRollToolHandler::handleSelectDrag(const juce::MouseEvent& e)
         double currentTime = ctx_.xToTime(e.x) - offsetSeconds;
         currentTime = std::max(0.0, currentTime);
         constexpr double kMinNoteDuration = 0.02;
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         applyNoteEdgeResizeWithNeighborTrim(
             notes,
             ctx_.getState().noteResize.note,
@@ -536,7 +536,7 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
         double dirtyStartTime = 1e30;
         double dirtyEndTime = -1e30;
 
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         for (const auto& pair : ctx_.getState().noteDrag.initialNoteOffsets)
         {
             Note* note = pair.first;
@@ -628,7 +628,7 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
         resizedEndTime = ctx_.getState().noteResize.note->endTime;
     }
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     notes.erase(
         std::remove_if(notes.begin(), notes.end(), [](const Note& n) {
             return n.startTime >= n.endTime;
@@ -699,7 +699,7 @@ void PianoRollToolHandler::handleSelectUp(const juce::MouseEvent& e)
 
 void PianoRollToolHandler::deleteSelectedNotes()
 {
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     int beforeCount = static_cast<int>(notes.size());
     notes.erase(
         std::remove_if(notes.begin(), notes.end(), [](const Note& n) {
@@ -731,7 +731,7 @@ void PianoRollToolHandler::selectNotesBetween(Note* start, Note* end)
     if (!start || !end)
         return;
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     double minTime = std::min(start->startTime, end->startTime);
     double maxTime = std::max(start->startTime, end->startTime);
 

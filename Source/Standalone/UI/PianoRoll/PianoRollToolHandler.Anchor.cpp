@@ -19,7 +19,7 @@ void PianoRollToolHandler::loadAnchorsFromCurve()
     if (!snap)
         return;
 
-    const auto& notes = ctx_.getNotes();
+    const auto& notes = workNotes();
     const auto& originalF0 = snap->getOriginalF0();
     if (originalF0.empty() || notes.empty())
         return;
@@ -95,7 +95,7 @@ void PianoRollToolHandler::regenerateAnchorsF0()
             validGroups.push_back(g);
     }
 
-    pitchCurve->setAnchorGroups(validGroups, ctx_.getNotes(), ctx_.getRetuneSpeed());
+    pitchCurve->setAnchorGroups(validGroups, workNotes(), ctx_.getRetuneSpeed());
 
     auto snap = pitchCurve->getSnapshot();
     if (snap)
@@ -154,7 +154,7 @@ void PianoRollToolHandler::handleLineAnchorMouseDown(const juce::MouseEvent& e)
             && ae.activeGroupIndex != hit.groupIdx)
         {
             bool sameNote = false;
-            const auto& notes = ctx_.getNotes();
+            const auto& notes = workNotes();
             const auto& srcGrp = ae.groups[ae.activeGroupIndex];
             const auto& dstGrp = ae.groups[hit.groupIdx];
             if (!srcGrp.points.empty() && !dstGrp.points.empty())
@@ -232,7 +232,7 @@ void PianoRollToolHandler::handleLineAnchorMouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    const auto& notes = ctx_.getNotes();
+    const auto& notes = workNotes();
     int targetGroupIdx = -1;
     for (int gi = 0; gi < static_cast<int>(ae.groups.size()); ++gi)
     {
@@ -349,7 +349,7 @@ void PianoRollToolHandler::handleLineAnchorMouseDrag(const juce::MouseEvent& e)
             double newTime = ctx_.xToTime(e.x) - offsetSeconds;
 
             auto& grp = ae.groups[ae.activeGroupIndex];
-            const auto& notes = ctx_.getNotes();
+            const auto& notes = workNotes();
             double clampMin = -1e9;
             double clampMax = 1e9;
             if (!grp.points.empty())

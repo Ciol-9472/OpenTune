@@ -1,5 +1,7 @@
 #include "UndoAction.h"
 #include "../PluginProcessor.h"
+#include "AppLogger.h"
+#include <algorithm>
 #include <cmath>
 
 namespace OpenTune {
@@ -114,6 +116,61 @@ void NotesChangeAction::undo()
 void NotesChangeAction::redo()
 {
     processor_.setClipNotesById(trackId_, clipId_, newNotes_);
+}
+
+void SingingEditDocumentChangeAction::undo()
+{
+    if (before_ == nullptr) {
+        return;
+    }
+    processor_.setClipSingingEditById(trackId_, clipId_, std::make_shared<SingingEditDocument>(*before_));
+}
+
+void SingingEditDocumentChangeAction::redo()
+{
+    if (after_ == nullptr) {
+        return;
+    }
+    processor_.setClipSingingEditById(trackId_, clipId_, std::make_shared<SingingEditDocument>(*after_));
+}
+
+bool SingingEditPhonemePatchAction::applySubset(const std::vector<PhonemeItem>& subset)
+{
+    const int clipIndex = processor_.getClipIndexById(trackId_, clipId_);
+    if (clipIndex < 0) {
+        return false;
+    }
+    auto doc = processor_.cloneClipSingingEdit(trackId_, clipIndex);
+    if (doc == nullptr) {
+        return false;
+    }
+    auto& phonemes = doc->getPhonemes();
+    for (const auto& item : subset) {
+        auto it = std::find_if(phonemes.begin(), phonemes.end(),
+                               [&item](const PhonemeItem& p) { return p.id == item.id; });
+        if (it != phonemes.end()) {
+            *it = item;
+        }
+    }
+    auto validation = doc->validateAndNormalize(0.0);
+    if (!validation.ok) {
+        return false;
+    }
+    return processor_.setClipSingingEditById(trackId_, clipId_, doc);
+}
+
+void SingingEditPhonemePatchAction::undo()
+{
+    if (!applySubset(beforeSubset_)) {
+        AppLogger::error("SingingEditPhonemePatchAction::undo failed");
+    }
+}
+
+void SingingEditPhonemePatchAction::redo()
+{
+    if (!applySubset(afterSubset_)) {
+        AppLogger::error("SingingEditPhonemePatchAction::redo failed");
+    }
 }
 
 // === ClipSplitAction 实现 ===

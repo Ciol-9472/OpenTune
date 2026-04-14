@@ -1,5 +1,6 @@
 #include "PianoRollUndoSupport.h"
 #include "PluginProcessor.h"
+#include "../../../Utils/AppLogger.h"
 #include <algorithm>
 #include <set>
 #include <tuple>
@@ -84,6 +85,7 @@ bool PianoRollUndoSupport::notesEquivalent(const std::vector<Note>& a, const std
         if (!nearlyEqualFloat(x.vibratoRate, y.vibratoRate)) return false;
         if (!nearlyEqualFloat(x.velocity, y.velocity)) return false;
         if (x.isVoiced != y.isVoiced) return false;
+        if (x.stableId != y.stableId) return false;
     }
     return true;
 }
@@ -157,10 +159,19 @@ void PianoRollUndoSupport::commitTransaction()
             return false;
         }();
 
+    const uint64_t clipId = ctx_.getCurrentClipId ? ctx_.getCurrentClipId() : 0;
+    const int trackId = ctx_.getCurrentTrackId ? ctx_.getCurrentTrackId() : 0;
+    OpenTuneAudioProcessor* processor = ctx_.getProcessor ? ctx_.getProcessor() : nullptr;
+
+    if (notesChanged && processor != nullptr && clipId != 0 && trackId >= 0) {
+        if (!processor->setClipNotesById(trackId, clipId, afterNotes)) {
+            AppLogger::error("PianoRollUndoSupport::commitTransaction: setClipNotesById failed; undo action not recorded");
+            clearTransaction();
+            return;
+        }
+    }
+
     if (notesChanged || segmentsChanged || anchorsChanged) {
-        const uint64_t clipId = ctx_.getCurrentClipId ? ctx_.getCurrentClipId() : 0;
-        const int trackId = ctx_.getCurrentTrackId ? ctx_.getCurrentTrackId() : 0;
-        auto* processor = ctx_.getProcessor ? ctx_.getProcessor() : nullptr;
 
         // Anchor changes use AnchorChangeAction which restores both anchors and segments
         if (anchorsChanged && curve) {

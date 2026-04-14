@@ -314,11 +314,88 @@ static bool writeHostRateDryWavFile(const juce::AudioBuffer<float>& buf, const j
     return writer->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
 }
 
-static bool parseProjectClip(const juce::ValueTree& clipState,
-                             OpenTuneAudioProcessor::TrackState::AudioClip& clip,
-                             int schemaVersion,
-                             OpenTuneAudioProcessor* processorForAudioLoad,
-                             const juce::File& projectFileOnDisk)
+static bool parseProjectFileTree(const juce::ValueTree& root,
+                                 std::array<LoadedTrackData, OpenTuneAudioProcessor::MAX_TRACKS>& outTracks,
+                                 ProjectFileGlobals& outGlobals,
+                                 OpenTuneAudioProcessor* processorForAudioLoad,
+                                 const juce::File& projectFileOnDisk)
+{
+    if (!root.hasType("OpenTuneProject")) {
+        return false;
+    }
+
+    const int schema = static_cast<int>(root.getProperty("schemaVersion", 0));
+    if (schema < 1 || schema > 4) {
+        return false;
+    }
+
+    outGlobals.bpm = static_cast<double>(root.getProperty("bpm", 120.0));
+    outGlobals.zoomLevel = static_cast<double>(root.getProperty("zoomLevel", 1.0));
+    outGlobals.trackHeight = static_cast<int>(root.getProperty("trackHeight", 120));
+    outGlobals.activeTrackId =
+        juce::jlimit(0, OpenTuneAudioProcessor::MAX_TRACKS - 1, static_cast<int>(root.getProperty("activeTrackId", 0)));
+    outGlobals.showWaveform = static_cast<bool>(root.getProperty("showWaveform", true));
+    outGlobals.showLanes = static_cast<bool>(root.getProperty("showLanes", true));
+    outGlobals.loopEnabled = static_cast<bool>(root.getProperty("loopEnabled", false));
+    outGlobals.nextClipId =
+        static_cast<uint64_t>(static_cast<juce::int64>(root.getProperty("nextClipId", static_cast<juce::int64>(1))));
+
+    for (auto& t : outTracks) {
+        t = LoadedTrackData();
+    }
+
+    const auto tracksTree = root.getChildWithName("Tracks");
+    if (!tracksTree.isValid()) {
+        return false;
+    }
+
+    for (auto trackState : tracksTree) {
+        if (!trackState.hasType("Track")) {
+            continue;
+        }
+
+        const int trackId = static_cast<int>(trackState.getProperty("trackId", -1));
+        if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS) {
+            continue;
+        }
+
+        LoadedTrackData& lt = outTracks[static_cast<size_t>(trackId)];
+        lt.name = trackState.getProperty("name", "").toString();
+        lt.colour = juce::Colour(static_cast<juce::uint32>(static_cast<int>(trackState.getProperty("colour", 0))));
+        lt.isMuted = static_cast<bool>(trackState.getProperty("isMuted", false));
+        lt.isSolo = static_cast<bool>(trackState.getProperty("isSolo", false));
+        lt.volume = static_cast<float>(static_cast<double>(trackState.getProperty("volume", 1.0)));
+        lt.selectedClipIndex = static_cast<int>(trackState.getProperty("selectedClipIndex", 0));
+        lt.clips.clear();
+
+        for (auto clipState : trackState) {
+            if (!clipState.hasType("Clip")) {
+                continue;
+            }
+
+            OpenTuneAudioProcessor::TrackState::AudioClip clip;
+            if (processorForAudioLoad == nullptr
+                || !processorForAudioLoad->parseProjectClipFromValueTree(clipState, clip, schema, processorForAudioLoad,
+                                                                         projectFileOnDisk)) {
+                return false;
+            }
+            lt.clips.push_back(std::move(clip));
+        }
+
+        const int n = static_cast<int>(lt.clips.size());
+        lt.selectedClipIndex = n > 0 ? juce::jlimit(0, n - 1, lt.selectedClipIndex) : 0;
+    }
+
+    return true;
+}
+
+} // namespace
+
+bool OpenTuneAudioProcessor::parseProjectClipFromValueTree(const juce::ValueTree& clipState,
+                                                         OpenTuneAudioProcessor::TrackState::AudioClip& clip,
+                                                         int schemaVersion,
+                                                         OpenTuneAudioProcessor* processorForAudioLoad,
+                                                         const juce::File& projectFileOnDisk)
 {
     if (!clipState.hasType("Clip")) {
         return false;
@@ -413,28 +490,33 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
         }
     }
 
-    clip.notes.clear();
-    auto notesTree = clipState.getChildWithName("Notes");
-    if (notesTree.isValid()) {
-        for (auto nv : notesTree) {
-            if (!nv.hasType("Note")) {
-                continue;
-            }
-
-            Note n;
-            n.startTime = static_cast<double>(nv.getProperty("startTime", 0.0));
-            n.endTime = static_cast<double>(nv.getProperty("endTime", 0.0));
-            n.pitch = static_cast<float>(static_cast<double>(nv.getProperty("pitch", 0.0)));
-            n.originalPitch = static_cast<float>(static_cast<double>(nv.getProperty("originalPitch", 0.0)));
-            n.pitchOffset = static_cast<float>(static_cast<double>(nv.getProperty("pitchOffset", 0.0)));
-            n.retuneSpeed = static_cast<float>(static_cast<double>(nv.getProperty("retuneSpeed", -1.0)));
-            n.vibratoDepth = static_cast<float>(static_cast<double>(nv.getProperty("vibratoDepth", -1.0)));
-            n.vibratoRate = static_cast<float>(static_cast<double>(nv.getProperty("vibratoRate", -1.0)));
-            n.velocity = static_cast<float>(static_cast<double>(nv.getProperty("velocity", 1.0)));
-            n.isVoiced = static_cast<bool>(nv.getProperty("isVoiced", true));
-            n.selected = static_cast<bool>(nv.getProperty("selected", false));
-            n.dirty = static_cast<bool>(nv.getProperty("dirty", false));
-            clip.notes.push_back(n);
+    auto singingDoc = std::make_shared<SingingEditDocument>();
+    auto singingTree = clipState.getChildWithName("SingingEdit");
+    if (singingTree.isValid()) {
+        singingDoc->fromValueTree(singingTree);
+    } else {
+        singingDoc->getNotes().clear();
+        auto notesTree = clipState.getChildWithName("Notes");
+        if (notesTree.isValid()) {
+            SingingEditDocument::parseNotesLegacy(notesTree, singingDoc->getNotes());
+        }
+        singingDoc->ensureStableNoteIds();
+    }
+    {
+        const double clipDurSec =
+            TimeCoordinate::samplesToSeconds(clip.audioBuffer->getNumSamples(), TimeCoordinate::kRenderSampleRate);
+        singingDoc->ensureDefaultFullClipSegment(clipDurSec);
+        if (processorForAudioLoad == nullptr) {
+            return false;
+        }
+        SingingEditCommitOptions loadOpts;
+        loadOpts.bumpGeneration = false;
+        loadOpts.clearPendingRefine = true;
+        loadOpts.bumpDocumentRevision = false;
+        loadOpts.bumpEditVersion = false;
+        if (!processorForAudioLoad->commitValidatedSingingEditOntoClip(clip, std::move(singingDoc), clipDurSec,
+                                                                       std::move(loadOpts))) {
+            return false;
         }
     }
 
@@ -457,81 +539,6 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
     clip.renderCache = std::make_shared<RenderCache>();
     return true;
 }
-
-static bool parseProjectFileTree(const juce::ValueTree& root,
-                                 std::array<LoadedTrackData, OpenTuneAudioProcessor::MAX_TRACKS>& outTracks,
-                                 ProjectFileGlobals& outGlobals,
-                                 OpenTuneAudioProcessor* processorForAudioLoad,
-                                 const juce::File& projectFileOnDisk)
-{
-    if (!root.hasType("OpenTuneProject")) {
-        return false;
-    }
-
-    const int schema = static_cast<int>(root.getProperty("schemaVersion", 0));
-    if (schema < 1 || schema > 4) {
-        return false;
-    }
-
-    outGlobals.bpm = static_cast<double>(root.getProperty("bpm", 120.0));
-    outGlobals.zoomLevel = static_cast<double>(root.getProperty("zoomLevel", 1.0));
-    outGlobals.trackHeight = static_cast<int>(root.getProperty("trackHeight", 120));
-    outGlobals.activeTrackId =
-        juce::jlimit(0, OpenTuneAudioProcessor::MAX_TRACKS - 1, static_cast<int>(root.getProperty("activeTrackId", 0)));
-    outGlobals.showWaveform = static_cast<bool>(root.getProperty("showWaveform", true));
-    outGlobals.showLanes = static_cast<bool>(root.getProperty("showLanes", true));
-    outGlobals.loopEnabled = static_cast<bool>(root.getProperty("loopEnabled", false));
-    outGlobals.nextClipId =
-        static_cast<uint64_t>(static_cast<juce::int64>(root.getProperty("nextClipId", static_cast<juce::int64>(1))));
-
-    for (auto& t : outTracks) {
-        t = LoadedTrackData();
-    }
-
-    const auto tracksTree = root.getChildWithName("Tracks");
-    if (!tracksTree.isValid()) {
-        return false;
-    }
-
-    for (auto trackState : tracksTree) {
-        if (!trackState.hasType("Track")) {
-            continue;
-        }
-
-        const int trackId = static_cast<int>(trackState.getProperty("trackId", -1));
-        if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS) {
-            continue;
-        }
-
-        LoadedTrackData& lt = outTracks[static_cast<size_t>(trackId)];
-        lt.name = trackState.getProperty("name", "").toString();
-        lt.colour = juce::Colour(static_cast<juce::uint32>(static_cast<int>(trackState.getProperty("colour", 0))));
-        lt.isMuted = static_cast<bool>(trackState.getProperty("isMuted", false));
-        lt.isSolo = static_cast<bool>(trackState.getProperty("isSolo", false));
-        lt.volume = static_cast<float>(static_cast<double>(trackState.getProperty("volume", 1.0)));
-        lt.selectedClipIndex = static_cast<int>(trackState.getProperty("selectedClipIndex", 0));
-        lt.clips.clear();
-
-        for (auto clipState : trackState) {
-            if (!clipState.hasType("Clip")) {
-                continue;
-            }
-
-            OpenTuneAudioProcessor::TrackState::AudioClip clip;
-            if (!parseProjectClip(clipState, clip, schema, processorForAudioLoad, projectFileOnDisk)) {
-                return false;
-            }
-            lt.clips.push_back(std::move(clip));
-        }
-
-        const int n = static_cast<int>(lt.clips.size());
-        lt.selectedClipIndex = n > 0 ? juce::jlimit(0, n - 1, lt.selectedClipIndex) : 0;
-    }
-
-    return true;
-}
-
-} // namespace
 
 void OpenTuneAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
@@ -707,24 +714,10 @@ bool OpenTuneAudioProcessor::saveProjectToFile(const juce::File& file)
                 clipState.addChild(pitchCurveToValueTree(*clip.pitchCurve), -1, nullptr);
             }
 
-            juce::ValueTree notesTree("Notes");
-            for (const auto& n : clip.notes) {
-                juce::ValueTree nv("Note");
-                nv.setProperty("startTime", n.startTime, nullptr);
-                nv.setProperty("endTime", n.endTime, nullptr);
-                nv.setProperty("pitch", n.pitch, nullptr);
-                nv.setProperty("originalPitch", n.originalPitch, nullptr);
-                nv.setProperty("pitchOffset", n.pitchOffset, nullptr);
-                nv.setProperty("retuneSpeed", n.retuneSpeed, nullptr);
-                nv.setProperty("vibratoDepth", n.vibratoDepth, nullptr);
-                nv.setProperty("vibratoRate", n.vibratoRate, nullptr);
-                nv.setProperty("velocity", n.velocity, nullptr);
-                nv.setProperty("isVoiced", n.isVoiced, nullptr);
-                nv.setProperty("selected", n.selected, nullptr);
-                nv.setProperty("dirty", n.dirty, nullptr);
-                notesTree.addChild(nv, -1, nullptr);
+            const auto sing = clip.getSingingEditDocument();
+            if (sing != nullptr) {
+                clipState.addChild(sing->toValueTree(), -1, nullptr);
             }
-            clipState.addChild(notesTree, -1, nullptr);
 
             juce::ValueTree gapsTree("SilentGaps");
             for (const auto& g : clip.silentGaps) {
@@ -779,6 +772,10 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
     setPlaying(false);
     setPosition(0.0);
 
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancelAll();
+    }
+
     uint64_t maxClipIdSeen = 0;
     {
         const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
@@ -800,6 +797,7 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
             for (auto& c : t.clips) {
                 maxClipIdSeen = std::max(maxClipIdSeen, c.clipId);
                 resampleDrySignal(c, deviceSr);
+                finalizeClipAfterProjectLoad(c);
             }
         }
 
@@ -859,6 +857,10 @@ void OpenTuneAudioProcessor::resetToNewEmptyProject()
     globalUndoManager_.clear();
     setPlaying(false);
     setPosition(0.0);
+
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancelAll();
+    }
 
     {
         const juce::ScopedWriteLock tracksWriteLock(tracksLock_);

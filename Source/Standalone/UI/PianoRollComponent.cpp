@@ -429,7 +429,7 @@ PianoRollToolHandler::Context PianoRollComponent::buildToolHandlerContext() {
     toolCtx.yToFreq = [this](float y) { return yToFreq(y); };
     toolCtx.freqToY = [this](float f) { return freqToY(f); };
 
-    toolCtx.getNotes = [this]() -> std::vector<Note>& { return getCurrentClipNotes(); };
+    toolCtx.notesWorking = &notesWorkingCopy_;
     toolCtx.getSelectedNotes = [this]() -> std::vector<Note*> {
         std::vector<Note*> selected;
         auto& notes = getCurrentClipNotes();
@@ -888,45 +888,70 @@ double PianoRollComponent::xToTime(int x) const {
 
 void PianoRollComponent::setCurrentClipContext(int trackId, uint64_t clipId)
 {
+    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0) {
+        flushWorkingNotesToProcessor();
+    }
     currentTrackId_ = trackId;
     currentClipId_ = clipId;
     if (correctionWorker_) {
         correctionWorker_->setClipContext(trackId, clipId);
     }
+    syncNotesWorkingFromProcessor();
 }
 
 void PianoRollComponent::clearClipContext()
 {
+    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0) {
+        flushWorkingNotesToProcessor();
+    }
     currentTrackId_ = -1;
     currentClipId_ = 0;
+    notesWorkingCopy_.clear();
     correctionInFlight_.store(false, std::memory_order_release);
     if (correctionWorker_) {
         correctionWorker_->setClipContext(-1, 0);
     }
 }
 
-std::vector<Note>& PianoRollComponent::getCurrentClipNotes() {
-    if (!processor_ || currentTrackId_ < 0 || currentClipId_ == 0) {
-        static std::vector<Note> empty;
-        return empty;
+void PianoRollComponent::syncNotesWorkingFromProcessor()
+{
+    notesWorkingCopy_.clear();
+    if (processor_ == nullptr || currentTrackId_ < 0 || currentClipId_ == 0) {
+        return;
     }
-    int clipIndex = processor_->getClipIndexById(currentTrackId_, currentClipId_);
+    const int clipIndex = processor_->getClipIndexById(currentTrackId_, currentClipId_);
     if (clipIndex < 0) {
-        static std::vector<Note> empty;
-        return empty;
+        return;
     }
-    return processor_->getClipNotesRef(currentTrackId_, clipIndex);
+    notesWorkingCopy_ = processor_->getClipNotes(currentTrackId_, clipIndex);
 }
 
-std::vector<Note> PianoRollComponent::getCurrentClipNotesCopy() const {
-    if (!processor_ || currentTrackId_ < 0 || currentClipId_ == 0) {
-        return {};
+void PianoRollComponent::flushWorkingNotesToProcessor()
+{
+    if (processor_ == nullptr || currentTrackId_ < 0 || currentClipId_ == 0) {
+        return;
     }
-    int clipIndex = processor_->getClipIndexById(currentTrackId_, currentClipId_);
+    const int clipIndex = processor_->getClipIndexById(currentTrackId_, currentClipId_);
     if (clipIndex < 0) {
-        return {};
+        return;
     }
-    return processor_->getClipNotes(currentTrackId_, clipIndex);
+    const auto authoritative = processor_->getClipNotes(currentTrackId_, clipIndex);
+    if (PianoRollUndoSupport::notesEquivalent(authoritative, notesWorkingCopy_)) {
+        return;
+    }
+    if (!processor_->setClipNotes(currentTrackId_, clipIndex, notesWorkingCopy_)) {
+        AppLogger::error("PianoRollComponent::flushWorkingNotesToProcessor: setClipNotes failed");
+    }
+}
+
+std::vector<Note>& PianoRollComponent::getCurrentClipNotes()
+{
+    return notesWorkingCopy_;
+}
+
+std::vector<Note> PianoRollComponent::getCurrentClipNotesCopy() const
+{
+    return notesWorkingCopy_;
 }
 
 bool PianoRollComponent::isAutoTuneProcessing() const

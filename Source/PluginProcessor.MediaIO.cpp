@@ -475,6 +475,21 @@ bool OpenTuneAudioProcessor::commitPreparedImportClip(PreparedImportClip&& prepa
     const double deviceSampleRate = currentSampleRate_.load(std::memory_order_relaxed);
     resampleDrySignal(clip, deviceSampleRate);
 
+    {
+        const double clipDurSec = TimeCoordinate::samplesToSeconds(clip.audioBuffer->getNumSamples(),
+                                                                    TimeCoordinate::kRenderSampleRate);
+        auto doc = std::make_shared<SingingEditDocument>(*clip.getSingingEditDocument());
+        doc->ensureDefaultFullClipSegment(clipDurSec);
+        SingingEditCommitOptions insOpts;
+        insOpts.bumpGeneration = false;
+        insOpts.clearPendingRefine = true;
+        insOpts.bumpDocumentRevision = false;
+        insOpts.bumpEditVersion = false;
+        if (!commitValidatedSingingEditOntoClip(clip, std::move(doc), clipDurSec, std::move(insOpts))) {
+            return false;
+        }
+    }
+
     tracks_[prepared.trackId].clips.push_back(std::move(clip));
     return true;
 }

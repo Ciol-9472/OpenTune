@@ -1,6 +1,10 @@
 #include "PluginProcessor.h"
+#include "Services/DiffSingerBridgeClient.h"
+#include "Utils/SingingEditPatch.h"
+#include "Utils/UndoAction.h"
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include "Utils/AppLogger.h"
 #include "Utils/PitchCurve.h"
 
@@ -61,36 +65,6 @@ double clampClipStartNonOverlapping(std::vector<OpenTuneAudioProcessor::TrackSta
     }
 
     return s;
-}
-
-void splitNotesAtLocalSeconds(const std::vector<Note>& src,
-                              double splitT,
-                              std::vector<Note>& outLeft,
-                              std::vector<Note>& outRight)
-{
-    outLeft.clear();
-    outRight.clear();
-    for (Note n : src) {
-        if (n.endTime <= splitT) {
-            outLeft.push_back(n);
-        } else if (n.startTime >= splitT) {
-            n.startTime -= splitT;
-            n.endTime -= splitT;
-            outRight.push_back(n);
-        } else {
-            Note nl = n;
-            nl.endTime = splitT;
-            if (nl.endTime > nl.startTime) {
-                outLeft.push_back(nl);
-            }
-            Note nr = n;
-            nr.startTime = 0.0;
-            nr.endTime = n.endTime - splitT;
-            if (nr.endTime > nr.startTime) {
-                outRight.push_back(nr);
-            }
-        }
-    }
 }
 
 template <typename ClipT>
@@ -250,6 +224,18 @@ uint64_t OpenTuneAudioProcessor::getClipId(int trackId, int clipIndex) const
     return 0;
 }
 
+uint64_t OpenTuneAudioProcessor::getClipGeneration(int trackId, int clipIndex) const
+{
+    if (trackId >= 0 && trackId < MAX_TRACKS) {
+        const juce::ScopedReadLock tracksReadLock(tracksLock_);
+        const auto& clips = tracks_[trackId].clips;
+        if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
+            return clips[clipIndex].clipGeneration;
+        }
+    }
+    return 0;
+}
+
 int OpenTuneAudioProcessor::findClipIndexById(int trackId, uint64_t clipId) const
 {
     if (clipId == 0) {
@@ -344,6 +330,10 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     }
 
     auto& originalClip = clips[clipIndex];
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancel(originalClip.clipId);
+    }
+    originalClip.pendingRefineRequestId = 0;
     const double clipStartSeconds = originalClip.startSeconds;
     const double splitPointSeconds = splitSeconds - clipStartSeconds;
 
@@ -359,8 +349,28 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
         return false;
     }
 
+    const double fullDurSec = static_cast<double>(totalSamples) / kStoredSampleRate;
+    SingingEditDocument leftDoc;
+    SingingEditDocument rightDoc;
+    const auto originalSing = originalClip.getSingingEditDocument();
+    if (originalSing == nullptr || !originalSing->splitByLocalSeconds(splitPointSeconds, leftDoc, rightDoc)) {
+        AppLogger::log("Split rejected: singing edit split validation failed");
+        return false;
+    }
+    leftDoc.ensureDefaultFullClipSegment(splitPointSeconds);
+    rightDoc.ensureDefaultFullClipSegment(std::max(0.0, fullDurSec - splitPointSeconds));
+
+    const double rightDurSec = std::max(0.0, fullDurSec - splitPointSeconds);
+    auto leftSing = std::make_shared<SingingEditDocument>(std::move(leftDoc));
+    auto rightSing = std::make_shared<SingingEditDocument>(std::move(rightDoc));
+    if (!leftSing->validateAndNormalize(splitPointSeconds).ok || !rightSing->validateAndNormalize(rightDurSec).ok) {
+        AppLogger::log("Split rejected: singing edit validate failed");
+        return false;
+    }
+
     TrackState::AudioClip newClip;
     newClip.clipId = nextClipId_.fetch_add(1);
+    newClip.clipGeneration = 1;
     newClip.name = originalClip.name;
     newClip.colour = originalClip.colour;
     newClip.gain = originalClip.gain;
@@ -390,12 +400,6 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     computeClipSilentGaps(newClip);
 
     newClip.detectedKey = originalClip.detectedKey;
-
-    std::vector<Note> leftNotes;
-    std::vector<Note> rightNotes;
-    splitNotesAtLocalSeconds(originalClip.notes, splitPointSeconds, leftNotes, rightNotes);
-    originalClip.notes = std::move(leftNotes);
-    newClip.notes = std::move(rightNotes);
 
     if (originalClip.pitchCurve) {
         auto snap = originalClip.pitchCurve->getSnapshot();
@@ -445,8 +449,33 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     resampleDrySignal(originalClip, deviceSr);
     resampleDrySignal(newClip, deviceSr);
 
+    const uint64_t originalClipId = originalClip.clipId;
+    const uint64_t newClipId = newClip.clipId;
     clips.insert(clips.begin() + clipIndex + 1, std::move(newClip));
     tracks_[trackId].selectedClipIndex = clipIndex + 1;
+
+    std::vector<SingingEditBatchCommitItem> batch;
+    batch.reserve(2);
+    {
+        SingingEditBatchCommitItem a;
+        a.trackId = trackId;
+        a.clipId = originalClipId;
+        a.newDoc = std::move(leftSing);
+        a.options = SingingEditCommitOptions{};
+        batch.push_back(std::move(a));
+    }
+    {
+        SingingEditBatchCommitItem b;
+        b.trackId = trackId;
+        b.clipId = newClipId;
+        b.newDoc = std::move(rightSing);
+        b.options = SingingEditCommitOptions{};
+        batch.push_back(std::move(b));
+    }
+    if (!commitClipSingingEditDocumentBatchLocked(std::move(batch))) {
+        AppLogger::error("splitClipAtSeconds: batch commit failed (singing edit)");
+        return false;
+    }
 
     return true;
 }
@@ -522,6 +551,11 @@ bool OpenTuneAudioProcessor::mergeSplitClips(int trackId, uint64_t originalClipI
     const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
     auto& clips = tracks_[trackId].clips;
 
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancel(originalClipId);
+        refineTaskQueue_->cancel(newClipId);
+    }
+
     int originalIndex = -1;
     int newIndex = -1;
     for (int i = 0; i < static_cast<int>(clips.size()); ++i) {
@@ -545,6 +579,8 @@ bool OpenTuneAudioProcessor::mergeSplitClips(int trackId, uint64_t originalClipI
 
     auto& leftClip = clips[leftIdx];
     auto& rightClip = clips[rightIdx];
+    leftClip.pendingRefineRequestId = 0;
+    rightClip.pendingRefineRequestId = 0;
 
     const int leftSamples = leftClip.audioBuffer->getNumSamples();
     const int rightSamples = rightClip.audioBuffer->getNumSamples();
@@ -558,6 +594,11 @@ bool OpenTuneAudioProcessor::mergeSplitClips(int trackId, uint64_t originalClipI
     const int gapSamples = static_cast<int>(std::llround(gapSec * kStoredSampleRate));
 
     const int mergedTotalSamples = leftSamples + gapSamples + rightSamples;
+    const double rightTimeShift = leftDurSec + gapSec;
+
+    auto mergedSing = std::make_shared<SingingEditDocument>(*leftClip.getSingingEditDocument());
+    mergedSing->mergeFromRight(*rightClip.getSingingEditDocument(), rightTimeShift);
+
     auto mergedBuffer = std::make_shared<juce::AudioBuffer<float>>(channels, mergedTotalSamples);
     mergedBuffer->clear();
     for (int ch = 0; ch < leftClip.audioBuffer->getNumChannels(); ++ch) {
@@ -570,18 +611,11 @@ bool OpenTuneAudioProcessor::mergeSplitClips(int trackId, uint64_t originalClipI
     leftClip.sourceAudioAbsolutePath.clear();
     leftClip.fadeOutDuration = rightClip.fadeOutDuration;
 
-    const double rightTimeShift = leftDurSec + gapSec;
-
-    std::vector<Note> mergedNotes = leftClip.notes;
-    for (Note n : rightClip.notes) {
-        n.startTime += rightTimeShift;
-        n.endTime += rightTimeShift;
-        mergedNotes.push_back(n);
+    SingingEditCommitOptions mergeOpts;
+    if (!commitClipSingingEditDocumentLocked(trackId, leftClip.clipId, std::move(mergedSing), std::move(mergeOpts))) {
+        AppLogger::log("Merge rejected: singing edit commit failed");
+        return false;
     }
-    std::sort(mergedNotes.begin(), mergedNotes.end(), [](const Note& a, const Note& b) {
-        return a.startTime < b.startTime;
-    });
-    leftClip.notes = std::move(mergedNotes);
 
     if (leftClip.pitchCurve && rightClip.pitchCurve) {
         std::shared_ptr<PitchCurve> mergedCurve;
@@ -706,6 +740,11 @@ bool OpenTuneAudioProcessor::deleteClipById(int trackId, uint64_t clipId, ClipSn
     if (deletedIndexOut != nullptr) {
         *deletedIndexOut = clipIndex;
     }
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancel(clipId);
+    }
+    it->pendingRefineRequestId = 0;
+    ++it->clipGeneration;
 
     clips.erase(clips.begin() + clipIndex);
     if (tracks_[trackId].selectedClipIndex >= static_cast<int>(clips.size())) {
@@ -736,8 +775,36 @@ bool OpenTuneAudioProcessor::insertClipSnapshot(int trackId, int insertIndex, co
 
     TrackState::AudioClip clip;
     const uint64_t clipId = (forcedClipId != 0) ? forcedClipId : nextClipId_.fetch_add(1);
+    uint64_t G_cur = 0;
+    for (const auto& c : clips) {
+        if (c.clipId == clipId) {
+            G_cur = c.clipGeneration;
+            break;
+        }
+    }
+
     copySnapshotToClip(snap, clip, clipId);
+    clip.pendingRefineRequestId = 0;
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancel(clipId);
+    }
     computeClipSilentGaps(clip);
+    {
+        const double clipDurSec = TimeCoordinate::samplesToSeconds(clip.audioBuffer->getNumSamples(),
+                                                                    TimeCoordinate::kRenderSampleRate);
+        auto doc = std::make_shared<SingingEditDocument>(*clip.getSingingEditDocument());
+        doc->ensureDefaultFullClipSegment(clipDurSec);
+        SingingEditCommitOptions insOpts;
+        insOpts.bumpGeneration = false;
+        insOpts.clearPendingRefine = false;
+        insOpts.bumpDocumentRevision = false;
+        insOpts.bumpEditVersion = false;
+        if (!commitValidatedSingingEditOntoClip(clip, std::move(doc), clipDurSec, std::move(insOpts))) {
+            AppLogger::log("InsertClip rejected: singing edit validation failed");
+            return false;
+        }
+    }
+    clip.clipGeneration = std::max<uint64_t>(uint64_t(1), std::max(G_cur + uint64_t(1), snap.clipGeneration + uint64_t(1)));
 
     clips.insert(clips.begin() + insertIndex, std::move(clip));
     if (tracks_[trackId].selectedClipIndex >= insertIndex) {
@@ -776,6 +843,11 @@ bool OpenTuneAudioProcessor::moveClipToTrack(int sourceTrackId, int targetTrackI
     }
 
     TrackState::AudioClip movedClip = std::move(*it);
+    if (refineTaskQueue_) {
+        refineTaskQueue_->cancel(clipId);
+    }
+    ++movedClip.clipGeneration;
+    movedClip.pendingRefineRequestId = 0;
     movedClip.startSeconds = std::max(0.0, newStartSeconds);
     movedClip.colour = juce::Colour::fromHSV(targetTrackId * 0.3f, 0.6f, 0.8f, 1.0f);
     sourceClips.erase(it);
@@ -880,23 +952,11 @@ std::vector<Note> OpenTuneAudioProcessor::getClipNotes(int trackId, int clipInde
         const juce::ScopedReadLock tracksReadLock(tracksLock_);
         const auto& clips = tracks_[trackId].clips;
         if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
-            return clips[clipIndex].notes;
+            const auto doc = clips[clipIndex].getSingingEditDocument();
+            return doc != nullptr ? doc->getNotes() : std::vector<Note>{};
         }
     }
     return {};
-}
-
-std::vector<Note>& OpenTuneAudioProcessor::getClipNotesRef(int trackId, int clipIndex)
-{
-    static std::vector<Note> empty;
-    if (trackId >= 0 && trackId < MAX_TRACKS) {
-        const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
-        auto& clips = tracks_[trackId].clips;
-        if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
-            return clips[clipIndex].notes;
-        }
-    }
-    return empty;
 }
 
 int OpenTuneAudioProcessor::getClipIndexById(int trackId, uint64_t clipId) const
@@ -913,30 +973,426 @@ int OpenTuneAudioProcessor::getClipIndexById(int trackId, uint64_t clipId) const
     return -1;
 }
 
-void OpenTuneAudioProcessor::setClipNotes(int trackId, int clipIndex, const std::vector<Note>& notes)
+bool OpenTuneAudioProcessor::commitValidatedSingingEditOntoClip(TrackState::AudioClip& clip,
+                                                                std::shared_ptr<SingingEditDocument> newDoc,
+                                                                double clipDurationSec,
+                                                                SingingEditCommitOptions options)
 {
-    if (trackId >= 0 && trackId < MAX_TRACKS) {
-        const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
-        auto& clips = tracks_[trackId].clips;
-        if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
-            clips[clipIndex].notes = notes;
+    if (newDoc == nullptr) {
+        return false;
+    }
+    const auto vr = newDoc->validateAndNormalize(clipDurationSec);
+    if (!vr.ok) {
+        return false;
+    }
+    return applySingingEditInstallLocked(clip, std::move(newDoc), std::move(options));
+}
+
+bool OpenTuneAudioProcessor::applySingingEditInstallLocked(TrackState::AudioClip& clip,
+                                                          std::shared_ptr<SingingEditDocument> newDoc,
+                                                          SingingEditCommitOptions options)
+{
+    clip.singingEdit_ = std::move(newDoc);
+    if (clip.singingEdit_ == nullptr) {
+        clip.singingEdit_ = std::make_shared<SingingEditDocument>();
+    }
+    clip.singingEdit_->ensureStableNoteIds();
+    if (options.bumpDocumentRevision) {
+        clip.singingEdit_->bumpDocumentRevision();
+    }
+    if (options.clearPendingRefine) {
+        clip.pendingRefineRequestId = 0;
+    }
+    if (options.hasClipGenerationOverride) {
+        clip.clipGeneration = options.clipGenerationOverride;
+    } else if (options.bumpGeneration) {
+        ++clip.clipGeneration;
+    }
+    if (options.bumpEditVersion) {
+        bumpEditVersion();
+    }
+    if (options.undoAction != nullptr) {
+        globalUndoManager_.addAction(std::move(options.undoAction));
+    }
+    return true;
+}
+
+bool OpenTuneAudioProcessor::commitClipSingingEditDocumentLocked(int trackId, uint64_t clipId,
+                                                                 std::shared_ptr<SingingEditDocument> newDoc,
+                                                                 SingingEditCommitOptions options)
+{
+    auto& clips = tracks_[trackId].clips;
+    auto it = std::find_if(clips.begin(), clips.end(),
+                           [clipId](const TrackState::AudioClip& c) { return c.clipId == clipId; });
+    if (it == clips.end() || newDoc == nullptr) {
+        return false;
+    }
+    TrackState::AudioClip& clip = *it;
+    const double clipDur = clipStoredDurationSeconds(clip);
+    const auto vr = newDoc->validateAndNormalize(clipDur);
+    if (!vr.ok) {
+        return false;
+    }
+    return applySingingEditInstallLocked(clip, std::move(newDoc), std::move(options));
+}
+
+bool OpenTuneAudioProcessor::commitClipSingingEditDocumentBatchLocked(std::vector<SingingEditBatchCommitItem> items)
+{
+    std::vector<std::tuple<TrackState::AudioClip*, std::shared_ptr<SingingEditDocument>, SingingEditCommitOptions>> staged;
+    staged.reserve(items.size());
+    for (auto& item : items) {
+        if (item.trackId < 0 || item.trackId >= MAX_TRACKS || item.clipId == 0 || item.newDoc == nullptr) {
+            return false;
+        }
+        auto& clips = tracks_[item.trackId].clips;
+        auto it = std::find_if(clips.begin(), clips.end(),
+                               [cid = item.clipId](const TrackState::AudioClip& c) { return c.clipId == cid; });
+        if (it == clips.end()) {
+            return false;
+        }
+        TrackState::AudioClip& clipRef = *it;
+        const double clipDur = clipStoredDurationSeconds(clipRef);
+        auto doc = item.newDoc;
+        const auto vr = doc->validateAndNormalize(clipDur);
+        if (!vr.ok) {
+            return false;
+        }
+        staged.emplace_back(&clipRef, std::move(doc), std::move(item.options));
+    }
+    for (auto& entry : staged) {
+        if (!applySingingEditInstallLocked(*std::get<0>(entry), std::move(std::get<1>(entry)), std::move(std::get<2>(entry)))) {
+            return false;
         }
     }
+    return true;
+}
+
+bool OpenTuneAudioProcessor::commitClipSingingEditDocumentBatch(std::vector<SingingEditBatchCommitItem> items)
+{
+    if (items.empty()) {
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    return commitClipSingingEditDocumentBatchLocked(std::move(items));
+}
+
+bool OpenTuneAudioProcessor::commitClipSingingEditDocument(int trackId, uint64_t clipId,
+                                                            std::shared_ptr<SingingEditDocument> newDoc,
+                                                            SingingEditCommitOptions options)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipId == 0 || newDoc == nullptr) {
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    return commitClipSingingEditDocumentLocked(trackId, clipId, std::move(newDoc), std::move(options));
+}
+
+void OpenTuneAudioProcessor::finalizeClipAfterProjectLoad(TrackState::AudioClip& clip)
+{
+    clip.pendingRefineRequestId = 0;
+    ++clip.clipGeneration;
+}
+
+bool OpenTuneAudioProcessor::setClipNotes(int trackId, int clipIndex, const std::vector<Note>& notes)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS) {
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    if (clipIndex < 0 || clipIndex >= static_cast<int>(clips.size())) {
+        return false;
+    }
+    auto& clip = clips[static_cast<size_t>(clipIndex)];
+    const auto cur = clip.getSingingEditDocument();
+    if (cur == nullptr) {
+        return false;
+    }
+    auto newDoc = std::make_shared<SingingEditDocument>(*cur);
+    newDoc->getNotes() = notes;
+    newDoc->ensureStableNoteIds();
+    SingingEditCommitOptions opts;
+    return commitClipSingingEditDocumentLocked(trackId, clip.clipId, std::move(newDoc), std::move(opts));
 }
 
 bool OpenTuneAudioProcessor::setClipNotesById(int trackId, uint64_t clipId, const std::vector<Note>& notes)
 {
-    if (trackId >= 0 && trackId < MAX_TRACKS) {
-        const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
-        auto& clips = tracks_[trackId].clips;
-        for (auto& clip : clips) {
-            if (clip.clipId == clipId) {
-                clip.notes = notes;
-                return true;
+    if (trackId < 0 || trackId >= MAX_TRACKS) {
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    for (auto& clip : clips) {
+        if (clip.clipId == clipId) {
+            const auto cur = clip.getSingingEditDocument();
+            if (cur == nullptr) {
+                return false;
             }
+            auto newDoc = std::make_shared<SingingEditDocument>(*cur);
+            newDoc->getNotes() = notes;
+            newDoc->ensureStableNoteIds();
+            SingingEditCommitOptions opts;
+            return commitClipSingingEditDocumentLocked(trackId, clipId, std::move(newDoc), std::move(opts));
         }
     }
     return false;
+}
+
+void OpenTuneAudioProcessor::bumpClipSingingDocumentRevisionByClipIndex(int trackId, int clipIndex)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipIndex < 0) {
+        return;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    if (clipIndex >= static_cast<int>(clips.size())) {
+        return;
+    }
+    auto& clip = clips[static_cast<size_t>(clipIndex)];
+    const auto cur = clip.getSingingEditDocument();
+    if (cur == nullptr) {
+        return;
+    }
+    auto newDoc = std::make_shared<SingingEditDocument>(*cur);
+    newDoc->ensureStableNoteIds();
+    newDoc->bumpDocumentRevision();
+    SingingEditCommitOptions opts;
+    opts.bumpDocumentRevision = false;
+    if (!commitClipSingingEditDocumentLocked(trackId, clip.clipId, std::move(newDoc), std::move(opts))) {
+        AppLogger::error("bumpClipSingingDocumentRevisionByClipIndex: commit failed");
+    }
+}
+
+bool OpenTuneAudioProcessor::readClipSingingEdit(int trackId, int clipIndex,
+                                                const std::function<void(const SingingEditDocument&)>& fn) const
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipIndex < 0 || fn == nullptr) {
+        return false;
+    }
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    const auto& clips = tracks_[trackId].clips;
+    if (clipIndex >= static_cast<int>(clips.size())) {
+        return false;
+    }
+    const auto docPtr = clips[static_cast<size_t>(clipIndex)].getSingingEditDocument();
+    if (docPtr == nullptr) {
+        return false;
+    }
+    fn(*docPtr);
+    return true;
+}
+
+std::shared_ptr<SingingEditDocument> OpenTuneAudioProcessor::cloneClipSingingEdit(int trackId, int clipIndex) const
+{
+    std::shared_ptr<SingingEditDocument> out;
+    (void)readClipSingingEdit(trackId, clipIndex, [&out](const SingingEditDocument& doc) {
+        out = std::make_shared<SingingEditDocument>(doc);
+    });
+    return out;
+}
+
+bool OpenTuneAudioProcessor::moveVocalSegmentBoundary(int trackId, int clipIndex, uint64_t segmentId, bool isLeftEdge,
+                                                     double newSecLocal, juce::String& errOut)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipIndex < 0) {
+        errOut = "Invalid track or clip index";
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    if (clipIndex >= static_cast<int>(clips.size())) {
+        errOut = "Invalid clip index";
+        return false;
+    }
+    auto& clip = clips[static_cast<size_t>(clipIndex)];
+    if (clip.getSingingEditDocument() == nullptr || clip.audioBuffer == nullptr) {
+        errOut = "Missing singing edit or audio";
+        return false;
+    }
+    const double clipDur =
+        static_cast<double>(clip.audioBuffer->getNumSamples()) / AudioConstants::StoredAudioSampleRate;
+    if (clipDur <= 0.0) {
+        errOut = "Empty clip";
+        return false;
+    }
+    auto newDoc = std::make_shared<SingingEditDocument>(*clip.getSingingEditDocument());
+    auto& doc = *newDoc;
+    doc.getSegments().sortAndValidate(clipDur);
+    constexpr double kMinSegSec = 0.05;
+    if (!doc.getSegments().moveBoundary(segmentId, isLeftEdge, newSecLocal, clipDur, kMinSegSec, errOut)) {
+        return false;
+    }
+    doc.getSegments().sortAndValidate(clipDur);
+    SingingEditCommitOptions opts;
+    return commitClipSingingEditDocumentLocked(trackId, clip.clipId, std::move(newDoc), std::move(opts));
+}
+
+bool OpenTuneAudioProcessor::setClipSingingEditById(int trackId, uint64_t clipId,
+                                                   std::shared_ptr<SingingEditDocument> doc)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || doc == nullptr) {
+        return false;
+    }
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    for (auto& clip : clips) {
+        if (clip.clipId == clipId) {
+            SingingEditCommitOptions opts;
+            return commitClipSingingEditDocumentLocked(trackId, clipId, std::move(doc), std::move(opts));
+        }
+    }
+    return false;
+}
+
+bool OpenTuneAudioProcessor::refinePhonemeDurationsForClip(int trackId, int clipIndex, juce::String& errOut)
+{
+#if !OPENTUNE_ENABLE_PY_BRIDGE
+    juce::ignoreUnused(trackId, clipIndex);
+    errOut = "Python refine bridge disabled (dev-only)";
+    return false;
+#else
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipIndex < 0) {
+        errOut = "Invalid track or clip index";
+        return false;
+    }
+
+    uint64_t generationAtSend = 0;
+    uint64_t requestId = 0;
+    uint64_t clipId = 0;
+    double clipDur = 0.0;
+    int sampleRate = static_cast<int>(getSampleRate());
+    if (sampleRate <= 0) {
+        sampleRate = static_cast<int>(AudioConstants::StoredAudioSampleRate);
+    }
+    std::shared_ptr<SingingEditDocument> working;
+
+    {
+        const juce::ScopedReadLock tracksReadLock(tracksLock_);
+        const auto& clips = tracks_[trackId].clips;
+        if (clipIndex >= static_cast<int>(clips.size())) {
+            errOut = "Invalid clip index";
+            return false;
+        }
+        const auto& clip = clips[static_cast<size_t>(clipIndex)];
+        if (clip.getSingingEditDocument() == nullptr || clip.audioBuffer == nullptr) {
+            errOut = "Missing singing edit or audio";
+            return false;
+        }
+        clipDur = static_cast<double>(clip.audioBuffer->getNumSamples()) / AudioConstants::StoredAudioSampleRate;
+        clipId = clip.clipId;
+        generationAtSend = clip.clipGeneration;
+        working = std::make_shared<SingingEditDocument>(*clip.getSingingEditDocument());
+    }
+
+    {
+        const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+        auto& clips = tracks_[trackId].clips;
+        if (clipIndex >= static_cast<int>(clips.size())) {
+            errOut = "Invalid clip index";
+            return false;
+        }
+        auto& clip = clips[static_cast<size_t>(clipIndex)];
+        if (clip.clipId != clipId || clip.clipGeneration != generationAtSend) {
+            errOut = "Stale refine request before send";
+            return false;
+        }
+        requestId = nextRefineRequestId_.fetch_add(1, std::memory_order_relaxed);
+        clip.pendingRefineRequestId = requestId;
+    }
+
+    if (!refineTaskQueue_) {
+        refineTaskQueue_ = std::make_unique<RefineTaskQueue>();
+    }
+
+    refineTaskQueue_->submit(clipId, [this, trackId, clipId, clipDur, sampleRate, generationAtSend, requestId, working]() mutable {
+        juce::String workerErr;
+        if (!dsBridge_) {
+            dsBridge_ = std::make_unique<DiffSingerBridgeClient>();
+        }
+        if (!dsBridge_->requestRefineDurations(*working, clipId, clipDur, generationAtSend, requestId, sampleRate,
+                                               workerErr)) {
+            juce::MessageManager::callAsync([this, trackId, clipId, requestId]() {
+                const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+                auto& clips = tracks_[trackId].clips;
+                auto it = std::find_if(clips.begin(), clips.end(),
+                                       [clipId](const TrackState::AudioClip& c) { return c.clipId == clipId; });
+                if (it != clips.end() && it->pendingRefineRequestId == requestId) {
+                    it->pendingRefineRequestId = 0;
+                }
+            });
+            return;
+        }
+
+        juce::MessageManager::callAsync([this, trackId, clipId, clipDur, generationAtSend, requestId, working]() {
+            const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+            auto& clips = tracks_[trackId].clips;
+            auto it = std::find_if(clips.begin(), clips.end(),
+                                   [clipId](const TrackState::AudioClip& c) { return c.clipId == clipId; });
+            if (it == clips.end() || it->getSingingEditDocument() == nullptr) {
+                return;
+            }
+            auto& clip = *it;
+            if (clip.pendingRefineRequestId != requestId) {
+                return;
+            }
+            if (clip.clipGeneration != generationAtSend) {
+                clip.pendingRefineRequestId = 0;
+                return;
+            }
+
+            auto candidate = std::make_shared<SingingEditDocument>(*working);
+            candidate->ensureStableNoteIds();
+
+            const std::shared_ptr<SingingEditDocument> beforeDoc =
+                std::make_shared<SingingEditDocument>(*clip.getSingingEditDocument());
+
+            std::vector<uint64_t> affectedIds;
+            std::unordered_map<uint64_t, const PhonemeItem*> beforeMap;
+            for (const auto& p : beforeDoc->getPhonemes()) {
+                beforeMap[p.id] = &p;
+            }
+            for (const auto& p : candidate->getPhonemes()) {
+                auto itBefore = beforeMap.find(p.id);
+                if (itBefore == beforeMap.end()) {
+                    continue;
+                }
+                const PhonemeItem* old = itBefore->second;
+                if (old->startTick != p.startTick || old->endTick != p.endTick || old->token != p.token
+                    || old->lockLeft != p.lockLeft || old->lockRight != p.lockRight) {
+                    affectedIds.push_back(p.id);
+                }
+            }
+
+            SingingEditCommitOptions opts;
+            if (!affectedIds.empty()) {
+                auto beforeSubset = capturePhonemeSubset(*beforeDoc, affectedIds);
+                auto afterSubset = capturePhonemeSubset(*candidate, affectedIds);
+                opts.undoAction = std::make_unique<SingingEditPhonemePatchAction>(
+                    *this, trackId, clipId, std::move(affectedIds), std::move(beforeSubset), std::move(afterSubset),
+                    "Refine phoneme durations");
+            }
+            if (!commitClipSingingEditDocumentLocked(trackId, clipId, std::move(candidate), std::move(opts))) {
+                if (clip.pendingRefineRequestId == requestId) {
+                    clip.pendingRefineRequestId = 0;
+                }
+            }
+        });
+    });
+    return true;
+#endif
+}
+
+bool OpenTuneAudioProcessor::isRefinePendingForClip(int trackId, int clipIndex) const
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS || clipIndex < 0) {
+        return false;
+    }
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    const auto& clips = tracks_[trackId].clips;
+    if (clipIndex >= static_cast<int>(clips.size())) {
+        return false;
+    }
+    return clips[static_cast<size_t>(clipIndex)].pendingRefineRequestId != 0;
 }
 
 SilentGapDetector::DetectionConfig OpenTuneAudioProcessor::getSilentGapDetectionConfig() const

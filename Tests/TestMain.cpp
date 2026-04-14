@@ -11,6 +11,9 @@
 #include "Inference/F0InferenceService.h"
 #include "Inference/VocoderInferenceService.h"
 #include "Standalone/UI/PianoRoll/PianoRollUndoSupport.h"
+#include "Utils/SingingEditDocument.h"
+#include "Utils/TimeCoordinate.h"
+#include "Services/DsJsonIO.h"
 
 #include <iostream>
 #include <thread>
@@ -19,6 +22,10 @@
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <atomic>
+#include <algorithm>
+
+static std::atomic<int> gOpenTuneTestFailures{0};
 
 // ==============================================================================
 // MockVocoderService - test double for VocoderInferenceService
@@ -81,6 +88,7 @@ void logPass(const char* testName) {
 }
 
 void logFail(const char* testName, const char* detail) {
+    gOpenTuneTestFailures.fetch_add(1, std::memory_order_relaxed);
     std::cout << "[FAIL] " << testName << ": " << detail << std::endl;
 }
 
@@ -232,14 +240,549 @@ void runPitchUtilsTests() {
     }
 }
 
+void runDsJsonContractTests() {
+    logSection("opentune.ds.v1 JSON contract");
+
+    {
+        const char* test = "buildRefineDurationsRequest schema";
+        SingingEditDocument doc;
+        doc.ensureDefaultFullClipSegment(2.0);
+        {
+            PhonemeItem a;
+            a.id = 2001;
+            a.setStartClipSeconds(0.2);
+            a.setEndClipSeconds(0.7);
+            a.token = "aa";
+            a.lockLeft = true;
+            a.lockRight = false;
+            doc.getPhonemes().push_back(a);
+        }
+        {
+            PhonemeItem b;
+            b.id = 2002;
+            b.setStartClipSeconds(0.7);
+            b.setEndClipSeconds(2.0);
+            b.token = "a";
+            b.lockLeft = false;
+            b.lockRight = false;
+            doc.getPhonemes().push_back(b);
+        }
+        Note n;
+        n.stableId = 1001;
+        n.pitch = 440.0f;
+        n.setStartClipSeconds(0.2);
+        n.setEndClipSeconds(2.0);
+        doc.getNotes().push_back(n);
+
+        const juce::String json = OpenTune::DsJson::buildRefineDurationsRequest(doc, 99ull, 2.0, 7ull, 11ull, 44100);
+        if (!json.contains("opentune.ds.v1")) {
+            logFail(test, "missing schema_version");
+            return;
+        }
+        if (!json.contains("\"task\": \"refine_durations\"")) {
+            logFail(test, "missing task");
+            return;
+        }
+        if (!json.contains("\"request_id\": 11")) {
+            logFail(test, "missing request id");
+            return;
+        }
+        if (!json.contains("\"clip_generation\": 7")) {
+            logFail(test, "missing clip generation");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "tryApplyRefineDurationsResponse clip gate rejects clip_id mismatch";
+        SingingEditDocument doc;
+        doc.ensureDefaultFullClipSegment(2.0);
+        {
+            PhonemeItem p0;
+            p0.id = 1;
+            p0.setStartClipSeconds(0.0);
+            p0.setEndClipSeconds(1.0);
+            p0.token = "a";
+            p0.lockLeft = false;
+            p0.lockRight = false;
+            doc.getPhonemes().push_back(p0);
+        }
+
+        juce::String err;
+        const juce::String bad = R"({"schema_version":"opentune.ds.v1","status":"ok","document_revision":1,"clip_id":100,"clip_generation":7,"request_id":11,"affected_object_ids":[],"patched_phonemes":[]})";
+        if (OpenTune::DsJson::tryApplyRefineDurationsResponse(bad, doc, 99, 7, 11, err)) {
+            logFail(test, "should reject clip_id mismatch");
+            return;
+        }
+
+        const juce::String ok =
+            R"({"schema_version":"opentune.ds.v1","status":"ok","document_revision":1,"clip_id":99,"clip_generation":7,"request_id":11,"error":null,"affected_object_ids":[1],"patched_phonemes":[{"id":1,"start_sec":0.0,"end_sec":0.5,"token":"a","lock_left":false,"lock_right":false}]})";
+        if (!OpenTune::DsJson::tryApplyRefineDurationsResponse(ok, doc, 99, 7, 11, err)) {
+            const juce::String msg = "apply failed: " + err;
+            logFail(test, msg.toRawUTF8());
+            return;
+        }
+        if (doc.getPhonemes().size() != 1u) {
+            logFail(test, "phoneme count");
+            return;
+        }
+        if (std::abs(doc.getPhonemes()[0].getEndClipSeconds() - 0.5) > 1e-6) {
+            logFail(test, "phoneme end not applied");
+            return;
+        }
+        logPass(test);
+    }
+}
+
+void runSingingEditConsistencyTests() {
+    logSection("SingingEditDocument Consistency");
+
+    {
+        const char* test = "validateAndNormalize freezes curve fields";
+        SingingEditDocument doc;
+        doc.ensureDefaultFullClipSegment(2.0);
+        ParameterCurve c;
+        c.curveId = "f0";
+        c.points.push_back({0.1, 1.0f});
+        doc.getParameterCurves().push_back(c);
+        doc.getManualOverrides().curveOverrides.push_back(c);
+        auto r = doc.validateAndNormalize(2.0);
+        if (!r.ok) {
+            logFail(test, "validation failed");
+            return;
+        }
+        if (!doc.getParameterCurves().empty() || !doc.getManualOverrides().curveOverrides.empty()) {
+            logFail(test, "frozen curves not cleared");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "split filters locked boundaries by range";
+        SingingEditDocument doc;
+        doc.ensureDefaultFullClipSegment(4.0);
+        doc.getManualOverrides().lockedPhonemeBoundaryTicks = {
+            TimeCoordinate::clipSecondsToTick(-0.2),
+            TimeCoordinate::clipSecondsToTick(1.0),
+            TimeCoordinate::clipSecondsToTick(3.0),
+            TimeCoordinate::clipSecondsToTick(5.0)};
+        SingingEditDocument left;
+        SingingEditDocument right;
+        if (!doc.splitByLocalSeconds(2.0, left, right)) {
+            logFail(test, "split validation failed");
+            return;
+        }
+        const int64_t splitTick = TimeCoordinate::clipSecondsToTick(2.0);
+        for (int64_t tick : left.getManualOverrides().lockedPhonemeBoundaryTicks) {
+            if (tick < 0 || tick > splitTick) {
+                logFail(test, "left boundary out of range");
+                return;
+            }
+        }
+        for (int64_t tick : right.getManualOverrides().lockedPhonemeBoundaryTicks) {
+            if (tick < 0) {
+                logFail(test, "right boundary negative");
+                return;
+            }
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "merge deduplicates overrides and validates";
+        SingingEditDocument left;
+        SingingEditDocument right;
+        left.ensureDefaultFullClipSegment(2.0);
+        right.ensureDefaultFullClipSegment(1.0);
+
+        Note nl;
+        nl.stableId = 101;
+        nl.setStartClipSeconds(0.0);
+        nl.setEndClipSeconds(1.0);
+        left.getNotes().push_back(nl);
+        left.getManualOverrides().lockedNoteIds = {101};
+        left.getManualOverrides().lockedPhonemeBoundaryTicks = {TimeCoordinate::clipSecondsToTick(0.5),
+                                                                TimeCoordinate::clipSecondsToTick(1.0)};
+
+        Note nr;
+        nr.stableId = 101;
+        nr.setStartClipSeconds(0.0);
+        nr.setEndClipSeconds(1.0);
+        right.getNotes().push_back(nr);
+        right.getManualOverrides().lockedNoteIds = {101};
+        right.getManualOverrides().lockedPhonemeBoundaryTicks = {TimeCoordinate::clipSecondsToTick(0.0),
+                                                                 TimeCoordinate::clipSecondsToTick(0.5)};
+
+        left.mergeFromRight(right, 2.0);
+        auto r = left.validateAndNormalize(3.0);
+        if (!r.ok) {
+            logFail(test, "validate failed");
+            return;
+        }
+        const auto& ids = left.getManualOverrides().lockedNoteIds;
+        if (ids.empty()) {
+            logFail(test, "locked ids empty");
+            return;
+        }
+        if (!std::is_sorted(ids.begin(), ids.end())) {
+            logFail(test, "locked ids not sorted");
+            return;
+        }
+        const auto& bs = left.getManualOverrides().lockedPhonemeBoundaryTicks;
+        if (!std::is_sorted(bs.begin(), bs.end())) {
+            logFail(test, "boundaries not sorted");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "validate rejects invalid range";
+        SingingEditDocument doc;
+        PhonemeItem p;
+        p.id = 1;
+        p.setStartClipSeconds(1.0);
+        p.setEndClipSeconds(1.0);
+        doc.getPhonemes().push_back(p);
+        auto r = doc.validateAndNormalize(2.0);
+        if (r.ok) {
+            logFail(test, "expected rejection");
+            return;
+        }
+        logPass(test);
+    }
+}
+
+static bool singingEditValueTreesEqual(const SingingEditDocument& a, const SingingEditDocument& b)
+{
+    return a.toValueTree().isEquivalentTo(b.toValueTree());
+}
+
+void runSingingEditCommitEnforcementTests()
+{
+    logSection("SingingEdit commit enforcement (Phase1)");
+
+    {
+        const char* test = "failed commit leaves authoritative singing edit unchanged";
+        OpenTuneAudioProcessor processor;
+        ClipSnapshot snap;
+        auto buf = std::make_shared<juce::AudioBuffer<float>>(1, 44100);
+        buf->clear();
+        snap.audioBuffer = buf;
+        const uint64_t clipId = 910001;
+        if (!processor.insertClipSnapshot(0, 0, snap, clipId)) {
+            logFail(test, "insert clip failed");
+            return;
+        }
+        const int clipIndex = processor.findClipIndexById(0, clipId);
+        if (clipIndex < 0) {
+            logFail(test, "clip index");
+            return;
+        }
+        const auto before = processor.cloneClipSingingEdit(0, clipIndex);
+        if (before == nullptr) {
+            logFail(test, "clone before");
+            return;
+        }
+        auto bad = std::make_shared<SingingEditDocument>(*before);
+        PhonemeItem badPh;
+        badPh.id = 999001;
+        badPh.setStartClipSeconds(0.5);
+        badPh.setEndClipSeconds(0.5);
+        badPh.token = "x";
+        bad->getPhonemes().push_back(badPh);
+        SingingEditCommitOptions opts;
+        if (processor.commitClipSingingEditDocument(0, clipId, std::move(bad), std::move(opts))) {
+            logFail(test, "commit should fail validation");
+            return;
+        }
+        const auto after = processor.cloneClipSingingEdit(0, clipIndex);
+        if (after == nullptr || !singingEditValueTreesEqual(*before, *after)) {
+            logFail(test, "authoritative document changed after failed commit");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "clipGeneration increases across successful commits";
+        OpenTuneAudioProcessor processor;
+        ClipSnapshot snap;
+        auto buf = std::make_shared<juce::AudioBuffer<float>>(1, 44100 * 2);
+        buf->clear();
+        snap.audioBuffer = buf;
+        const uint64_t clipId = 910002;
+        if (!processor.insertClipSnapshot(0, 0, snap, clipId)) {
+            logFail(test, "insert");
+            return;
+        }
+        const int clipIndex = processor.findClipIndexById(0, clipId);
+        const uint64_t g0 = processor.getClipGeneration(0, clipIndex);
+        auto d1 = processor.cloneClipSingingEdit(0, clipIndex);
+        Note n;
+        n.stableId = 50001;
+        n.pitch = 330.0f;
+        n.setStartClipSeconds(0.1);
+        n.setEndClipSeconds(0.2);
+        d1->getNotes().push_back(n);
+        SingingEditCommitOptions o1;
+        if (!processor.commitClipSingingEditDocument(0, clipId, std::move(d1), std::move(o1))) {
+            logFail(test, "first commit");
+            return;
+        }
+        const uint64_t g1 = processor.getClipGeneration(0, clipIndex);
+        auto d2 = processor.cloneClipSingingEdit(0, clipIndex);
+        d2->getNotes().back().pitch = 440.0f;
+        SingingEditCommitOptions o2;
+        if (!processor.commitClipSingingEditDocument(0, clipId, std::move(d2), std::move(o2))) {
+            logFail(test, "second commit");
+            return;
+        }
+        const uint64_t g2 = processor.getClipGeneration(0, clipIndex);
+        if (!(g2 > g1 && g1 > g0)) {
+            logFail(test, "generation not strictly increasing");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "commitClipSingingEditDocumentBatch is all-or-nothing";
+        OpenTuneAudioProcessor processor;
+        auto makeSnap = [](uint64_t id) {
+            ClipSnapshot s;
+            auto buf = std::make_shared<juce::AudioBuffer<float>>(1, 44100);
+            buf->clear();
+            s.audioBuffer = buf;
+            return std::pair<ClipSnapshot, uint64_t>{std::move(s), id};
+        };
+        auto a = makeSnap(920001);
+        auto b = makeSnap(920002);
+        if (!processor.insertClipSnapshot(0, 0, a.first, a.second) || !processor.insertClipSnapshot(0, 1, b.first, b.second)) {
+            logFail(test, "insert two clips");
+            return;
+        }
+        const int idxA = processor.findClipIndexById(0, 920001);
+        const int idxB = processor.findClipIndexById(0, 920002);
+        const auto beforeA = processor.cloneClipSingingEdit(0, idxA);
+
+        std::vector<SingingEditBatchCommitItem> batch;
+        {
+            SingingEditBatchCommitItem item;
+            item.trackId = 0;
+            item.clipId = 920001;
+            item.newDoc = processor.cloneClipSingingEdit(0, idxA);
+            Note extra;
+            extra.stableId = 88001;
+            extra.pitch = 220.0f;
+            extra.setStartClipSeconds(0.05);
+            extra.setEndClipSeconds(0.06);
+            item.newDoc->getNotes().push_back(extra);
+            batch.push_back(std::move(item));
+        }
+        {
+            SingingEditBatchCommitItem item;
+            item.trackId = 0;
+            item.clipId = 920002;
+            item.newDoc = processor.cloneClipSingingEdit(0, idxB);
+            PhonemeItem badPh;
+            badPh.id = 990002;
+            badPh.setStartClipSeconds(0.2);
+            badPh.setEndClipSeconds(0.2);
+            badPh.token = "z";
+            item.newDoc->getPhonemes().push_back(badPh);
+            batch.push_back(std::move(item));
+        }
+        if (processor.commitClipSingingEditDocumentBatch(std::move(batch))) {
+            logFail(test, "batch should fail");
+            return;
+        }
+        const auto afterA = processor.cloneClipSingingEdit(0, idxA);
+        if (beforeA == nullptr || afterA == nullptr || !singingEditValueTreesEqual(*beforeA, *afterA)) {
+            logFail(test, "first clip changed on failed batch");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "insertClipSnapshot clipGeneration uses monotonic max formula";
+        OpenTuneAudioProcessor processor;
+        ClipSnapshot snap;
+        auto bufIns = std::make_shared<juce::AudioBuffer<float>>(1, 22050);
+        bufIns->clear();
+        snap.audioBuffer = bufIns;
+        snap.clipGeneration = 99;
+        if (!processor.insertClipSnapshot(0, 0, snap, 930001)) {
+            logFail(test, "insert");
+            return;
+        }
+        const int idx = processor.findClipIndexById(0, 930001);
+        const uint64_t g = processor.getClipGeneration(0, idx);
+        const uint64_t expected = std::max<uint64_t>(uint64_t(1), snap.clipGeneration + uint64_t(1));
+        if (g != expected) {
+            logFail(test, "generation should be max(1, G_snap+1) for new clipId");
+            return;
+        }
+        logPass(test);
+    }
+}
+
+void runRefineAsyncGateTests() {
+    logSection("Refine Async Gate");
+
+    {
+        const char* test = "clip generation increments on setClipSingingEditById";
+        OpenTuneAudioProcessor processor;
+        ClipSnapshot snap;
+        auto buf = std::make_shared<juce::AudioBuffer<float>>(1, 44100);
+        buf->clear();
+        snap.audioBuffer = buf;
+        if (!processor.insertClipSnapshot(0, 0, snap, 777)) {
+            logFail(test, "insert clip failed");
+            return;
+        }
+        const int clipIndex = processor.findClipIndexById(0, 777);
+        if (clipIndex < 0) {
+            logFail(test, "clip not found");
+            return;
+        }
+        const uint64_t g0 = processor.getClipGeneration(0, clipIndex);
+        auto doc = processor.cloneClipSingingEdit(0, clipIndex);
+        if (!doc || !processor.setClipSingingEditById(0, 777, doc)) {
+            logFail(test, "set singing edit failed");
+            return;
+        }
+        const uint64_t g1 = processor.getClipGeneration(0, clipIndex);
+        if (g1 <= g0) {
+            logFail(test, "generation did not increment");
+            return;
+        }
+        logPass(test);
+    }
+
+    {
+        const char* test = "response gate rejects request id mismatch";
+        SingingEditDocument doc;
+        PhonemeItem p;
+        p.id = 1;
+        p.setStartClipSeconds(0.0);
+        p.setEndClipSeconds(1.0);
+        p.token = "a";
+        doc.getPhonemes().push_back(p);
+        juce::String err;
+        const juce::String resp = R"({"schema_version":"opentune.ds.v1","status":"ok","document_revision":1,"clip_id":9,"clip_generation":2,"request_id":999,"affected_object_ids":[1],"patched_phonemes":[{"id":1,"start_sec":0.2,"end_sec":0.8}]})";
+        if (OpenTune::DsJson::tryApplyRefineDurationsResponse(resp, doc, 9, 2, 3, err)) {
+            logFail(test, "mismatch should be rejected");
+            return;
+        }
+        logPass(test);
+    }
+}
+
+void runSerializationRoundTripTests() {
+    logSection("Serialization Round Trip");
+    const char* test = "singing edit roundtrip keeps authoritative data and freezes curves";
+    SingingEditDocument doc;
+    doc.ensureDefaultFullClipSegment(2.0);
+    Note n;
+    n.stableId = 42;
+    n.setStartClipSeconds(0.1);
+    n.setEndClipSeconds(0.9);
+    n.pitch = 440.0f;
+    doc.getNotes().push_back(n);
+    PhonemeItem p;
+    p.id = 11;
+    p.setStartClipSeconds(0.1);
+    p.setEndClipSeconds(0.5);
+    p.token = "a";
+    doc.getPhonemes().push_back(p);
+    doc.getManualOverrides().lockedNoteIds.push_back(42);
+    doc.getManualOverrides().lockedPhonemeBoundaryTicks.push_back(TimeCoordinate::clipSecondsToTick(0.5));
+    ParameterCurve c;
+    c.curveId = "f0";
+    c.points.push_back({0.2, 1.0f});
+    doc.getParameterCurves().push_back(c);
+    doc.getManualOverrides().curveOverrides.push_back(c);
+
+    {
+        const auto vr = doc.validateAndNormalize(2.0);
+        if (!vr.ok) {
+            logFail(test, "setup validate failed");
+            return;
+        }
+    }
+
+    const juce::ValueTree tree = doc.toValueTree();
+    SingingEditDocument loaded;
+    loaded.fromValueTree(tree);
+    if (loaded.getNotes().empty() || loaded.getPhonemes().empty()) {
+        logFail(test, "authoritative data lost");
+        return;
+    }
+    if (!loaded.getParameterCurves().empty() || !loaded.getManualOverrides().curveOverrides.empty()) {
+        logFail(test, "frozen fields should not roundtrip");
+        return;
+    }
+    if (loaded.getPhonemes()[0].startTick != doc.getPhonemes()[0].startTick
+        || loaded.getPhonemes()[0].endTick != doc.getPhonemes()[0].endTick) {
+        logFail(test, "phoneme tick roundtrip");
+        return;
+    }
+    logPass(test);
+}
+
+void runClipSnapshotSingingEditTests() {
+    logSection("ClipSnapshot singingEdit");
+
+    const char* test = "getClipSnapshot carries singingEdit phoneme ticks";
+    OpenTuneAudioProcessor processor;
+    ClipSnapshot snap;
+    auto buf = std::make_shared<juce::AudioBuffer<float>>(1, 44100 * 2);
+    buf->clear();
+    snap.audioBuffer = buf;
+    SingingEditDocument docIn;
+    docIn.ensureDefaultFullClipSegment(2.0);
+    PhonemeItem ph;
+    ph.id = 99;
+    ph.setStartClipSeconds(0.05);
+    ph.setEndClipSeconds(0.12);
+    ph.token = "x";
+    docIn.getPhonemes().push_back(ph);
+    {
+        const auto vr = docIn.validateAndNormalize(2.0);
+        if (!vr.ok) {
+            logFail(test, "doc validate");
+            return;
+        }
+    }
+    snap.singingEdit = std::make_shared<const SingingEditDocument>(docIn);
+    if (!processor.insertClipSnapshot(0, 0, snap, 4242)) {
+        logFail(test, "insert failed");
+        return;
+    }
+    ClipSnapshot out;
+    if (!processor.getClipSnapshot(0, 4242, out) || out.singingEdit == nullptr) {
+        logFail(test, "getClipSnapshot missing singingEdit");
+        return;
+    }
+    if (out.singingEdit->getPhonemes().size() != 1u || out.singingEdit->getPhonemes()[0].startTick != ph.startTick) {
+        logFail(test, "phoneme mismatch");
+        return;
+    }
+    logPass(test);
+}
+
 void runNoteTests() {
     logSection("Note Tests");
 
     {
         const char* test = "Note basics";
         Note note;
-        note.startTime = 0.0;
-        note.endTime = 1.0;
+        note.setStartClipSeconds(0.0);
+        note.setEndClipSeconds(1.0);
         note.pitch = 440.0f;
 
         if (!approxEqual(note.getDuration(), 1.0, 0.001)) {
@@ -267,8 +810,12 @@ void runNoteTests() {
         const char* test = "NoteSequence insert";
         NoteSequence seq;
 
-        Note n1; n1.startTime = 0.0; n1.endTime = 1.0;
-        Note n2; n2.startTime = 1.0; n2.endTime = 2.0;
+        Note n1;
+        n1.setStartClipSeconds(0.0);
+        n1.setEndClipSeconds(1.0);
+        Note n2;
+        n2.setStartClipSeconds(1.0);
+        n2.setEndClipSeconds(2.0);
 
         seq.insertNoteSorted(n1);
         seq.insertNoteSorted(n2);
@@ -282,14 +829,18 @@ void runNoteTests() {
         const char* test = "NoteSequence non-overlapping";
         NoteSequence seq;
 
-        Note n1; n1.startTime = 0.0; n1.endTime = 2.0;
-        Note n2; n2.startTime = 1.0; n2.endTime = 3.0;
+        Note n1;
+        n1.setStartClipSeconds(0.0);
+        n1.setEndClipSeconds(2.0);
+        Note n2;
+        n2.setStartClipSeconds(1.0);
+        n2.setEndClipSeconds(3.0);
 
         seq.insertNoteSorted(n1);
         seq.insertNoteSorted(n2);
 
         const auto& notes = seq.getNotes();
-        if (notes[0].endTime > notes[1].startTime) {
+        if (notes[0].endTick > notes[1].startTick) {
             logFail(test, "notes overlap"); return;
         }
         logPass(test);
@@ -343,35 +894,45 @@ void runRenderCacheTests() {
         RenderCache cache;
         cache.setMemoryLimit(8000);
 
-        cache.requestRenderPending(0.0, 1.0);
-        std::vector<float> first(1000, 0.25f);
-        if (!cache.addChunk(0.0, 1.0, std::move(first), 1)) {
+        constexpr int kSampleRate = 44100;
+        constexpr int samplesPerChunk = 1000;
+        const double chunkDurSec = static_cast<double>(samplesPerChunk) / static_cast<double>(kSampleRate);
+        const double t0 = 0.0;
+        const double t1 = 10.0;
+        const double t2 = 20.0;
+
+        cache.requestRenderPending(t0, t0 + chunkDurSec);
+        std::vector<float> first(samplesPerChunk, 0.25f);
+        if (!cache.addChunk(t0, t0 + chunkDurSec, std::move(first), 1)) {
             logFail(test, "first add failed"); return;
         }
 
-        cache.requestRenderPending(10.0, 11.0);
-        std::vector<float> second(1000, 0.5f);
-        if (!cache.addChunk(10.0, 11.0, std::move(second), 1)) {
+        cache.requestRenderPending(t1, t1 + chunkDurSec);
+        std::vector<float> second(samplesPerChunk, 0.5f);
+        if (!cache.addChunk(t1, t1 + chunkDurSec, std::move(second), 1)) {
             logFail(test, "second add failed"); return;
         }
 
-        cache.requestRenderPending(20.0, 21.0);
-        std::vector<float> third(1000, 0.75f);
-        if (!cache.addChunk(20.0, 21.0, std::move(third), 1)) {
+        cache.requestRenderPending(t2, t2 + chunkDurSec);
+        std::vector<float> third(samplesPerChunk, 0.75f);
+        if (!cache.addChunk(t2, t2 + chunkDurSec, std::move(third), 1)) {
             logFail(test, "third add failed"); return;
         }
 
         float buf[64];
-        int n = cache.readAtTimeForRate(buf, 64, 0.1, 44100, false);
+        const double inFirst = t0 + 0.5 * chunkDurSec;
+        const double inMiddle = t1 + 0.5 * chunkDurSec;
+        int n = cache.readAtTimeForRate(buf, 64, inFirst, kSampleRate, false);
         if (n != 0) {
             logFail(test, "expected earliest chunk evicted"); return;
         }
 
-        n = cache.readAtTimeForRate(buf, 64, 10.1, 44100, false);
+        n = cache.readAtTimeForRate(buf, 64, inMiddle, kSampleRate, false);
         if (n <= 0) {
             logFail(test, "middle chunk should remain"); return;
         }
 
+        cache.setMemoryLimit(RenderCache::kDefaultGlobalCacheLimitBytes);
         logPass(test);
     }
 }
@@ -503,12 +1064,16 @@ void runPianoRollUndoMatrixTests() {
         return notes;
     };
 
-    auto resetBaseline = [&]() {
+    auto resetBaseline = [&]() -> bool {
         undoManager.clear();
         auto notes = makeBaseNotes();
-        processor.setClipNotes(trackId, clipIndex, notes);
+        if (!processor.setClipNotes(trackId, clipIndex, notes)) {
+            logFail("Undo Matrix setup", "setClipNotes baseline failed");
+            return false;
+        }
         curve->clearAllCorrections();
         curve->applyCorrectionToRange(notes, 0, frameFromSec(1.0), 0.8f, 0.0f, 6.0f, 44100.0);
+        return true;
     };
 
     struct PianoState {
@@ -529,7 +1094,9 @@ void runPianoRollUndoMatrixTests() {
     };
 
     auto runCase = [&](const char* testName, const juce::String& txName, const std::function<void()>& op) {
-        resetBaseline();
+        if (!resetBaseline()) {
+            return;
+        }
         const auto before = captureState();
 
         undoSupport.beginTransaction(txName);
@@ -1062,6 +1629,12 @@ int main() {
     runLockFreeQueueTests();
     runPitchUtilsTests();
     runNoteTests();
+    runDsJsonContractTests();
+    runSingingEditConsistencyTests();
+    runSingingEditCommitEnforcementTests();
+    runRefineAsyncGateTests();
+    runSerializationRoundTripTests();
+    runClipSnapshotSingingEditTests();
     runRenderCacheTests();
     runPitchCurveTests();
     runPianoRollUndoMatrixTests();
@@ -1073,5 +1646,5 @@ int main() {
     std::cout << "Tests Complete" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    return 0;
+    return gOpenTuneTestFailures.load(std::memory_order_relaxed) > 0 ? 1 : 0;
 }

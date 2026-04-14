@@ -29,7 +29,7 @@ void PianoRollToolHandler::handleVibratoToolMouseMove(const juce::MouseEvent& e)
         return;
     }
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     Note* edgeNote = nullptr;
     NoteResizeEdge picked = NoteResizeEdge::None;
     const bool hit = pickVibratoToolEdgeHit(
@@ -60,7 +60,7 @@ void PianoRollToolHandler::handleVibratoToolMouseDown(const juce::MouseEvent& e)
     if (!ctx_.getNoteScreenBounds || !ctx_.vibratoToolApplyLive)
         return;
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     Note* edgeNote = nullptr;
     NoteResizeEdge picked = NoteResizeEdge::None;
     const bool hit = pickVibratoToolEdgeHit(

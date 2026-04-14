@@ -24,6 +24,7 @@
 #include <array>
 #include <map>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -36,7 +37,9 @@
 #include "Utils/ClipSnapshot.h"
 #include "Utils/UndoAction.h"
 #include "Utils/SilentGapDetector.h"
+#include "Utils/SingingEditDocument.h"
 #include "Utils/TimeCoordinate.h"
+#include "Services/RefineTaskQueue.h"
 
 namespace OpenTune {
 
@@ -52,9 +55,31 @@ namespace AudioConstants {
     constexpr int RenderPollIntervalMs = 20;
 }
 
+/** Atomic singing-edit commit: generation / pending / undo (see commitClipSingingEditDocument). */
+struct SingingEditCommitOptions {
+    bool bumpGeneration{true};
+    bool clearPendingRefine{true};
+    bool bumpDocumentRevision{true};
+    /** When false, skips bumpEditVersion() (project ingest / snapshot materialization). */
+    bool bumpEditVersion{true};
+    std::unique_ptr<UndoAction> undoAction;
+    /** When set, clip.clipGeneration is assigned this value instead of ++ (snapshot / restore monotonicity). */
+    bool hasClipGenerationOverride{false};
+    uint64_t clipGenerationOverride{1};
+};
+
+/** One entry for commitClipSingingEditDocumentBatchLocked (all-or-nothing). */
+struct SingingEditBatchCommitItem {
+    int trackId{0};
+    uint64_t clipId{0};
+    std::shared_ptr<SingingEditDocument> newDoc;
+    SingingEditCommitOptions options;
+};
+
 class HostIntegration;
 class HostIntegrationPlugin;
 class HostIntegrationStandalone;
+class DiffSingerBridgeClient;
 std::unique_ptr<HostIntegration> createHostIntegration();
 
 /**
@@ -198,7 +223,11 @@ public:
     // Multi-track clip layout (public for project I/O helpers in PluginProcessor.cpp)
     struct TrackState {
         struct AudioClip {
+            friend class OpenTuneAudioProcessor;
+
             uint64_t clipId{0};
+            uint64_t clipGeneration{1};
+            uint64_t pendingRefineRequestId{0};
             std::shared_ptr<const juce::AudioBuffer<float>> audioBuffer;  // 共享所有权，地址稳定
             juce::AudioBuffer<float> drySignalBuffer_;   // Pre-resampled to device rate for dry signal playback
             double startSeconds{0.0};
@@ -211,9 +240,7 @@ public:
             OriginalF0State originalF0State{OriginalF0State::NotRequested};
             DetectedKey detectedKey;
             std::shared_ptr<RenderCache> renderCache;
-            // Per-clip editing data
-            std::vector<Note> notes;
-            
+
             // Silent gap detection results (computed on import)
             std::vector<SilentGap> silentGaps;
 
@@ -225,6 +252,12 @@ public:
             AudioClip& operator=(const AudioClip& other);
             AudioClip(AudioClip&& other) noexcept;
             AudioClip& operator=(AudioClip&& other) noexcept;
+
+            std::shared_ptr<const SingingEditDocument> getSingingEditDocument() const { return singingEdit_; }
+
+        private:
+            /** 单 Clip 歌声编辑唯一真相源 — 仅允许经 OpenTuneAudioProcessor::commit 路径写入 */
+            std::shared_ptr<SingingEditDocument> singingEdit_{std::make_shared<SingingEditDocument>()};
         };
 
         std::vector<AudioClip> clips;
@@ -278,6 +311,7 @@ private:
     int activeTrackId_{0};
     bool anyTrackSoloed_{false};
     std::atomic<uint64_t> nextClipId_{1};
+    std::atomic<uint64_t> nextRefineRequestId_{1};
 
     // Transport control
     std::atomic<bool> isPlaying_{false};
@@ -323,6 +357,18 @@ private:
 
     // 全局 Undo/Redo 管理器（统一所有视图的操作历史）
     UndoManager globalUndoManager_{500};
+
+    std::unique_ptr<DiffSingerBridgeClient> dsBridge_;
+    std::unique_ptr<RefineTaskQueue> refineTaskQueue_;
+
+    /** Precondition: tracksLock_ write lock held. Validates then installs (see commitClipSingingEditDocument). */
+    bool commitClipSingingEditDocumentLocked(int trackId, uint64_t clipId, std::shared_ptr<SingingEditDocument> newDoc,
+                                            SingingEditCommitOptions options);
+    /** Precondition: tracksLock_ write lock held. Validates all items first; all-or-nothing (consumes options by move). */
+    bool commitClipSingingEditDocumentBatchLocked(std::vector<SingingEditBatchCommitItem> items);
+    /** Install after successful validate (single internal step; does not re-validate). */
+    bool applySingingEditInstallLocked(TrackState::AudioClip& clip, std::shared_ptr<SingingEditDocument> newDoc,
+                                       SingingEditCommitOptions options);
 
     bool ensureF0Ready();
     bool ensureVocoderReady();
@@ -400,6 +446,7 @@ public:
     // Clip access
     std::shared_ptr<const juce::AudioBuffer<float>> getClipAudioBuffer(int trackId, int clipIndex) const;
     uint64_t getClipId(int trackId, int clipIndex) const;
+    uint64_t getClipGeneration(int trackId, int clipIndex) const;
     int findClipIndexById(int trackId, uint64_t clipId) const;
     double getClipStartSeconds(int trackId, int clipIndex) const;
     juce::String getClipName(int trackId, int clipIndex) const;
@@ -414,13 +461,55 @@ public:
     bool setClipOriginalF0StateById(int trackId, uint64_t clipId, OriginalF0State state);
     DetectedKey getClipDetectedKey(int trackId, int clipIndex) const;
     void setClipDetectedKey(int trackId, int clipIndex, const DetectedKey& key);
+
+    /** Exposed for UI that already serializes gestures with the processor (e.g. vocal strip drag). */
+    juce::ReadWriteLock& getTracksLock() noexcept { return tracksLock_; }
+    const juce::ReadWriteLock& getTracksLock() const noexcept { return tracksLock_; }
+
+    /** Bump singing document revision after in-place note edits (e.g. PianoRoll setNotes). */
+    void bumpClipSingingDocumentRevisionByClipIndex(int trackId, int clipIndex);
     
     // Note and Anchor management per clip
     std::vector<Note> getClipNotes(int trackId, int clipIndex) const;
-    std::vector<Note>& getClipNotesRef(int trackId, int clipIndex);
     int getClipIndexById(int trackId, uint64_t clipId) const;
-    void setClipNotes(int trackId, int clipIndex, const std::vector<Note>& notes);
+    bool setClipNotes(int trackId, int clipIndex, const std::vector<Note>& notes);
     bool setClipNotesById(int trackId, uint64_t clipId, const std::vector<Note>& notes);
+
+    /** Read-only snapshot callback under tracks read lock. Returns false if clip invalid. */
+    bool readClipSingingEdit(int trackId, int clipIndex, const std::function<void(const SingingEditDocument&)>& fn) const;
+    /** Snapshot copy under read lock; nullptr if clip invalid. */
+    std::shared_ptr<SingingEditDocument> cloneClipSingingEdit(int trackId, int clipIndex) const;
+    bool moveVocalSegmentBoundary(int trackId, int clipIndex, uint64_t segmentId, bool isLeftEdge, double newSecLocal,
+                                 juce::String& errOut);
+    bool setClipSingingEditById(int trackId, uint64_t clipId, std::shared_ptr<SingingEditDocument> doc);
+
+    /**
+     * Single authoritative write path for clip singing edit. Always validates inside; acquires write lock.
+     */
+    bool commitClipSingingEditDocument(int trackId, uint64_t clipId, std::shared_ptr<SingingEditDocument> newDoc,
+                                       SingingEditCommitOptions options);
+    /** Multi-clip atomic commit (e.g. split). Acquires write lock. */
+    bool commitClipSingingEditDocumentBatch(std::vector<SingingEditBatchCommitItem> items);
+
+    /**
+     * Validate against clip duration then install (same apply path as commit). For clips not yet keyed by
+     * track/clipId in the commit API (project parse, import buffer, insertClip revalidation).
+     */
+    bool commitValidatedSingingEditOntoClip(TrackState::AudioClip& clip, std::shared_ptr<SingingEditDocument> newDoc,
+                                            double clipDurationSec, SingingEditCommitOptions options);
+
+    /** Deserialize one clip from project ValueTree (used by project load). */
+    static bool parseProjectClipFromValueTree(const juce::ValueTree& clipState,
+                                              TrackState::AudioClip& clip,
+                                              int schemaVersion,
+                                              OpenTuneAudioProcessor* processorForAudioLoad,
+                                              const juce::File& projectFileOnDisk);
+
+    /** After project load: invalidate async refine gate without touching document. */
+    void finalizeClipAfterProjectLoad(TrackState::AudioClip& clip);
+
+    bool refinePhonemeDurationsForClip(int trackId, int clipIndex, juce::String& errOut);
+    bool isRefinePendingForClip(int trackId, int clipIndex) const;
     
     // Silent gap and chunk boundary access
     SilentGapDetector::DetectionConfig getSilentGapDetectionConfig() const;

@@ -124,7 +124,7 @@ void PianoRollToolHandler::handleDrawNoteMouseDown(const juce::MouseEvent& e)
         constexpr int edgeThreshold = 6;
         const float mouseMidi = 69.0f + 12.0f * std::log2(clickedPitch / 440.0f) - 0.5f;
 
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         Note* edgeNote = nullptr;
         NoteResizeEdge pickedEdge = NoteResizeEdge::None;
         if (pickBestNoteEdgeHit(
@@ -224,7 +224,7 @@ void PianoRollToolHandler::handleSplitNoteTool(const juce::MouseEvent& e)
     left.dirty = true;
     right.dirty = true;
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     for (size_t i = 0; i < notes.size(); ++i)
     {
         if (&notes[i] == target)
@@ -308,7 +308,7 @@ void PianoRollToolHandler::handleDrawNoteTool(const juce::MouseEvent& e)
             newNote.pitchOffset = 0.0f;
         }
 
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         notes.push_back(newNote);
         ctx_.setDrawingNoteIndex(static_cast<int>(notes.size()) - 1);
 
@@ -324,7 +324,7 @@ void PianoRollToolHandler::handleDrawNoteTool(const juce::MouseEvent& e)
     if (ctx_.getDrawingNoteIndex() >= 0)
     {
         ctx_.setDrawingNoteEndTime(currentTime);
-        auto& notes = ctx_.getNotes();
+        auto& notes = workNotes();
         int idx = ctx_.getDrawingNoteIndex();
         if (idx < static_cast<int>(notes.size()))
         {
@@ -463,7 +463,7 @@ void PianoRollToolHandler::handleDrawCurveUp(const juce::MouseEvent& e)
             ctx_.commitEditTransaction();
 
             ctx_.deselectAllNotes();
-            auto& notes = ctx_.getNotes();
+            auto& notes = workNotes();
             for (int ni : affectedNoteIndices)
             {
                 if (ni >= 0 && ni < static_cast<int>(notes.size()))
@@ -529,7 +529,7 @@ void PianoRollToolHandler::handleDrawNoteUp(const juce::MouseEvent& e)
         }
     }
 
-    auto& notes = ctx_.getNotes();
+    auto& notes = workNotes();
     if (ctx_.getDrawingNotePitch() > 0.0f)
     {
         std::vector<Note> updatedNotes;
@@ -644,7 +644,7 @@ std::vector<ManualOp> PianoRollToolHandler::clipDrawDataToNotes(
     std::vector<ManualOp> result;
     affectedNoteIndices.clear();
 
-    const auto& notes = ctx_.getNotes();
+    const auto& notes = workNotes();
     if (notes.empty() || drawnF0.empty())
         return result;
 

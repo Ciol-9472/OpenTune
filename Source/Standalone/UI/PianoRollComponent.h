@@ -192,7 +192,13 @@ public:
     void refreshAfterUndoRedo();
     void refreshAfterUndoRedoWithRange(int startFrame, int endFrame);
 
+    /** Replace working notes, persist to processor (setClipNotes), repaint. */
     void setNotes(const std::vector<Note>& notes);
+    /** Replace working notes + repaint; no processor write (sync from authoritative state). */
+    void setNotesViewOnly(const std::vector<Note>& notes);
+    void syncNotesWorkingFromProcessor();
+    /** If working notes differ from processor for the current clip context, write via setClipNotes. */
+    void flushWorkingNotesToProcessor();
     std::vector<Note> getNotes() const { return getCurrentClipNotesCopy(); }
     
     std::shared_ptr<PitchCurve> getPitchCurve() const { return currentCurve_; }
@@ -456,6 +462,8 @@ private:
     
     std::vector<Note>& getCurrentClipNotes();
     std::vector<Note> getCurrentClipNotesCopy() const;
+
+    std::vector<Note> notesWorkingCopy_;
     
     std::unique_ptr<PianoRollUndoSupport> undoSupport_;
     

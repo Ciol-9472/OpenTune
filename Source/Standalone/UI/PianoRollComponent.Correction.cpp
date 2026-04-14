@@ -67,8 +67,9 @@ void PianoRollComponent::consumeCompletedCorrectionResults()
 
     const bool wasAutoTune = completed->kind == PianoRollCorrectionWorker::AsyncCorrectionRequest::Kind::AutoTuneGenerate;
 
-    if (completed->success && wasAutoTune)
-        setNotes(completed->notes);
+    if (completed->success && wasAutoTune) {
+        setNotesViewOnly(completed->notes);
+    }
 
     if (undoSupport_ && undoSupport_->isTransactionActive() && !vibratoToolCorrectionCommitSuppressed_)
         undoSupport_->commitTransaction();
@@ -671,23 +672,48 @@ bool PianoRollComponent::applyAutoTuneToSelection()
     return true;
 }
 
-void PianoRollComponent::setNotes(const std::vector<Note>& notes)
+namespace {
+
+void normalizeNotesVectorInPlace(std::vector<Note>& clipNotes)
 {
-    auto& clipNotes = getCurrentClipNotes();
-    clipNotes = notes;
     std::sort(clipNotes.begin(), clipNotes.end(), [](const Note& a, const Note& b) {
         return a.startTime < b.startTime;
     });
-    for (size_t i = 1; i < clipNotes.size(); ++i)
-    {
-        if (clipNotes[i - 1].endTime > clipNotes[i].startTime)
+    for (size_t i = 1; i < clipNotes.size(); ++i) {
+        if (clipNotes[i - 1].endTime > clipNotes[i].startTime) {
             clipNotes[i - 1].endTime = clipNotes[i].startTime;
+        }
     }
     clipNotes.erase(
         std::remove_if(clipNotes.begin(), clipNotes.end(), [](const Note& n) {
             return n.endTime <= n.startTime;
         }),
         clipNotes.end());
+}
+
+} // namespace
+
+void PianoRollComponent::setNotesViewOnly(const std::vector<Note>& notes)
+{
+    notesWorkingCopy_ = notes;
+    normalizeNotesVectorInPlace(notesWorkingCopy_);
+    updateScrollBars();
+    repaint();
+}
+
+void PianoRollComponent::setNotes(const std::vector<Note>& notes)
+{
+    notesWorkingCopy_ = notes;
+    normalizeNotesVectorInPlace(notesWorkingCopy_);
+
+    if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0) {
+        const int clipIndex = processor_->getClipIndexById(currentTrackId_, currentClipId_);
+        if (clipIndex >= 0) {
+            if (!processor_->setClipNotes(currentTrackId_, clipIndex, notesWorkingCopy_)) {
+                AppLogger::error("PianoRollComponent::setNotes: setClipNotes failed");
+            }
+        }
+    }
 
     updateScrollBars();
     repaint();
@@ -701,6 +727,7 @@ void PianoRollComponent::refreshAfterUndoRedo()
 void PianoRollComponent::refreshAfterUndoRedoWithRange(int startFrame, int endFrame)
 {
     updateScrollBars();
+    syncNotesWorkingFromProcessor();
 
     if (currentTool_ == ToolId::LineAnchor && currentCurve_)
     {

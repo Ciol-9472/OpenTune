@@ -6,6 +6,7 @@
 #include <vector>
 #include "../DSP/ChromaKeyDetector.h"
 #include "SilentGapDetector.h"
+#include "SingingEditDocument.h"
 
 namespace OpenTune {
 
@@ -33,6 +34,10 @@ struct ClipSnapshot {
     std::shared_ptr<RenderCache> renderCache;
     std::vector<SilentGap> silentGaps;
     juce::String sourceAudioAbsolutePath;
+    /** Deep copy of clip-local singing edit (undo / clipboard / restore). */
+    std::shared_ptr<const SingingEditDocument> singingEdit;
+    /** Captured authoritative clipGeneration at snapshot time (restore uses monotonic rule vs this). */
+    uint64_t clipGeneration{0};
 };
 
 } // namespace OpenTune

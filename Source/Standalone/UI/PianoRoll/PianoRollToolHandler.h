@@ -37,7 +37,8 @@ public:
         std::function<float(float)> yToFreq;
         std::function<float(float)> freqToY;
 
-        std::function<std::vector<Note>&()> getNotes;
+        /** Working notes buffer owned by PianoRoll (not processor authoritative storage). */
+        std::vector<Note>* notesWorking{nullptr};
         std::function<std::vector<Note*>()> getSelectedNotes;
         /** time, targetPitchHz, pitchToleranceHz — 第三参数已弃用，命中宽度固定为 kPianoRollNoteHitHalfWidthSemis。 */
         std::function<Note*(double, float, float)> findNoteAt;
@@ -151,6 +152,9 @@ private:
     void handleLineAnchorMouseDrag(const juce::MouseEvent& e);
     void handleLineAnchorMouseUp(const juce::MouseEvent& e);
     void commitLineAnchorOperation();
+
+    std::vector<Note>& workNotes() noexcept;
+    const std::vector<Note>& workNotes() const noexcept;
 
     struct AnchorHit { int groupIdx = -1; int pointIdx = -1; };
     AnchorHit hitTestAnchor(float screenX, float screenY, float radius = 8.0f) const;

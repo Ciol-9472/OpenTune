@@ -1,4 +1,5 @@
 ﻿#include "PluginProcessor.h"
+#include "Services/DiffSingerBridgeClient.h"
 #include "Editor/EditorFactory.h"
 #include "Host/HostIntegration.h"
 #include "DSP/ResamplingManager.h"
@@ -11,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
 
 namespace OpenTune {
 
@@ -223,6 +225,9 @@ void OpenTuneAudioProcessor::copyClipToSnapshot(const TrackState::AudioClip& cli
     out.renderCache = clip.renderCache;
     out.silentGaps = clip.silentGaps;
     out.sourceAudioAbsolutePath = clip.sourceAudioAbsolutePath;
+    out.clipGeneration = clip.clipGeneration;
+    const auto doc = clip.getSingingEditDocument();
+    out.singingEdit = doc != nullptr ? std::make_shared<SingingEditDocument>(*doc) : std::make_shared<SingingEditDocument>();
 }
 
 void OpenTuneAudioProcessor::copySnapshotToClip(const OpenTune::ClipSnapshot& snap, TrackState::AudioClip& clip, uint64_t clipId)
@@ -241,11 +246,16 @@ void OpenTuneAudioProcessor::copySnapshotToClip(const OpenTune::ClipSnapshot& sn
     clip.renderCache = snap.renderCache;
     clip.silentGaps = snap.silentGaps;
     clip.sourceAudioAbsolutePath = snap.sourceAudioAbsolutePath;
+    clip.singingEdit_ = snap.singingEdit != nullptr
+                            ? std::make_shared<SingingEditDocument>(*snap.singingEdit)
+                            : std::make_shared<SingingEditDocument>();
 }
 
 OpenTuneAudioProcessor::TrackState::AudioClip::AudioClip(
     const OpenTuneAudioProcessor::TrackState::AudioClip& other)
     : clipId(other.clipId)
+    , clipGeneration(other.clipGeneration)
+    , pendingRefineRequestId(other.pendingRefineRequestId)
     , audioBuffer(other.audioBuffer)
     , drySignalBuffer_(other.drySignalBuffer_)
     , startSeconds(other.startSeconds)
@@ -258,7 +268,7 @@ OpenTuneAudioProcessor::TrackState::AudioClip::AudioClip(
     , originalF0State(other.originalF0State)
     , detectedKey(other.detectedKey)
     , renderCache(other.renderCache)
-    , notes(other.notes)
+    , singingEdit_(std::make_shared<SingingEditDocument>(*other.singingEdit_))
     , silentGaps(other.silentGaps)
     , sourceAudioAbsolutePath(other.sourceAudioAbsolutePath)
 {
@@ -272,6 +282,8 @@ OpenTuneAudioProcessor::TrackState::AudioClip& OpenTuneAudioProcessor::TrackStat
     }
 
     clipId = other.clipId;
+    clipGeneration = other.clipGeneration;
+    pendingRefineRequestId = other.pendingRefineRequestId;
     audioBuffer = other.audioBuffer;
     drySignalBuffer_ = other.drySignalBuffer_;
     startSeconds = other.startSeconds;
@@ -284,7 +296,7 @@ OpenTuneAudioProcessor::TrackState::AudioClip& OpenTuneAudioProcessor::TrackStat
     originalF0State = other.originalF0State;
     detectedKey = other.detectedKey;
     renderCache = other.renderCache;
-    notes = other.notes;
+    singingEdit_ = std::make_shared<SingingEditDocument>(*other.singingEdit_);
     silentGaps = other.silentGaps;
     sourceAudioAbsolutePath = other.sourceAudioAbsolutePath;
     return *this;
@@ -293,6 +305,8 @@ OpenTuneAudioProcessor::TrackState::AudioClip& OpenTuneAudioProcessor::TrackStat
 OpenTuneAudioProcessor::TrackState::AudioClip::AudioClip(
     OpenTuneAudioProcessor::TrackState::AudioClip&& other) noexcept
     : clipId(other.clipId)
+    , clipGeneration(other.clipGeneration)
+    , pendingRefineRequestId(other.pendingRefineRequestId)
     , audioBuffer(std::move(other.audioBuffer))
     , drySignalBuffer_(std::move(other.drySignalBuffer_))
     , startSeconds(other.startSeconds)
@@ -305,7 +319,7 @@ OpenTuneAudioProcessor::TrackState::AudioClip::AudioClip(
     , originalF0State(other.originalF0State)
     , detectedKey(std::move(other.detectedKey))
     , renderCache(std::move(other.renderCache))
-    , notes(std::move(other.notes))
+    , singingEdit_(std::move(other.singingEdit_))
     , silentGaps(std::move(other.silentGaps))
     , sourceAudioAbsolutePath(std::move(other.sourceAudioAbsolutePath))
 {
@@ -319,6 +333,8 @@ OpenTuneAudioProcessor::TrackState::AudioClip& OpenTuneAudioProcessor::TrackStat
     }
 
     clipId = other.clipId;
+    clipGeneration = other.clipGeneration;
+    pendingRefineRequestId = other.pendingRefineRequestId;
     audioBuffer = std::move(other.audioBuffer);
     drySignalBuffer_ = std::move(other.drySignalBuffer_);
     startSeconds = other.startSeconds;
@@ -331,7 +347,10 @@ OpenTuneAudioProcessor::TrackState::AudioClip& OpenTuneAudioProcessor::TrackStat
     originalF0State = other.originalF0State;
     detectedKey = other.detectedKey;
     renderCache = std::move(other.renderCache);
-    notes = std::move(other.notes);
+    singingEdit_ = std::move(other.singingEdit_);
+    if (!singingEdit_) {
+        singingEdit_ = std::make_shared<SingingEditDocument>();
+    }
     silentGaps = std::move(other.silentGaps);
     sourceAudioAbsolutePath = std::move(other.sourceAudioAbsolutePath);
     return *this;
@@ -345,7 +364,7 @@ OpenTuneAudioProcessor::OpenTuneAudioProcessor()
     AppLogger::log("OpenTuneAudioProcessor: ctor");
     AccelerationDetector::getInstance().detect();
 
-    editVersionParam_ = new juce::AudioParameterInt("editVersion", "EditVersion", 0, 100000, 0);
+    editVersionParam_ = new juce::AudioParameterInt("editVersion", "EditVersion", 0, std::numeric_limits<int>::max(), 0);
     addParameter(editVersionParam_);
 
     // Initialize tracks
@@ -362,6 +381,7 @@ OpenTuneAudioProcessor::OpenTuneAudioProcessor()
     resamplingManager_ = std::make_unique<ResamplingManager>();
     f0Service_ = std::make_unique<F0InferenceService>();
     vocoderDomain_ = std::make_unique<VocoderDomain>();
+    refineTaskQueue_ = std::make_unique<RefineTaskQueue>();
     resetPerfProbeCounters();
 
     chunkRenderWorkerRunning_ = true;
@@ -370,6 +390,9 @@ OpenTuneAudioProcessor::OpenTuneAudioProcessor()
 
 OpenTuneAudioProcessor::~OpenTuneAudioProcessor() {
     isPlaying_.store(false);
+
+    refineTaskQueue_.reset();
+    dsBridge_.reset();
 
     {
         std::lock_guard<std::mutex> lock(schedulerMutex_);
@@ -1119,8 +1142,8 @@ void OpenTuneAudioProcessor::bumpEditVersion() {
         return;
     }
     const int v = editVersionParam_->get();
-    const int next = (v + 1) % 100001;
-    const float norm = static_cast<float>(next) / 100000.0f;
+    const int next = (v == std::numeric_limits<int>::max()) ? std::numeric_limits<int>::max() : (v + 1);
+    const float norm = static_cast<float>(next) / static_cast<float>(std::numeric_limits<int>::max());
     editVersionParam_->beginChangeGesture();
     editVersionParam_->setValueNotifyingHost(norm);
     editVersionParam_->endChangeGesture();
