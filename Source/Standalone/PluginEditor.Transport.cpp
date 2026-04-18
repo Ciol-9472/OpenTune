@@ -247,16 +247,6 @@ void OpenTuneAudioProcessorEditor::clipSelectionChanged(int trackId, int clipInd
     processorRef_.setActiveTrack(trackId);
     processorRef_.setSelectedClip(trackId, clipIndex);
     trackPanel_.setActiveTrack(trackId);
-
-    syncPianoRollFromClipSelection(trackId, clipIndex);
-    markSessionNeedsSave();
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::Timer::callAfterDelay(100, [safeThis]() {
-        if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-            safeThis->pianoRoll_.fitToScreen();
-        }
-    });
 }
 
 void OpenTuneAudioProcessorEditor::timeDisplayModeChanged(TransportBarComponent::TimeDisplayMode mode)
@@ -335,14 +325,29 @@ bool OpenTuneAudioProcessorEditor::requestNextPendingOriginalF0ExtractionOnTrack
 
 void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
 {
+    juce::ignoreUnused(clipIndex);
+
     // Update PianoRoll if this clip is active
-    if (processorRef_.getActiveTrackId() == trackId && processorRef_.getSelectedClip(trackId) == clipIndex)
+    if (processorRef_.getActiveTrackId() == trackId)
     {
-        pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, clipIndex));
+        const int selectedClip = processorRef_.getSelectedClip(trackId);
+        if (selectedClip >= 0)
+        {
+            const uint64_t selectedClipId = processorRef_.getClipId(trackId, selectedClip);
+            const bool contextOutdated = (pianoRoll_.getCurrentTrackId() != trackId)
+                || (pianoRoll_.getCurrentClipId() != selectedClipId);
+
+            if (contextOutdated)
+                syncPianoRollFromClipSelection(trackId, selectedClip);
+            else
+                pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, selectedClip));
+        }
     }
 
     // Split/import aftermath: always schedule pending clips from left to right.
     requestNextPendingOriginalF0ExtractionOnTrack(trackId);
+
+    arrangementView_.reconcileHorizontalScrollAfterEdit();
 }
 
 // Y杞存粴鍔ㄥ悓姝ワ細ArrangementView鎴朤rackPanel婊氬姩鏃堕€氱煡鍙︿竴涓粍浠惰窡闅?
@@ -357,6 +362,8 @@ void OpenTuneAudioProcessorEditor::verticalScrollChanged(int newOffset)
 void OpenTuneAudioProcessorEditor::clipDoubleClicked(int trackId, int clipIndex)
 {
     clipSelectionChanged(trackId, clipIndex);
+    syncPianoRollFromClipSelection(trackId, clipIndex);
+    markSessionNeedsSave();
 
     juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
     juce::Timer::callAfterDelay(50, [safeThis]() {

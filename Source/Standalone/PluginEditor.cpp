@@ -859,6 +859,12 @@ bool OpenTuneAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SaveProjectAs, key))
+    {
+        saveProjectAsRequested();
+        return true;
+    }
+
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SaveProject, key))
     {
         quickSaveProject();
@@ -1319,7 +1325,7 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     double selectedOffsetSeconds = 0.0;
     if (clipDurationSeconds > 0.0
         && playheadSeconds >= clipStartSeconds
-        && playheadSeconds <= clipEndSeconds)
+        && playheadSeconds < clipEndSeconds)
     {
         selectedOffsetSeconds = playheadSeconds - clipStartSeconds;
     }
@@ -1328,7 +1334,6 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     const double syncedVisibleStartSeconds = juce::jmax(0.0, clipStartSeconds + selectedOffsetSeconds);
 
     suppressLinkedTimelineScroll_ = true;
-    arrangementView_.setVisibleStartTimeSeconds(syncedVisibleStartSeconds);
     pianoRoll_.setTrackTimeOffset(clipStartSeconds);
     pianoRoll_.setVisibleStartTimeSeconds(syncedVisibleStartSeconds);
     suppressLinkedTimelineScroll_ = false;

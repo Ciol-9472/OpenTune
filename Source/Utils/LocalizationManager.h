@@ -114,6 +114,7 @@ constexpr const char* kExportAudioFailedMessage = "Unable to export audio to:\n{
 constexpr const char* kExportAudioFailedReason = "\nReason: {0}";
 constexpr const char* kOk = "OK";
 constexpr const char* kSaveProject = "Save Project...";
+constexpr const char* kSaveProjectAs = "Save Project As...";
 constexpr const char* kLoadProject = "Open Project...";
 constexpr const char* kNewProject = "New Project";
 constexpr const char* kUnsavedChangesTitle = "Unsaved changes";
@@ -132,6 +133,8 @@ constexpr const char* kProjectLoadFailedMessage = "Failed to load project or inv
 constexpr const char* kRecentProjects = "Recent Projects";
 constexpr const char* kRecentProjectsEmpty = "No recent projects";
 constexpr const char* kOptions = "Options";
+constexpr const char* kStandaloneAudioOutputSampleRate = "Output sample rate";
+constexpr const char* kStandaloneAudioSampleRateDriverDefault = "Driver default";
 
 constexpr const char* kUndo = "Undo";
 constexpr const char* kRedo = "Redo";
@@ -285,6 +288,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kExportAudioFailedReason, "\nReason: {0}", "\n原因：{0}", "\n理由: {0}", "\nПричина: {0}", "\nMotivo: {0}" },
         { Keys::kOk, "OK", "确定", "OK", "OK", "Aceptar" },
         { Keys::kSaveProject, "Save Project...", "保存工程...", "プロジェクトを保存...", "Сохранить проект...", "Guardar proyecto..." },
+        { Keys::kSaveProjectAs, "Save Project As...", "另存工程...", "名前を付けて保存...", "Сохранить как...", "Guardar proyecto como..." },
         { Keys::kLoadProject, "Open Project...", "打开工程...", "プロジェクトを開く...", "Открыть проект...", "Abrir proyecto..." },
         { Keys::kNewProject, "New Project", "新建工程", "新規プロジェクト", "Новый проект", "Proyecto nuevo" },
         { Keys::kUnsavedChangesTitle, "Unsaved changes", "未保存的更改", "未保存の変更", "Несохранённые изменения", "Cambios sin guardar" },
@@ -303,6 +307,8 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kRecentProjects, "Recent Projects", "最近工程", "最近のプロジェクト", "Недавние проекты", "Recientes" },
         { Keys::kRecentProjectsEmpty, "No recent projects", "暂无最近工程", "履歴なし", "Нет проектов", "Sin recientes" },
         { Keys::kOptions, "Options", "选项", "オプション", "Настройки", "Opciones" },
+        { Keys::kStandaloneAudioOutputSampleRate, "Output sample rate", "输出采样率", "出力サンプルレート", "Частота дискретизации", "Frecuencia de muestreo" },
+        { Keys::kStandaloneAudioSampleRateDriverDefault, "Driver default", "驱动默认", "ドライバ既定", "По умолчанию", "Predeterminado del controlador" },
         
         { Keys::kUndo, "Undo", "撤销", "元に戻す", "Отменить", "Deshacer" },
         { Keys::kRedo, "Redo", "重做", "やり直す", "Повтор", "Rehacer" },

@@ -31,10 +31,24 @@ void PianoRollToolHandler::handleDrawCurveTool(const juce::MouseEvent& e)
     const double frameDuration = static_cast<double>(ctx_.getCurveHopSize()) / ctx_.getCurveSampleRate();
     int frameIndex = static_cast<int>(curveTime / frameDuration);
     const auto& originalF0 = ctx_.getOriginalF0();
-    if (frameIndex < 0 || static_cast<size_t>(frameIndex) >= originalF0.size())
+    if (originalF0.empty())
     {
-        AppLogger::debug("[PianoRollToolHandler] handleDrawCurveTool: frameIndex out of range");
+        AppLogger::debug("[PianoRollToolHandler] handleDrawCurveTool: originalF0 empty");
         return;
+    }
+
+    const int maxFrameIndex = static_cast<int>(originalF0.size()) - 1;
+    if (!ctx_.getState().drawing.isDrawingF0)
+    {
+        if (frameIndex < 0 || frameIndex > maxFrameIndex)
+        {
+            AppLogger::debug("[PianoRollToolHandler] handleDrawCurveTool: frameIndex out of range");
+            return;
+        }
+    }
+    else
+    {
+        frameIndex = juce::jlimit(0, maxFrameIndex, frameIndex);
     }
 
     if (!ctx_.getState().drawing.isDrawingF0)
@@ -471,6 +485,11 @@ void PianoRollToolHandler::handleDrawCurveUp(const juce::MouseEvent& e)
             }
             updateF0SelectionFromNotes();
         }
+    }
+    else if (ctx_.isTransactionActive())
+    {
+        AppLogger::debug("[PianoRollToolHandler] handleDrawCurveUp: closing orphaned draw transaction");
+        ctx_.commitEditTransaction();
     }
 
     ctx_.getState().drawing.isDrawingF0 = false;

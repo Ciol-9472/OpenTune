@@ -20,6 +20,7 @@ struct AnchorPoint {
     float pitch = 0.0f;     // MIDI pitch (semitones, e.g. 69.0 = A4)
     bool selected = false;
     float dragBasePitch = 0.0f;  // transient: pitch snapshot at drag start
+    double dragBaseTime = 0.0;   // transient: time snapshot at drag start (seconds, clip-local)
     uint32_t uid = 0;            // transient: unique ID for drag tracking
 
     bool operator<(const AnchorPoint& other) const { return time < other.time; }

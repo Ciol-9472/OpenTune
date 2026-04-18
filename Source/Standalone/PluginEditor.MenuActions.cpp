@@ -1074,6 +1074,52 @@ void OpenTuneAudioProcessorEditor::saveProjectRequested()
     });
 }
 
+void OpenTuneAudioProcessorEditor::saveProjectAsRequested()
+{
+    juce::File dir = getDefaultOpenTuneProjectsDirectory();
+    if (!dir.exists()) {
+        (void)dir.createDirectory();
+    }
+
+    const juce::File projectSaveStart = LastFileDialogPaths::directoryForOpen(FileDialogKind::SaveProject, dir);
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        LOC(kSaveProjectAs),
+        projectSaveStart,
+        "*.otproject");
+
+    const auto chooserFlags =
+        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+    chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
+        juce::File file = fc.getResult();
+        if (file == juce::File{}) {
+            return;
+        }
+        if (!file.hasFileExtension(".otproject")) {
+            file = file.withFileExtension(".otproject");
+        }
+
+        LastFileDialogPaths::rememberSaveSelection(FileDialogKind::SaveProject, file);
+
+        if (processorRef_.saveProjectToFile(file)) {
+            sessionProjectFile_ = file;
+            recentProjects_.add(file);
+            menuBar_.menuItemsChanged();
+            clearSessionNeedsSave();
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::InfoIcon,
+                LOC(kProjectSavedTitle),
+                Loc::format(LOC(kProjectSavedMessage), file.getFullPathName()));
+        } else {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                LOC(kProjectSaveFailedTitle),
+                LOC(kProjectSaveFailedMessage));
+        }
+    });
+}
+
 void OpenTuneAudioProcessorEditor::loadProjectRequested()
 {
     auto doLoad = [this]() {

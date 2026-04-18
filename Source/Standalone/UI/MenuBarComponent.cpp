@@ -76,6 +76,10 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             menu.addSeparator();
             menu.addItem(NewProject, LOC(kNewProject));
             menu.addItem(SaveProject, LOC(kSaveProject));
+            {
+                const auto binding = KeyShortcutConfig::getShortcutBinding(KeyShortcutConfig::ShortcutId::SaveProjectAs);
+                menu.addItem(SaveProjectAs, LOC(kSaveProjectAs) + "  " + binding.getDisplayNames());
+            }
             menu.addItem(LoadProject, LOC(kLoadProject));
 
             juce::PopupMenu recentMenu;
@@ -191,6 +195,9 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             break;
         case SaveProject:
             listeners_.call([](Listener& l) { l.saveProjectRequested(); });
+            break;
+        case SaveProjectAs:
+            listeners_.call([](Listener& l) { l.saveProjectAsRequested(); });
             break;
         case LoadProject:
             listeners_.call([](Listener& l) { l.loadProjectRequested(); });

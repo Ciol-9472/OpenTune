@@ -39,6 +39,7 @@ public:
         virtual void exportStemsRequested() = 0;
         virtual void newProjectRequested() = 0;
         virtual void saveProjectRequested() = 0;
+        virtual void saveProjectAsRequested() = 0;
         virtual void loadProjectRequested() = 0;
         virtual void recentProjectOpenRequested(const juce::File& file) = 0;
         virtual void preferencesRequested() = 0;
@@ -89,7 +90,8 @@ private:
         ExportStems,
         NewProject = 39,
         SaveProject = 40,
-        LoadProject,
+        SaveProjectAs = 41,
+        LoadProject = 42,
         RecentProjectsEmpty = 305,
         RecentProjectFirst = 310,
 

@@ -690,6 +690,30 @@ void PianoRollComponent::setNotes(const std::vector<Note>& notes)
         clipNotes.end());
 
     updateScrollBars();
+
+    // When switching clip while LineAnchor tool is active, rebuild anchor display from the
+    // current pitch curve snapshot (otherwise previous clip's anchors may remain).
+    if (currentTool_ == ToolId::LineAnchor && currentCurve_)
+    {
+        auto snap = currentCurve_->getSnapshot();
+        if (snap)
+        {
+            interactionState_.drawing.clearAnchors();
+            interactionState_.drawing.anchorEdit.groups = snap->getAnchorGroups();
+            interactionState_.drawing.anchorEdit.mode = AnchorEditState::Mode::Idle;
+            interactionState_.drawing.anchorEdit.activeGroupIndex = -1;
+            interactionState_.drawing.anchorEdit.draggedAnchorIndex = -1;
+            anchorFitOverlay_.setVisible(false);
+            anchorFitting_.store(false, std::memory_order_release);
+        }
+        else
+        {
+            interactionState_.drawing.clearAnchors();
+            interactionState_.drawing.anchorEdit.clear();
+            anchorFitOverlay_.setVisible(false);
+            anchorFitting_.store(false, std::memory_order_release);
+        }
+    }
     repaint();
 }
 

@@ -7,6 +7,22 @@
 
 namespace OpenTune {
 
+namespace {
+
+void clampAnchorTimeToItsNoteAtBase(double& timeInOut, double baseTime, const std::vector<Note>& notes)
+{
+    for (const auto& note : notes)
+    {
+        if (baseTime >= note.startTime && baseTime <= note.endTime)
+        {
+            timeInOut = juce::jlimit(note.startTime, note.endTime, timeInOut);
+            return;
+        }
+    }
+}
+
+} // namespace
+
 void PianoRollToolHandler::loadAnchorsFromCurve()
 {
     auto& ae = ctx_.getState().drawing.anchorEdit;
@@ -223,7 +239,10 @@ void PianoRollToolHandler::handleLineAnchorMouseDown(const juce::MouseEvent& e)
 
         for (auto& g : ae.groups)
             for (auto& p : g.points)
+            {
                 p.dragBasePitch = p.pitch;
+                p.dragBaseTime = p.time;
+            }
 
         if (!ctx_.isTransactionActive())
             ctx_.beginEditTransaction("Move Anchor");
@@ -334,12 +353,27 @@ void PianoRollToolHandler::handleLineAnchorMouseDrag(const juce::MouseEvent& e)
 
         if (totalSelected > 1 && ae.mode == AnchorEditState::Mode::Dragging)
         {
-            float pitchDelta = newMidi - ae.dragStartPitch;
+            const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+            const double primaryNewTime = ctx_.xToTime(e.x) - offsetSeconds;
+            const double timeDelta = primaryNewTime - ae.dragStartTime;
+            const float pitchDelta = newMidi - ae.dragStartPitch;
 
+            const auto& notes = ctx_.getNotes();
             for (auto& g : ae.groups)
+            {
+                bool touched = false;
                 for (auto& p : g.points)
-                    if (p.selected)
-                        p.pitch = p.dragBasePitch + pitchDelta;
+                {
+                    if (!p.selected)
+                        continue;
+                    p.time = p.dragBaseTime + timeDelta;
+                    clampAnchorTimeToItsNoteAtBase(p.time, p.dragBaseTime, notes);
+                    p.pitch = p.dragBasePitch + pitchDelta;
+                    touched = true;
+                }
+                if (touched)
+                    g.sortByTime();
+            }
 
             regenerateAnchorsF0();
         }

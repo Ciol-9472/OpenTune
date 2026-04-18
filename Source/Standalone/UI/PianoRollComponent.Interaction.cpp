@@ -122,7 +122,7 @@ double PianoRollComponent::readPlayheadTime() const
 
 void PianoRollComponent::updateAutoScroll()
 {
-    // Page auto-scroll mode has been removed; playback uses continuous follow logic in onScrollVBlankCallback.
+    // Playback horizontal follow: page-flip at viewport edges (see onScrollVBlankCallback).
 }
 
 void PianoRollComponent::timerCallback()
@@ -201,10 +201,19 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
     const double pixelsPerSecond = 100.0 * zoomLevel_;
     const float playheadAbsX = static_cast<float>(relativePlayheadTime * pixelsPerSecond);
 
-    const float viewCenter = pianoKeyWidth_ + (getWidth() - pianoKeyWidth_) / 2.0f;
-    float targetScroll = playheadAbsX + pianoKeyWidth_ - viewCenter;
-    if (targetScroll < 0.0f)
-        targetScroll = 0.0f;
+    const int visibleWidth = getTimelineVisibleWidth();
+    const float vw = static_cast<float>(juce::jmax(1, visibleWidth));
+    const float pk = static_cast<float>(pianoKeyWidth_);
+    const float margin = juce::jmax(48.0f, vw * 0.12f);
+    const float playheadX = playheadAbsX - smoothScrollCurrent_ + pk;
+
+    const int totalContentWidth = static_cast<int>(std::ceil(getTimelineSpanSeconds() * 100.0 * zoomLevel_));
+    const int maxScroll = juce::jmax(0, totalContentWidth - visibleWidth);
+
+    const float viewCenter = pk + (getWidth() - pianoKeyWidth_) / 2.0f;
+    float centeringScroll = playheadAbsX + pianoKeyWidth_ - viewCenter;
+    if (centeringScroll < 0.0f)
+        centeringScroll = 0.0f;
 
     const bool isEditingNow = interactionState_.drawing.isDrawingF0
         || interactionState_.drawing.isDrawingNote
@@ -213,21 +222,29 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
         || interactionState_.isPanning;
     if (snapNextScroll_)
     {
-        smoothScrollCurrent_ = targetScroll;
+        float snapScroll = smoothScrollCurrent_;
+        if (playheadX > pk + vw - margin)
+            snapScroll = playheadAbsX - (vw - margin);
+        else if (playheadX < pk + margin)
+            snapScroll = playheadAbsX - margin;
+        else
+            snapScroll = juce::jlimit(0.0f, static_cast<float>(maxScroll), centeringScroll);
+        smoothScrollCurrent_ = juce::jlimit(0.0f, static_cast<float>(maxScroll), snapScroll);
         snapNextScroll_ = false;
     }
 
     if (isEditingNow)
     {
-        smoothScrollCurrent_ = targetScroll;
+        smoothScrollCurrent_ = juce::jlimit(0.0f, static_cast<float>(maxScroll), centeringScroll);
     }
     else
     {
-        const float diff = targetScroll - smoothScrollCurrent_;
-        if (std::abs(diff) < 1.0f)
-            smoothScrollCurrent_ = targetScroll;
-        else
-            smoothScrollCurrent_ += diff * 0.2f;
+        float newSmooth = smoothScrollCurrent_;
+        if (playheadX > pk + vw - margin)
+            newSmooth = playheadAbsX - (vw - margin);
+        else if (playheadX < pk + margin)
+            newSmooth = playheadAbsX - margin;
+        smoothScrollCurrent_ = juce::jlimit(0.0f, static_cast<float>(maxScroll), newSmooth);
     }
 
     const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
@@ -407,6 +424,14 @@ void PianoRollComponent::setCurrentTool(ToolId tool)
         interactionState_.drawing.anchorEdit.clear();
         anchorFitOverlay_.setVisible(false);
         anchorFitting_.store(false, std::memory_order_release);
+    }
+
+    if (tool != ToolId::HandDraw && currentTool_ == ToolId::HandDraw)
+    {
+        interactionState_.handDrawPendingDrag = false;
+        if (interactionState_.drawing.isDrawingF0 && undoSupport_ != nullptr && undoSupport_->isTransactionActive())
+            undoSupport_->commitTransaction();
+        interactionState_.drawing.clearF0Drawing();
     }
 
     const bool changed = (tool != currentTool_);

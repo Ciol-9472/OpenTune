@@ -317,6 +317,8 @@ void OpenTuneAudioProcessor::setPlaying(bool playing)
     } else if (isPlaying_.load()) {
         isFadingOut_.store(true);
         fadeOutSampleCount_.store(0);
+        // Stop UI auto-scroll immediately; audio will still fade out via isFadingOut_.
+        isPlaying_.store(false, std::memory_order_relaxed);
         AppLogger::log("Playback: fade-out started");
     }
 }

@@ -19,6 +19,10 @@ public:
     static bool getAutoTunePromptSettings(float& retuneSpeedPercentOut, float& noteSplitCentsOut, bool& skipPromptOut);
     static void setAutoTunePromptSettings(float retuneSpeedPercent, float noteSplitCents, bool skipPrompt);
 
+    /** Standalone output sample rate preference (Hz), e.g. 44100 / 48000. Pass <=0 to clear (driver default). */
+    static bool getPreferredStandaloneOutputSampleRate(double& sampleRateOut);
+    static void setPreferredStandaloneOutputSampleRate(double sampleRateHz);
+
 private:
     static juce::File storageFile();
     static void ensureLoaded();

@@ -66,10 +66,9 @@ public:
 
     void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override;
 
-    void setIsPlaying(bool playing) {
-        isPlaying_.store(playing, std::memory_order_relaxed);
-        playheadOverlay_.setPlaying(playing);
-    }
+    void setIsPlaying(bool playing);
+    /** After clip edits (split/move) or when stopping playback: align smooth scroll with committed scroll and playhead overlay. */
+    void reconcileHorizontalScrollAfterEdit();
     // 设置播放头颜色（主题切换时调用）
     void setPlayheadColour(juce::Colour colour) {
         playheadOverlay_.setPlayheadColour(colour);

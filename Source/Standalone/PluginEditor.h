@@ -82,6 +82,7 @@ public:
     void exportStemsRequested() override;
     void newProjectRequested() override;
     void saveProjectRequested() override;
+    void saveProjectAsRequested() override;
     void loadProjectRequested() override;
     void recentProjectOpenRequested(const juce::File& file) override;
     void preferencesRequested() override;

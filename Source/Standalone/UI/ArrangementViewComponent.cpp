@@ -62,6 +62,28 @@ void ArrangementViewComponent::setZoomLevel(double zoom)
     FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
 }
 
+void ArrangementViewComponent::setIsPlaying(bool playing)
+{
+    const bool wasPlaying = isPlaying_.exchange(playing, std::memory_order_relaxed);
+    playheadOverlay_.setPlaying(playing);
+    if (wasPlaying && !playing)
+    {
+        reconcileHorizontalScrollAfterEdit();
+        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
+    }
+}
+
+void ArrangementViewComponent::reconcileHorizontalScrollAfterEdit()
+{
+    const float nextSmooth = static_cast<float>(scrollOffset_);
+    const bool smoothMismatch = std::abs(smoothScrollCurrent_ - nextSmooth) > 1.0e-4f;
+    smoothScrollCurrent_ = nextSmooth;
+    timeConverter_.setScrollOffset(static_cast<double>(scrollOffset_));
+    playheadOverlay_.setScrollOffset(static_cast<double>(scrollOffset_));
+    if (smoothMismatch)
+        FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
+}
+
 void ArrangementViewComponent::setScrollOffset(int pixels)
 {
     const int visibleWidth = juce::jmax(1, getWidth() - kScrollbarBreadth_);
@@ -75,8 +97,13 @@ void ArrangementViewComponent::setScrollOffset(int pixels)
     scrollOffset_ = newOffset;
     timeConverter_.setScrollOffset(scrollOffset_);
     horizontalScrollBar_.setCurrentRangeStart(scrollOffset_);
-    // 同步滚动偏移到高性能播放头覆盖层
-    playheadOverlay_.setScrollOffset(static_cast<double>(scrollOffset_));
+
+    if (!processor_.isPlaying())
+        smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
+
+    playheadOverlay_.setScrollOffset(processor_.isPlaying()
+        ? static_cast<double>(smoothScrollCurrent_)
+        : static_cast<double>(scrollOffset_));
     FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Interactive);
 }
 
@@ -219,7 +246,17 @@ void ArrangementViewComponent::updateScrollBars()
     visibleWidth = juce::jmax(1, visibleWidth);
 
     const int maxRange = juce::jmax(totalContentWidth, visibleWidth);
-    scrollOffset_ = juce::jlimit(0, juce::jmax(0, maxRange - visibleWidth), scrollOffset_);
+    const int maxScroll = juce::jmax(0, maxRange - visibleWidth);
+    scrollOffset_ = juce::jlimit(0, maxScroll, scrollOffset_);
+
+    if (processor_.isPlaying())
+        smoothScrollCurrent_ = juce::jlimit(0.0f, static_cast<float>(maxScroll), smoothScrollCurrent_);
+    else
+        smoothScrollCurrent_ = static_cast<float>(scrollOffset_);
+
+    playheadOverlay_.setScrollOffset(processor_.isPlaying()
+        ? static_cast<double>(smoothScrollCurrent_)
+        : static_cast<double>(scrollOffset_));
 
     horizontalScrollBar_.setRangeLimits(0.0, static_cast<double>(maxRange));
     horizontalScrollBar_.setCurrentRange(scrollOffset_, visibleWidth);

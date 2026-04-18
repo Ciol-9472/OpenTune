@@ -2,6 +2,7 @@
 #include "PianoRollToolHandler.Shared.h"
 #include "../../../Utils/AppLogger.h"
 #include "../../../Utils/KeyShortcutConfig.h"
+#include <cmath>
 
 namespace OpenTune {
 
@@ -25,7 +26,11 @@ void PianoRollToolHandler::mouseMove(const juce::MouseEvent& e)
 
     if (e.y < timelineBottomExtended && e.x > ctx_.getPianoKeyWidth())
     {
-        ctx_.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        // HandDraw should feel like "drawing"; avoid showing resize cursor in this area.
+        if (currentTool_ == ToolId::HandDraw)
+            ctx_.setMouseCursor(juce::MouseCursor::CrosshairCursor);
+        else
+            ctx_.setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
         return;
     }
 
@@ -137,6 +142,19 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // Click on piano keys (left band). Play the corresponding pitch preview.
+    if (e.x <= ctx_.getPianoKeyWidth())
+    {
+        const float clickedPitchHz = ctx_.yToFreq(static_cast<float>(e.y));
+        if (ctx_.setPitchPreview && clickedPitchHz > 0.0f && std::isfinite(clickedPitchHz))
+        {
+            ctx_.setPitchPreview(true, clickedPitchHz);
+            isPianoKeyPreviewing_ = true;
+        }
+        ctx_.requestRepaint();
+        return;
+    }
+
     constexpr int inset = 12;
     constexpr int rulerHeight = 30;
     constexpr int timelineExtendedHitArea = 20;
@@ -152,7 +170,9 @@ void PianoRollToolHandler::mouseDown(const juce::MouseEvent& e)
 
     dragStartPos_ = e.getPosition();
 
-    if (e.x > ctx_.getPianoKeyWidth()) {
+    const bool shouldMovePlayheadOnContentClick =
+        (currentTool_ != ToolId::HandDraw && currentTool_ != ToolId::LineAnchor);
+    if (shouldMovePlayheadOnContentClick && e.x > ctx_.getPianoKeyWidth()) {
         double clickedTime = ctx_.xToTime(e.x);
         if (clickedTime >= 0) {
             ctx_.notifyPlayheadChange(clickedTime);
@@ -250,6 +270,15 @@ void PianoRollToolHandler::mouseUp(const juce::MouseEvent& e)
     if (isDraggingTimelinePlayhead_)
     {
         isDraggingTimelinePlayhead_ = false;
+        ctx_.requestRepaint();
+        return;
+    }
+
+    if (isPianoKeyPreviewing_)
+    {
+        isPianoKeyPreviewing_ = false;
+        if (ctx_.setPitchPreview)
+            ctx_.setPitchPreview(false, 0.0f);
         ctx_.requestRepaint();
         return;
     }

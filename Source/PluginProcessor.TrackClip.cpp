@@ -401,15 +401,13 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
         auto snap = originalClip.pitchCurve->getSnapshot();
         const int totalF0 = static_cast<int>(snap->getOriginalF0().size());
         if (totalF0 > 1) {
-            const int hop = snap->getHopSize();
-            const double f0Sr = snap->getSampleRate();
-            const double splitPointSec = static_cast<double>(splitPointInClip) / kStoredSampleRate;
+            // F0 frame count is tied to stored PCM length (see F0 completion check in PluginEditor). Splitting
+            // by time-only (splitPointSec * f0Sr / hop) drifts from that contract and misaligns curve vs waveform.
             int splitFrame = 1;
-            if (hop > 0 && f0Sr > 1e-9) {
-                splitFrame = static_cast<int>(std::llround(splitPointSec * f0Sr / static_cast<double>(hop)));
-            } else {
-                splitFrame = static_cast<int>(
-                    (splitPointInClip * static_cast<int64_t>(totalF0)) / juce::jmax<int64_t>(1, totalSamples));
+            if (totalSamples > 0) {
+                splitFrame = static_cast<int>(std::llround(
+                    static_cast<double>(splitPointInClip) * static_cast<double>(totalF0)
+                    / static_cast<double>(totalSamples)));
             }
             splitFrame = juce::jlimit(1, totalF0 - 1, splitFrame);
             auto leftCurve = originalClip.pitchCurve->createFrameSubrangeCopy(0, splitFrame);

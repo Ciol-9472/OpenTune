@@ -43,6 +43,9 @@ void ArrangementViewComponent::onHeartbeatTick()
 
     if (!playingNow)
     {
+        if (std::abs(smoothScrollCurrent_ - static_cast<float>(scrollOffset_)) > 1.0e-3f)
+            reconcileHorizontalScrollAfterEdit();
+
         if (progressed)
             FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Background);
         return;
@@ -51,7 +54,7 @@ void ArrangementViewComponent::onHeartbeatTick()
 
 void ArrangementViewComponent::updateAutoScroll()
 {
-    // Page auto-scroll mode has been removed; playback uses continuous follow logic in onScrollVBlankCallback.
+    // Playback horizontal follow: page-flip at viewport edges (see onScrollVBlankCallback).
 }
 
 void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
@@ -67,19 +70,23 @@ void ArrangementViewComponent::onScrollVBlankCallback(double timestampSec)
     const double pixelsPerSecond = 100.0 * zoomLevel_;
     const float playheadAbsX = static_cast<float>(playheadTime * pixelsPerSecond);
 
-    float targetScroll = playheadAbsX + 8.0f - (getWidth() / 2.0f);
-    if (targetScroll < 0.0f)
-        targetScroll = 0.0f;
+    constexpr float kPianoKeyW = 8.0f;
+    const int visibleWidthI = juce::jmax(1, getWidth() - kScrollbarBreadth_);
+    const float visibleW = static_cast<float>(visibleWidthI);
+    const float margin = juce::jmax(48.0f, visibleW * 0.12f);
+    const float playheadX = playheadAbsX - smoothScrollCurrent_ + kPianoKeyW;
 
-    const float diff = targetScroll - smoothScrollCurrent_;
-    if (std::abs(diff) < 1.0f)
-    {
-        smoothScrollCurrent_ = targetScroll;
-    }
-    else
-    {
-        smoothScrollCurrent_ += diff * 0.1f;
-    }
+    const int totalContentWidth = static_cast<int>(std::ceil(getTimelineSpanSeconds() * pixelsPerSecond));
+    const int maxScroll = juce::jmax(0, totalContentWidth - visibleWidthI);
+
+    float newSmooth = smoothScrollCurrent_;
+    if (playheadX > visibleW - margin)
+        newSmooth = playheadAbsX + kPianoKeyW - (visibleW - margin);
+    else if (playheadX < kPianoKeyW + margin)
+        newSmooth = playheadAbsX + kPianoKeyW - (kPianoKeyW + margin);
+
+    newSmooth = juce::jlimit(0.0f, static_cast<float>(maxScroll), newSmooth);
+    smoothScrollCurrent_ = newSmooth;
 
     const int newScrollInt = static_cast<int>(std::llround(smoothScrollCurrent_));
     if (newScrollInt != scrollOffset_)
@@ -162,12 +169,17 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
     if (sr <= 0.0)
         sr = 44100.0;
 
-    double newPosSeconds = xToTime(e.x);
-    processor_.setPosition(newPosSeconds);
-    playheadOverlay_.setPlayheadSeconds(newPosSeconds);
-    playheadOverlay_.repaint();
-    listeners_.call([newPosSeconds](Listener& l) { l.playheadPositionChangeRequested(newPosSeconds); });
-    repaint();
+    auto hit = hitTestClip(e.getPosition());
+    // Click on a clip should only switch clip selection, not jump playhead.
+    if (e.y <= rulerHeight_ || hit.trackId < 0)
+    {
+        const double newPosSeconds = xToTime(e.x);
+        processor_.setPosition(newPosSeconds);
+        playheadOverlay_.setPlayheadSeconds(newPosSeconds);
+        playheadOverlay_.repaint();
+        listeners_.call([newPosSeconds](Listener& l) { l.playheadPositionChangeRequested(newPosSeconds); });
+        repaint();
+    }
 
     if (e.y <= rulerHeight_)
     {
@@ -177,7 +189,6 @@ void ArrangementViewComponent::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    auto hit = hitTestClip(e.getPosition());
     if (hit.trackId < 0)
     {
         if (e.y > rulerHeight_)
@@ -373,6 +384,12 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
         double startT = xToTime(dragStartPos_.x);
         double currentT = xToTime(e.x);
         double deltaSeconds = currentT - startT;
+        const double secondsPerPixel = 1.0 / juce::jmax(1.0e-6, 100.0 * zoomLevel_);
+        const double zeroSnapThresholdSeconds = secondsPerPixel * 10.0;
+
+        auto applyZeroSnap = [zeroSnapThresholdSeconds](double value) -> double {
+            return (std::abs(value) <= zeroSnapThresholdSeconds) ? 0.0 : value;
+        };
 
         if (selectedClips_.size() > 1 && !multiDragStartStates_.empty())
         {
@@ -381,6 +398,7 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
                 double newStart = state.startSeconds + deltaSeconds;
                 if (newStart < 0.0)
                     newStart = 0.0;
+                newStart = applyZeroSnap(newStart);
 
                 processor_.setClipStartSecondsById(state.trackId, state.clipId, newStart);
             }
@@ -388,9 +406,21 @@ void ArrangementViewComponent::mouseDrag(const juce::MouseEvent& e)
         else
         {
             if (selectedClipId_ != 0)
-                processor_.setClipStartSecondsById(selectedTrack_, selectedClipId_, dragStartClipSeconds_ + deltaSeconds);
+            {
+                double newStart = dragStartClipSeconds_ + deltaSeconds;
+                if (newStart < 0.0)
+                    newStart = 0.0;
+                newStart = applyZeroSnap(newStart);
+                processor_.setClipStartSecondsById(selectedTrack_, selectedClipId_, newStart);
+            }
             else
-                processor_.setClipStartSeconds(selectedTrack_, selectedClip_, dragStartClipSeconds_ + deltaSeconds);
+            {
+                double newStart = dragStartClipSeconds_ + deltaSeconds;
+                if (newStart < 0.0)
+                    newStart = 0.0;
+                newStart = applyZeroSnap(newStart);
+                processor_.setClipStartSeconds(selectedTrack_, selectedClip_, newStart);
+            }
         }
 
         listeners_.call([this](Listener& l) { l.clipTimingChanged(selectedTrack_, selectedClip_); });

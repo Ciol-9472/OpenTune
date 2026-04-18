@@ -339,18 +339,28 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
 
     bool haveHostAudio = false;
     bool loadedFromSourcePathFile = false;
+    /** True when disk audio was loaded but channel/sample counts differ from project snapshot (replaced media). */
+    bool diskAudioDiffersFromProjectMeta = false;
+
     if (schemaVersion >= 2 && sourcePath.isNotEmpty() && processorForAudioLoad != nullptr) {
         const juce::File srcFile = resolveStoredAudioPath(projectFileOnDisk, sourcePath);
         const int expectCh = static_cast<int>(clipState.getProperty("audioChannels", 0));
         const int expectN = static_cast<int>(clipState.getProperty("audioSamples", 0));
+        juce::AudioBuffer<float> loadedFromDisk;
         if (srcFile.existsAsFile()
-            && processorForAudioLoad->loadAudioFileToHostRateBuffer(srcFile, hostBuffer)
-            && expectCh > 0
-            && expectN > 0
-            && hostBuffer.getNumChannels() == expectCh
-            && hostBuffer.getNumSamples() == expectN) {
+            && processorForAudioLoad->loadAudioFileToHostRateBuffer(srcFile, loadedFromDisk)
+            && loadedFromDisk.getNumChannels() > 0
+            && loadedFromDisk.getNumSamples() > 0) {
+            // Prefer the file on disk whenever it loads successfully. The previous strict
+            // (expectCh/expectN) match caused replaced audio (same path, new length) to be ignored
+            // so legacy schema-2 projects fell back to embedded PCM and looked "stuck" on old waveforms.
+            const bool metaMatchesSnapshot =
+                (expectCh <= 0 || expectN <= 0)
+                || (loadedFromDisk.getNumChannels() == expectCh && loadedFromDisk.getNumSamples() == expectN);
+            hostBuffer = std::move(loadedFromDisk);
             haveHostAudio = true;
             loadedFromSourcePathFile = true;
+            diskAudioDiffersFromProjectMeta = !metaMatchesSnapshot;
         }
     }
 
@@ -405,53 +415,62 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
     dk.confidence = static_cast<float>(static_cast<double>(clipState.getProperty("keyConfidence", 0.0)));
     clip.detectedKey = dk;
 
-    auto curveState = clipState.getChildWithName("PitchCurve");
-    if (clipValueTreeHasPitchData(curveState)) {
-        clip.pitchCurve = std::make_shared<PitchCurve>();
-        restorePitchCurveFromValueTree(*clip.pitchCurve, curveState);
-        if (hasReadyOriginalF0Curve(clip.pitchCurve)) {
-            clip.originalF0State = OriginalF0State::Ready;
-        }
+    if (diskAudioDiffersFromProjectMeta) {
+        // Replaced / out-of-sync media vs saved edit state: do not restore pitch/notes/gaps tied to old length.
+        clip.pitchCurve.reset();
+        clip.notes.clear();
+        clip.silentGaps.clear();
+        clip.originalF0State = OriginalF0State::NotRequested;
     }
-
-    clip.notes.clear();
-    auto notesTree = clipState.getChildWithName("Notes");
-    if (notesTree.isValid()) {
-        for (auto nv : notesTree) {
-            if (!nv.hasType("Note")) {
-                continue;
+    else {
+        auto curveState = clipState.getChildWithName("PitchCurve");
+        if (clipValueTreeHasPitchData(curveState)) {
+            clip.pitchCurve = std::make_shared<PitchCurve>();
+            restorePitchCurveFromValueTree(*clip.pitchCurve, curveState);
+            if (hasReadyOriginalF0Curve(clip.pitchCurve)) {
+                clip.originalF0State = OriginalF0State::Ready;
             }
-
-            Note n;
-            n.startTime = static_cast<double>(nv.getProperty("startTime", 0.0));
-            n.endTime = static_cast<double>(nv.getProperty("endTime", 0.0));
-            n.pitch = static_cast<float>(static_cast<double>(nv.getProperty("pitch", 0.0)));
-            n.originalPitch = static_cast<float>(static_cast<double>(nv.getProperty("originalPitch", 0.0)));
-            n.pitchOffset = static_cast<float>(static_cast<double>(nv.getProperty("pitchOffset", 0.0)));
-            n.retuneSpeed = static_cast<float>(static_cast<double>(nv.getProperty("retuneSpeed", -1.0)));
-            n.vibratoDepth = static_cast<float>(static_cast<double>(nv.getProperty("vibratoDepth", -1.0)));
-            n.vibratoRate = static_cast<float>(static_cast<double>(nv.getProperty("vibratoRate", -1.0)));
-            n.velocity = static_cast<float>(static_cast<double>(nv.getProperty("velocity", 1.0)));
-            n.isVoiced = static_cast<bool>(nv.getProperty("isVoiced", true));
-            n.selected = static_cast<bool>(nv.getProperty("selected", false));
-            n.dirty = static_cast<bool>(nv.getProperty("dirty", false));
-            clip.notes.push_back(n);
         }
-    }
 
-    clip.silentGaps.clear();
-    auto gapsTree = clipState.getChildWithName("SilentGaps");
-    if (gapsTree.isValid()) {
-        for (auto gv : gapsTree) {
-            if (!gv.hasType("SilentGap")) {
-                continue;
+        clip.notes.clear();
+        auto notesTree = clipState.getChildWithName("Notes");
+        if (notesTree.isValid()) {
+            for (auto nv : notesTree) {
+                if (!nv.hasType("Note")) {
+                    continue;
+                }
+
+                Note n;
+                n.startTime = static_cast<double>(nv.getProperty("startTime", 0.0));
+                n.endTime = static_cast<double>(nv.getProperty("endTime", 0.0));
+                n.pitch = static_cast<float>(static_cast<double>(nv.getProperty("pitch", 0.0)));
+                n.originalPitch = static_cast<float>(static_cast<double>(nv.getProperty("originalPitch", 0.0)));
+                n.pitchOffset = static_cast<float>(static_cast<double>(nv.getProperty("pitchOffset", 0.0)));
+                n.retuneSpeed = static_cast<float>(static_cast<double>(nv.getProperty("retuneSpeed", -1.0)));
+                n.vibratoDepth = static_cast<float>(static_cast<double>(nv.getProperty("vibratoDepth", -1.0)));
+                n.vibratoRate = static_cast<float>(static_cast<double>(nv.getProperty("vibratoRate", -1.0)));
+                n.velocity = static_cast<float>(static_cast<double>(nv.getProperty("velocity", 1.0)));
+                n.isVoiced = static_cast<bool>(nv.getProperty("isVoiced", true));
+                n.selected = static_cast<bool>(nv.getProperty("selected", false));
+                n.dirty = static_cast<bool>(nv.getProperty("dirty", false));
+                clip.notes.push_back(n);
             }
+        }
 
-            SilentGap g;
-            g.startSeconds = static_cast<double>(gv.getProperty("start", 0.0));
-            g.endSeconds = static_cast<double>(gv.getProperty("end", 0.0));
-            g.minLevel_dB = static_cast<float>(static_cast<double>(gv.getProperty("minDb", -100.0)));
-            clip.silentGaps.push_back(g);
+        clip.silentGaps.clear();
+        auto gapsTree = clipState.getChildWithName("SilentGaps");
+        if (gapsTree.isValid()) {
+            for (auto gv : gapsTree) {
+                if (!gv.hasType("SilentGap")) {
+                    continue;
+                }
+
+                SilentGap g;
+                g.startSeconds = static_cast<double>(gv.getProperty("start", 0.0));
+                g.endSeconds = static_cast<double>(gv.getProperty("end", 0.0));
+                g.minLevel_dB = static_cast<float>(static_cast<double>(gv.getProperty("minDb", -100.0)));
+                clip.silentGaps.push_back(g);
+            }
         }
     }
 

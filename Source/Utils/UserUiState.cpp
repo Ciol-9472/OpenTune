@@ -24,6 +24,9 @@ float gAutoTuneRetuneSpeedPercent = 15.0f;
 float gAutoTuneNoteSplitCents = 80.0f;
 bool gAutoTuneSkipPrompt = false;
 
+bool gHasStandalonePreferredSampleRate = false;
+double gStandalonePreferredSampleRateHz = 0.0;
+
 } // namespace
 
 juce::File UserUiState::storageFile()
@@ -53,6 +56,8 @@ void UserUiState::ensureLoaded()
     gAutoTuneRetuneSpeedPercent = 15.0f;
     gAutoTuneNoteSplitCents = 80.0f;
     gAutoTuneSkipPrompt = false;
+    gHasStandalonePreferredSampleRate = false;
+    gStandalonePreferredSampleRateHz = 0.0;
 
     const juce::File file = storageFile();
     if (!file.existsAsFile())
@@ -90,6 +95,16 @@ void UserUiState::ensureLoaded()
         gAutoTuneSkipPrompt = xml->getBoolAttribute("autoTuneSkipPrompt", false);
         gHasAutoTunePromptSettings = true;
     }
+
+    if (xml->hasAttribute("standalonePreferredSampleRateHz"))
+    {
+        const double v = xml->getDoubleAttribute("standalonePreferredSampleRateHz", 0.0);
+        if (v > 0.0)
+        {
+            gStandalonePreferredSampleRateHz = v;
+            gHasStandalonePreferredSampleRate = true;
+        }
+    }
 }
 
 void UserUiState::persist()
@@ -121,6 +136,9 @@ void UserUiState::persist()
             root.setAttribute("autoTuneNoteSplitCents", static_cast<double>(gAutoTuneNoteSplitCents));
             root.setAttribute("autoTuneSkipPrompt", gAutoTuneSkipPrompt);
         }
+
+        if (gHasStandalonePreferredSampleRate && gStandalonePreferredSampleRateHz > 0.0)
+            root.setAttribute("standalonePreferredSampleRateHz", gStandalonePreferredSampleRateHz);
     }
 
     const juce::File file = storageFile();
@@ -229,6 +247,38 @@ void UserUiState::setAutoTunePromptSettings(float retuneSpeedPercent, float note
         gAutoTuneNoteSplitCents = noteSplitCents;
         gAutoTuneSkipPrompt = skipPrompt;
         gHasAutoTunePromptSettings = true;
+    }
+
+    persist();
+}
+
+bool UserUiState::getPreferredStandaloneOutputSampleRate(double& sampleRateOut)
+{
+    ensureLoaded();
+
+    const juce::ScopedLock sl(gLock);
+    if (!gHasStandalonePreferredSampleRate || gStandalonePreferredSampleRateHz <= 0.0)
+        return false;
+
+    sampleRateOut = gStandalonePreferredSampleRateHz;
+    return true;
+}
+
+void UserUiState::setPreferredStandaloneOutputSampleRate(double sampleRateHz)
+{
+    {
+        const juce::ScopedLock sl(gLock);
+        gLoaded = true;
+        if (sampleRateHz <= 0.0)
+        {
+            gHasStandalonePreferredSampleRate = false;
+            gStandalonePreferredSampleRateHz = 0.0;
+        }
+        else
+        {
+            gHasStandalonePreferredSampleRate = true;
+            gStandalonePreferredSampleRateHz = sampleRateHz;
+        }
     }
 
     persist();
