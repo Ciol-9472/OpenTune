@@ -1,5 +1,7 @@
 #include "../../PluginProcessor.h"
 #include "PianoRollComponent.h"
+#include "TopBarComponent.h"
+#include "../../Utils/KeyShortcutConfig.h"
 #include "../Utils/ZoomSensitivityConfig.h"
 #include "FrameScheduler.h"
 #include "UiText.h"
@@ -556,12 +558,24 @@ void PianoRollComponent::showToolContextPopupMenu()
     };
 
     juce::PopupMenu menu;
-    menu.addItem(UiText::pianoRollToolSelect(), [applyTool] { applyTool(ToolId::Select); });
-    menu.addItem(UiText::pianoRollToolDrawNote(), [applyTool] { applyTool(ToolId::DrawNote); });
-    menu.addItem(UiText::pianoRollToolLineAnchor(), [applyTool] { applyTool(ToolId::LineAnchor); });
-    menu.addItem(UiText::pianoRollToolHandDraw(), [applyTool] { applyTool(ToolId::HandDraw); });
-    menu.addItem(UiText::pianoRollToolVibrato(), [applyTool] { applyTool(ToolId::Vibrato); });
-    menu.addItem(UiText::pianoRollToolSplitNote(), [applyTool] { applyTool(ToolId::SplitNote); });
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolSelect(), KeyShortcutConfig::ShortcutId::ToolSelect,
+        [applyTool] { applyTool(ToolId::Select); }));
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolDrawNote(), KeyShortcutConfig::ShortcutId::ToolDrawNote,
+        [applyTool] { applyTool(ToolId::DrawNote); }));
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolLineAnchor(), KeyShortcutConfig::ShortcutId::ToolLineAnchor,
+        [applyTool] { applyTool(ToolId::LineAnchor); }));
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolHandDraw(), KeyShortcutConfig::ShortcutId::ToolHandDraw,
+        [applyTool] { applyTool(ToolId::HandDraw); }));
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolVibrato(), KeyShortcutConfig::ShortcutId::ToolVibrato,
+        [applyTool] { applyTool(ToolId::Vibrato); }));
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcutAction(
+        UiText::pianoRollToolSplitNote(), KeyShortcutConfig::ShortcutId::ToolSplitNote,
+        [applyTool] { applyTool(ToolId::SplitNote); }));
     menu.showMenuAsync(juce::PopupMenu::Options());
 }
 
@@ -785,6 +799,13 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::M
 
 bool PianoRollComponent::keyPressed(const juce::KeyPress& key)
 {
+    if (auto* top = findParentComponentOfClass<TopBarComponent>())
+    {
+        auto* parentEditor = findParentComponentOfClass<juce::AudioProcessorEditor>();
+        if (top->getMenuBar().tryHandleTopLevelMenuMnemonic(key, top->getTransportBar(), *top, parentEditor))
+            return true;
+    }
+
     if (isAutoTuneProcessing() || isAnchorFitting())
         return false;
 

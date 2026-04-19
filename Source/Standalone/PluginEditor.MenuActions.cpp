@@ -3,6 +3,7 @@
 #include "UI/UIColors.h"
 #include "UI/FrameScheduler.h"
 #include "UI/OptionsDialogComponent.h"
+#include "OpenTuneRepositoryUrl.h"
 #include "UI/StemExportDialogComponent.h"
 #include "Utils/LastFileDialogPaths.h"
 #include "Utils/AppLogger.h"
@@ -1191,6 +1192,13 @@ void OpenTuneAudioProcessorEditor::preferencesRequested()
     options.launchAsync();
 }
 
+void OpenTuneAudioProcessorEditor::openSourceRepositoryRequested()
+{
+    const juce::String url(kSourceRepositoryUrl);
+    if (url.isNotEmpty())
+        juce::URL(url).launchInDefaultBrowser();
+}
+
 void OpenTuneAudioProcessorEditor::helpRequested()
 {
     auto exeFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
@@ -1220,12 +1228,14 @@ void OpenTuneAudioProcessorEditor::helpRequested()
 void OpenTuneAudioProcessorEditor::showWaveformToggled(bool shouldShow)
 {
     pianoRoll_.setShowWaveform(shouldShow);
+    menuBar_.menuItemsChanged();
     markSessionNeedsSave();
 }
 
 void OpenTuneAudioProcessorEditor::showLanesToggled(bool shouldShow)
 {
     pianoRoll_.setShowLanes(shouldShow);
+    menuBar_.menuItemsChanged();
     markSessionNeedsSave();
 }
 
@@ -1288,6 +1298,34 @@ void OpenTuneAudioProcessorEditor::redoRequested()
     performRedoWithRangeTracking();
 }
 
+void OpenTuneAudioProcessorEditor::editCutRequested()
+{
+    arrangementView_.cutSelectedClips();
+}
+
+void OpenTuneAudioProcessorEditor::editCopyRequested()
+{
+    arrangementView_.copySelectedClips();
+}
+
+void OpenTuneAudioProcessorEditor::editPasteRequested()
+{
+    arrangementView_.pasteClips();
+}
+
+void OpenTuneAudioProcessorEditor::editSelectAllRequested()
+{
+    const int trackId = processorRef_.getActiveTrackId();
+    if (trackId >= 0 && trackId < OpenTuneAudioProcessor::MAX_TRACKS) {
+        arrangementView_.selectAllClipsInTrack(trackId);
+    }
+}
+
+void OpenTuneAudioProcessorEditor::editDeleteRequested()
+{
+    arrangementView_.deleteSelectedClips();
+}
+
 void OpenTuneAudioProcessorEditor::noteNameModeChanged(int mode)
 {
     pianoRoll_.setNoteNameDisplayMode(mode);
@@ -1296,6 +1334,7 @@ void OpenTuneAudioProcessorEditor::noteNameModeChanged(int mode)
 void OpenTuneAudioProcessorEditor::showNoteBlockNoteNamesToggled(bool shouldShow)
 {
     pianoRoll_.setShowNoteBlockNoteNames(shouldShow);
+    menuBar_.syncShowNoteBlockNoteNames(shouldShow);
 }
 
 void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
@@ -1305,6 +1344,7 @@ void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
     // 鍒锋柊鑿滃崟鏍?- JUCE 闇€瑕佽皟鐢?menuItemsChanged() 閲嶅缓鑿滃崟
     menuBar_.menuItemsChanged();
     menuBar_.repaint();
+    win32NativeMenu_.refresh();
     
     // 鍒锋柊椤堕儴宸ュ叿鏍?
     transportBar_.refreshLocalizedText();
@@ -1365,6 +1405,7 @@ void OpenTuneAudioProcessorEditor::syncUiAfterProjectLoad()
     restorePersistedPianoRollZoomState();
 
     menuBar_.menuItemsChanged();
+    win32NativeMenu_.refresh();
     refreshAfterUndoRedo();
 
     lastSyncedBpm_ = processorRef_.getBpm();

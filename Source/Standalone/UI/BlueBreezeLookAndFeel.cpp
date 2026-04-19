@@ -366,32 +366,74 @@ void BlueBreezeLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rec
         return;
     }
 
-    if (isHighlighted)
+    juce::Colour textCol = (textColour != nullptr ? *textColour : juce::Colour(BlueBreeze::Colors::TextDark));
+    auto r = area.reduced(1);
+
+    if (isHighlighted && isActive)
     {
         g.setColour(juce::Colour(BlueBreeze::Colors::AccentBlue).withAlpha(0.1f));
-        g.fillRect(area);
-        
-        g.setColour(juce::Colour(BlueBreeze::Colors::AccentBlue));
+        g.fillRect(r);
+        textCol = juce::Colour(BlueBreeze::Colors::AccentBlue);
     }
     else
     {
-        g.setColour(juce::Colour(BlueBreeze::Colors::TextDark));
+        textCol = textCol.withMultipliedAlpha(isActive ? 1.0f : 0.5f);
     }
 
-    g.setFont(UIColors::getUIFont(14.0f));
-    
-    auto r = area.reduced(10, 0);
-    g.drawFittedText(text, r, juce::Justification::centredLeft, 1);
-    
-    if (isTicked)
+    r.reduce(juce::jmin(5, area.getWidth() / 20), 0);
+
+    auto font = getPopupMenuFont();
+    auto maxFontHeight = static_cast<float>(r.getHeight()) / 1.3f;
+    if (font.getHeight() > maxFontHeight)
+        font.setHeight(maxFontHeight);
+    g.setFont(font);
+
+    auto iconArea = r.removeFromLeft(juce::roundToInt(maxFontHeight)).toFloat();
+
+    if (icon != nullptr)
     {
-        auto tickArea = r.removeFromRight(20);
-        auto tickCenter = tickArea.getCentre().toFloat();
-        float tickRadius = 4.0f;
-        
-        g.setColour(juce::Colour(BlueBreeze::Colors::AccentBlue));
-        g.fillEllipse(tickCenter.x - tickRadius, tickCenter.y - tickRadius, 
-                      tickRadius * 2.0f, tickRadius * 2.0f);
+        icon->drawWithin(g, iconArea,
+                           juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize,
+                           1.0f);
+        r.removeFromLeft(juce::roundToInt(maxFontHeight * 0.5f));
+    }
+    else if (isTicked)
+    {
+        auto tick = getTickShape(1.0f);
+        g.setColour(textCol);
+        g.fillPath(tick,
+                    tick.getTransformToScaleToFit(
+                        iconArea.reduced(iconArea.getWidth() / 5.0f, 0.0f).toFloat(), true));
+    }
+
+    if (hasSubMenu)
+    {
+        const float arrowH = 0.6f * getPopupMenuFont().getAscent();
+        const int arrowWi = juce::roundToInt(arrowH);
+        const int x = r.removeFromRight(arrowWi).getX();
+        const float halfH = static_cast<float>(r.getCentreY());
+
+        juce::Path path;
+        path.startNewSubPath(static_cast<float>(x), halfH - arrowH * 0.5f);
+        path.lineTo(static_cast<float>(x) + arrowH * 0.6f, halfH);
+        path.lineTo(static_cast<float>(x), halfH + arrowH * 0.5f);
+
+        g.setColour(textCol);
+        g.strokePath(path, juce::PathStrokeType(2.0f));
+    }
+
+    r.removeFromRight(3);
+    g.setColour(textCol);
+    g.drawFittedText(text, r, juce::Justification::centredLeft, 1);
+
+    if (shortcutKeyText.isNotEmpty())
+    {
+        auto f2 = font;
+        f2.setHeight(f2.getHeight() * 0.75f);
+        f2.setHorizontalScale(0.95f);
+        g.setFont(f2);
+        g.setColour(textCol.withAlpha(0.6f));
+        g.drawText(shortcutKeyText, r, juce::Justification::centredRight, true);
     }
 }
 

@@ -343,48 +343,40 @@ bool PianoRollToolHandler::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    if (!key.getModifiers().isAnyModifierKeyDown()) {
-        if (key.getTextCharacter() == '1') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Select tool");
-            ctx_.setCurrentTool(ToolId::Select);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '2') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to DrawNote tool");
-            ctx_.setCurrentTool(ToolId::DrawNote);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '3') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to LineAnchor tool");
-            ctx_.setCurrentTool(ToolId::LineAnchor);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '4') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to HandDraw tool");
-            ctx_.setCurrentTool(ToolId::HandDraw);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '5') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Vibrato tool");
-            ctx_.setCurrentTool(ToolId::Vibrato);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '6') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to SplitNote tool");
-            ctx_.setCurrentTool(ToolId::SplitNote);
-            return true;
-        }
-
-        if (key.getTextCharacter() == '7') {
-            AppLogger::debug("[PianoRollToolHandler] keyPressed: AutoTune requested");
-            ctx_.notifyAutoTuneRequested();
-            return true;
-        }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolSelect, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Select tool");
+        ctx_.setCurrentTool(ToolId::Select);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolDrawNote, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to DrawNote tool");
+        ctx_.setCurrentTool(ToolId::DrawNote);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolLineAnchor, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to LineAnchor tool");
+        ctx_.setCurrentTool(ToolId::LineAnchor);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolHandDraw, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to HandDraw tool");
+        ctx_.setCurrentTool(ToolId::HandDraw);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolVibrato, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to Vibrato tool");
+        ctx_.setCurrentTool(ToolId::Vibrato);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolSplitNote, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: switching to SplitNote tool");
+        ctx_.setCurrentTool(ToolId::SplitNote);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToolAutoTune, key)) {
+        AppLogger::debug("[PianoRollToolHandler] keyPressed: AutoTune requested");
+        ctx_.notifyAutoTuneRequested();
+        return true;
     }
 
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::PlayPause, key)) {

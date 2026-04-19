@@ -182,6 +182,20 @@ constexpr const char* kYes = "Yes";
 constexpr const char* kNo = "No";
 constexpr const char* kResetAllToDefaults = "Reset All to Defaults";
 
+/** Top-level menu titles: name + (Alt mnemonic letter), not part of KeyShortcutConfig. */
+constexpr const char* kMenuBarTitleFile = "File (F)";
+constexpr const char* kMenuBarTitleEdit = "Edit (E)";
+constexpr const char* kMenuBarTitleView = "View (V)";
+constexpr const char* kMenuBarTitleHelp = "Help (H)";
+constexpr const char* kOpenSourceRepository = "Source repository";
+constexpr const char* kShortcutGroupTransport = "Transport";
+constexpr const char* kShortcutGroupProject = "Project";
+constexpr const char* kShortcutGroupExport = "Export";
+constexpr const char* kShortcutGroupEdit = "Edit";
+constexpr const char* kShortcutGroupPianoRoll = "Piano roll & arrangement";
+constexpr const char* kShortcutGroupView = "View & options";
+constexpr const char* kShortcutGroupHelp = "Help";
+
 constexpr const char* kPlayPause = "Play/Pause";
 constexpr const char* kStop = "Stop";
 constexpr const char* kPlayFromStart = "Play from Start";
@@ -212,6 +226,12 @@ constexpr const char* kPlay = "Play";
 constexpr const char* kPause = "Pause";
 constexpr const char* kLoop = "Loop";
 constexpr const char* kTapTempo = "Tap Tempo";
+/** Transport: bypass corrected signal, hear dry/original */
+constexpr const char* kTransportBypass = "Bypass pitch correction";
+constexpr const char* kTransportTimeDisplay = "Position; click to switch time / bars";
+constexpr const char* kTransportBpm = "Tempo (BPM)";
+constexpr const char* kTransportScaleRoot = "Key (root note)";
+constexpr const char* kTransportScaleType = "Scale type";
 constexpr const char* kTrackView = "Track View";
 constexpr const char* kPianoRollView = "Piano Roll View";
 
@@ -221,6 +241,17 @@ constexpr const char* kScale = "Scale";
 
         constexpr const char* kClose = "Close";
         constexpr const char* kHelp = "Help...";
+/** Settings / shortcut list: split clip in arrangement (keyboard). */
+constexpr const char* kShortcutSplitClip = "Split clip (Arrangement)";
+/** Arrangement clip context menu */
+constexpr const char* kArrangementSplitAtPlayhead = "Split at playhead";
+constexpr const char* kArrangementMergeWithNextClip = "Merge with next clip";
+/** Toolbar tooltip: prefix before key binding display */
+constexpr const char* kToolbarTooltipShortcut = "Shortcut:";
+/** AUTO: current clip already has notes */
+constexpr const char* kAutoTuneNotesPresentTitle = "AUTO";
+constexpr const char* kAutoTuneNotesPresentMessage =
+    "This clip already has notes. AUTO will replace them with newly detected notes. Continue?";
 
 constexpr const char* kMouseSelectTool = "Mouse Select Tool";
 constexpr const char* kDrawNoteTool = "Draw Note Tool";
@@ -355,6 +386,19 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kNo, "No", "否", "いいえ", "Нет", "No" },
         { Keys::kResetAllToDefaults, "Reset All to Defaults", "全部恢复默认", "すべてデフォルトに戻す", "Сбросить все", "Restablecer todo" },
         
+        { Keys::kMenuBarTitleFile, "File (F)", "文件 (F)", "ファイル (F)", "Файл (F)", "Archivo (F)" },
+        { Keys::kMenuBarTitleEdit, "Edit (E)", "编辑 (E)", "編集 (E)", "Правка (E)", "Editar (E)" },
+        { Keys::kMenuBarTitleView, "View (V)", "视图 (V)", "表示 (V)", "Вид (V)", "Ver (V)" },
+        { Keys::kMenuBarTitleHelp, "Help (H)", "帮助 (H)", "ヘルプ (H)", "Справка (H)", "Ayuda (H)" },
+        { Keys::kOpenSourceRepository, "Source repository", "开源仓库", "ソースリポジトリ", "Репозиторий исходников", "Repositorio de código" },
+        { Keys::kShortcutGroupTransport, "Transport", "走带", "トランスポート", "Транспорт", "Transporte" },
+        { Keys::kShortcutGroupProject, "Project", "工程", "プロジェクト", "Проект", "Proyecto" },
+        { Keys::kShortcutGroupExport, "Export", "导出", "書き出し", "Экспорт", "Exportar" },
+        { Keys::kShortcutGroupEdit, "Edit", "编辑", "編集", "Правка", "Edición" },
+        { Keys::kShortcutGroupPianoRoll, "Piano roll & arrangement", "钢琴卷帘与编曲区", "ピアノロールとアレンジ", "Пиано-ролл и аранжировка", "Piano roll y arreglo" },
+        { Keys::kShortcutGroupView, "View & options", "视图与选项", "表示とオプション", "Вид и параметры", "Vista y opciones" },
+        { Keys::kShortcutGroupHelp, "Help", "帮助", "ヘルプ", "Справка", "Ayuda" },
+        
         { Keys::kPlayPause, "Play/Pause", "播放/暂停", "再生/一時停止", "Старт/Пауза", "Play/Pausa" },
         { Keys::kStop, "Stop", "停止", "停止", "Стоп", "Detener" },
         { Keys::kPlayFromStart, "Play from Start", "从头播放", "最初から再生", "Играть сначала", "Reprod. inicio" },
@@ -385,6 +429,11 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kPause, "Pause", "暂停", "一時停止", "Пауза", "Pausar" },
         { Keys::kLoop, "Loop", "循环", "ループ", "Цикл", "Bucle" },
         { Keys::kTapTempo, "Tap Tempo", "敲击节拍", "タップテンポ", "Тап темп", "Tap tempo" },
+        { Keys::kTransportBypass, "Bypass pitch correction", "旁路音高校正（干声）", "ピッチ補正をバイパス（ドライ）", "Обход коррекции тона (сухой)", "Omitir corrección de tono (seco)" },
+        { Keys::kTransportTimeDisplay, "Position; click to switch time / bars", "播放位置；点击切换时间码/小节", "再生位置；クリックで時間/小節表示切替", "Позиция; клик — время/такт", "Posición; clic para tiempo/compases" },
+        { Keys::kTransportBpm, "Tempo (BPM)", "速度（BPM）", "テンポ（BPM）", "Темп (BPM)", "Tempo (BPM)" },
+        { Keys::kTransportScaleRoot, "Key (root note)", "调性根音", "キー（ルート）", "Тональность (основная)", "Tonalidad (fundamental)" },
+        { Keys::kTransportScaleType, "Scale type", "音阶类型", "スケール種類", "Тип гаммы", "Tipo de escala" },
         { Keys::kTrackView, "Track View", "轨道视图", "トラックビュー", "Вид дорожки", "Vista pista" },
         { Keys::kPianoRollView, "Piano Roll View", "钢琴卷帘视图", "ピアノロールビュー", "Вид пиано-ролла", "Vista piano" },
         
@@ -393,6 +442,17 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kScale, "Scale", "调式", "スケール", "Гамма", "Escala" },
         
         { Keys::kClose, "Close", "关闭", "閉じる", "Закрыть", "Cerrar" },
+        { Keys::kShortcutSplitClip, "Split clip (Arrangement)", "切分片段（编曲区）", "クリップ分割（アレンジ）", "Разделить клип (аранжировка)", "Dividir clip (arreglo)" },
+        { Keys::kArrangementSplitAtPlayhead, "Split at playhead", "在播放头处切分", "再生ヘッドで分割", "Разделить по позиции воспроизведения", "Dividir en cabezal" },
+        { Keys::kArrangementMergeWithNextClip, "Merge with next clip", "与下一段合并", "次のクリップと結合", "Объединить со следующим клипом", "Fusionar con el siguiente clip" },
+        { Keys::kToolbarTooltipShortcut, "Shortcut:", "快捷键:", "ショートカット:", "Сочетание:", "Atajo:" },
+        { Keys::kAutoTuneNotesPresentTitle, "AUTO", "AUTO", "AUTO", "AUTO", "AUTO" },
+        { Keys::kAutoTuneNotesPresentMessage,
+          "This clip already has notes. AUTO will replace them with newly detected notes. Continue?",
+          "当前片段已有音符。执行 AUTO 将用新检测的音符替换现有音符。是否继续？",
+          "このクリップには既にノートがあります。AUTO は新しく検出したノートで置き換えます。続行しますか？",
+          "В клипе уже есть ноты. AUTO заменит их вновь обнаруженными. Продолжить?",
+          "Este clip ya tiene notas. AUTO las sustituirá por las recién detectadas. ¿Continuar?" },
         { Keys::kHelp, "Help...", "帮助...", "ヘルプ...", "Справка...", "Ayuda..." },
         
         { Keys::kMouseSelectTool, "Mouse Select Tool", "鼠标选择工具", "マウス選択ツール", "Инструмент выбора", "Herram. selec." },
@@ -423,7 +483,7 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kPianoRollHintSplit1, "Click a note at the mouse position to split it into two.", "在鼠标位置单击音符可将其一分为二。", "マウス位置でノートをクリックして分割。", "Клик по ноте под курсором — разрез.", "Clic en la nota bajo el cursor para partirla." },
         { Keys::kPianoRollHintSplit2, "Shortcut [6] Split Note tool.", "快捷键 [6] 分割音符工具。", "[6] ノート分割。", "[6] — разрезать.", "Atajo [6] dividir nota." },
         { Keys::kPianoRollHintAuto1, "Click to run Auto note generation for the current F0 range/selection.", "单击可根据当前 F0 与选区自动生成音符。", "クリックでF0範囲から自動ノート生成。", "Клик — авто-ноты по F0/выделению.", "Clic: generar notas automáticas según F0/selección." },
-        { Keys::kPianoRollHintAuto2, "Right-click AUTO to open options; shortcut [7] when the piano roll has keyboard focus.", "右键点击 AUTO 可打开参数对话框；钢琴窗拥有键盘焦点时快捷键 [7]。", "AUTO を右クリックでオプションを開く。ピアノロールにフォーカスがあるとき [7]。", "ПКМ по AUTO открывает параметры; при фокусе ролла — [7].", "Clic derecho en AUTO abre opciones; con foco en el piano roll, atajo [7]." },
+        { Keys::kPianoRollHintAuto2, "Right-click AUTO for options; default shortcut Ctrl+Shift+7 (change in Options → Keyswitch).", "右键 AUTO 打开参数；默认快捷键 Ctrl+Shift+7（可在选项→快捷键中修改）。", "AUTO を右クリックでオプション。既定は Ctrl+Shift+7（オプション→キースイッチで変更）。", "ПКМ по AUTO — параметры; по умолчанию Ctrl+Shift+7 (смена в Настройки → клавиши).", "Clic derecho en AUTO para opciones; atajo por defecto Ctrl+Shift+7 (cambiar en Opciones → atajos)." },
     };
     
     for (const auto& t : translations)

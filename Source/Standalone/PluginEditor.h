@@ -20,6 +20,7 @@
 #include "UI/MenuBarComponent.h"
 #include "UI/TransportBarComponent.h"
 #include "UI/TopBarComponent.h"
+#include "Win32NativeMenuBar.h"
 #include "UI/TrackPanelComponent.h"
 #include "UI/ArrangementViewComponent.h"
 #include "UI/OpenTuneLookAndFeel.h"
@@ -87,12 +88,18 @@ public:
     void recentProjectOpenRequested(const juce::File& file) override;
     void preferencesRequested() override;
     void helpRequested() override;
+    void openSourceRepositoryRequested() override;
     void showWaveformToggled(bool shouldShow) override;
     void showLanesToggled(bool shouldShow) override;
     void themeChanged(ThemeId themeId) override;
     void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) override;
     void undoRequested() override;
     void redoRequested() override;
+    void editCutRequested() override;
+    void editCopyRequested() override;
+    void editPasteRequested() override;
+    void editSelectAllRequested() override;
+    void editDeleteRequested() override;
     void noteNameModeChanged(int mode) override;
     void showNoteBlockNoteNamesToggled(bool shouldShow) override;
 
@@ -200,6 +207,7 @@ private:
     
     // AUTO 启动统一 helper
     void startAutoTuneAsUnifiedEdit(bool forceShowOptionsDialog = false);
+    void proceedAutoTuneAfterNoteCountCheck(bool forceShowOptionsDialog, int trackId, int clipIndex, uint64_t clipId);
     bool resolveActiveClipIndex(int trackId, uint64_t clipId, int& clipIndexOut) const;
     void applyAutoTunePromptSettingsToUi();
     void clearAutoTuneEditsForClip(int trackId, int clipIndex, uint64_t clipId);
@@ -289,6 +297,9 @@ private:
 
     /** 自上次保存/打开/新建以来是否有应写入工程的修改（用于新建前提示） */
     bool sessionNeedsSave_{false};
+
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow_;
+    Win32NativeMenuBar win32NativeMenu_;
     /** syncUiAfterProjectLoad 等同步 UI 时不应标记为已修改 */
     bool suppressSessionNeedsSave_{false};
 
@@ -296,7 +307,7 @@ private:
     std::vector<std::future<void>> backgroundTasks_;
 
     // Layout constants
-    static constexpr int MENU_BAR_HEIGHT = 25;
+    static constexpr int MENU_BAR_HEIGHT = 26;
     static constexpr int TOP_PANEL_HEIGHT = 45;  // Single row: Scale and transport controls
     static constexpr int TRANSPORT_BAR_HEIGHT = 64; // Increased for larger buttons (was 60)
     static constexpr int TRACK_PANEL_WIDTH = 180;      // 左侧 Track Inspector (Reduced from 220)

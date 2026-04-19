@@ -118,6 +118,13 @@ public:
     void removeListener(Listener* listener);
     void syncSelectionFromProcessor(int trackId);
 
+    /** Edit 菜单 / 全局快捷键：由 PluginEditor 调用 */
+    void cutSelectedClips();
+    void copySelectedClips();
+    void pasteClips();
+    void deleteSelectedClips();
+    void selectAllClipsInTrack(int trackId);
+
 #if JUCE_DEBUG
     static bool runDebugSelfTest();
 #endif
@@ -218,11 +225,6 @@ private:
     void toggleClipSelection(int trackId, uint64_t clipId, int clipIndex);
     void clearClipSelection();
     void selectClipsInRange(const ClipSelectionKey& from, const ClipSelectionKey& to);
-    void copySelectedClips();
-    void cutSelectedClips();
-    void pasteClips();
-    void deleteSelectedClips();
-    void selectAllClipsInTrack(int trackId);
 
     // === 多选拖拽状态 ===
     struct DragStartState {

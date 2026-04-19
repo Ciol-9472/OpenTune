@@ -45,7 +45,8 @@ private:
     int connectedEdges_ = None;
 };
 
-class DigitalTimeDisplay : public juce::Component
+class DigitalTimeDisplay : public juce::Component,
+                           public juce::SettableTooltipClient
 {
 public:
     DigitalTimeDisplay();
@@ -83,6 +84,7 @@ public:
 };
 
 class BpmValueField : public juce::Component,
+                      public juce::SettableTooltipClient,
                       private juce::Timer
 {
 public:
@@ -147,6 +149,13 @@ public:
     void applyTheme();
     void setEmbeddedInTopBar(bool embedded);
 
+    /** When false, hides File/Edit/View toolbar buttons (menus shown in a classic top strip instead). */
+    void setMenuButtonsVisible(bool show);
+    bool isMenuButtonsVisible() const { return menuButtonsVisible_; }
+
+    /** Minimum width to lay out all controls without clipping; must stay in sync with resized(). */
+    int getPreferredContentWidth() const;
+
     void addListener(Listener* l);
     void removeListener(Listener* l);
 
@@ -188,6 +197,7 @@ private:
     void onScaleChanged();
     void toggleTimeDisplayMode();
     void updateTimeDisplayText();
+    void updateTransportTooltips();
 
     juce::ListenerList<Listener> listeners_;
 
@@ -216,6 +226,7 @@ private:
     // State
     bool isPlaying_ = false;
     bool embeddedInTopBar_ = false;
+    bool menuButtonsVisible_ = true;
     juce::String renderStatusText_;
     juce::Time lastTapTime_;
     std::vector<double> tapIntervals_;

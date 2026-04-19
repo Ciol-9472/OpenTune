@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <array>
+#include <functional>
 #include <vector>
 #include "LocalizationManager.h"
 
@@ -20,6 +21,27 @@ enum class ShortcutId {
     Delete,
     SaveProject,
     SaveProjectAs,
+    ImportAudio,
+    NewProject,
+    LoadProject,
+    OpenPreferences,
+    OpenHelp,
+    ExportSelectedClip,
+    ExportTrack,
+    ExportBus,
+    ExportStems,
+    SplitClip,
+    ToolSelect,
+    ToolDrawNote,
+    ToolLineAnchor,
+    ToolHandDraw,
+    ToolVibrato,
+    ToolSplitNote,
+    ToolAutoTune,
+    ToggleShowWaveform,
+    ToggleShowLanes,
+    ToggleNoteBlockNoteNames,
+    ToggleBypass,
     Count
 };
 
@@ -143,6 +165,10 @@ private:
             name << "PageDown";
         else if (keyCode == juce::KeyPress::pageUpKey)
             name << "PageUp";
+        else if (keyCode >= juce::KeyPress::F1Key && keyCode <= juce::KeyPress::F12Key)
+            name << "F" << (1 + keyCode - juce::KeyPress::F1Key);
+        else if (keyCode == static_cast<int>(','))
+            name << ",";
         else if (keyCode >= 32 && keyCode < 127)
             name << juce::String::charToString(static_cast<juce::juce_wchar>(keyCode)).toUpperCase();
         else
@@ -172,7 +198,33 @@ inline const ShortcutInfo kShortcutInfos[] = {
     { ShortcutId::SaveProject, Loc::Keys::kSaveProject, { KeyBinding('S', juce::ModifierKeys::commandModifier) } },
     { ShortcutId::SaveProjectAs, Loc::Keys::kSaveProjectAs, {
         KeyBinding('S', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier)
-    } }
+    } },
+    { ShortcutId::ImportAudio, Loc::Keys::kImportAudio, { KeyBinding('I', juce::ModifierKeys::commandModifier) } },
+    { ShortcutId::NewProject, Loc::Keys::kNewProject, { KeyBinding('N', juce::ModifierKeys::commandModifier) } },
+    { ShortcutId::LoadProject, Loc::Keys::kLoadProject, { KeyBinding('O', juce::ModifierKeys::commandModifier) } },
+    { ShortcutId::OpenPreferences, Loc::Keys::kOptions, { KeyBinding(static_cast<int>(','), juce::ModifierKeys::commandModifier) } },
+    { ShortcutId::OpenHelp, Loc::Keys::kHelp, { KeyBinding(juce::KeyPress::F1Key, {}) } },
+    { ShortcutId::ExportSelectedClip, Loc::Keys::kExportSelectedClip,
+      { KeyBinding('E', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier) } },
+    { ShortcutId::ExportTrack, Loc::Keys::kExportTrack,
+      { KeyBinding('T', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier) } },
+    { ShortcutId::ExportBus, Loc::Keys::kExportBus,
+      { KeyBinding('B', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier) } },
+    { ShortcutId::ExportStems, Loc::Keys::kExportStems,
+      { KeyBinding('K', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier) } },
+    { ShortcutId::SplitClip, Loc::Keys::kShortcutSplitClip, { KeyBinding('S', {}) } },
+    { ShortcutId::ToolSelect, Loc::Keys::kSelect, { KeyBinding('1', {}) } },
+    { ShortcutId::ToolDrawNote, Loc::Keys::kDrawNotes, { KeyBinding('2', {}) } },
+    { ShortcutId::ToolLineAnchor, Loc::Keys::kLineAnchor, { KeyBinding('3', {}) } },
+    { ShortcutId::ToolHandDraw, Loc::Keys::kHandDraw, { KeyBinding('4', {}) } },
+    { ShortcutId::ToolVibrato, Loc::Keys::kVibratoTool, { KeyBinding('5', {}) } },
+    { ShortcutId::ToolSplitNote, Loc::Keys::kSplitNote, { KeyBinding('6', {}) } },
+    { ShortcutId::ToolAutoTune, Loc::Keys::kAuto,
+      { KeyBinding('7', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier) } },
+    { ShortcutId::ToggleShowWaveform, Loc::Keys::kShowWaveform, { KeyBinding(juce::KeyPress::F5Key, {}) } },
+    { ShortcutId::ToggleShowLanes, Loc::Keys::kShowLanes, { KeyBinding(juce::KeyPress::F6Key, {}) } },
+    { ShortcutId::ToggleNoteBlockNoteNames, Loc::Keys::kShowNoteBlockNoteNames, { KeyBinding(juce::KeyPress::F7Key, {}) } },
+    { ShortcutId::ToggleBypass, Loc::Keys::kTransportBypass, { KeyBinding(juce::KeyPress::F8Key, {}) } }
 };
 
 inline const size_t kShortcutCount = sizeof(kShortcutInfos) / sizeof(kShortcutInfos[0]);
@@ -226,6 +278,57 @@ inline const ShortcutInfo& getShortcutInfo(ShortcutId id)
 inline ShortcutBinding getShortcutBinding(ShortcutId id)
 {
     return getSettings().bindings[static_cast<size_t>(id)];
+}
+
+/**
+ * Legacy single-string label (e.g. for Win32 HMENU: "Save\\tCtrl+S").
+ * Prefer makeMenuItemWithShortcut() for juce::PopupMenu so shortcuts align right.
+ */
+inline juce::String formatMenuLabel(const juce::String& label, ShortcutId id)
+{
+    if (id == ShortcutId::Count)
+        return label;
+    const juce::String shortcutText = getShortcutBinding(id).getDisplayNames();
+    if (shortcutText.isEmpty())
+        return label;
+    return label + "\t" + shortcutText;
+}
+
+/** PopupMenu item with optional shortcut shown right-aligned (JUCE uses shortcutKeyDescription). */
+inline juce::PopupMenu::Item makeMenuItemWithShortcut(int itemId,
+                                                      const juce::String& label,
+                                                      ShortcutId sid,
+                                                      bool isEnabled = true,
+                                                      bool isTicked = false)
+{
+    juce::PopupMenu::Item item;
+    item.itemID = itemId;
+    item.text = label;
+    item.isEnabled = isEnabled;
+    item.isTicked = isTicked;
+    if (sid != ShortcutId::Count)
+    {
+        const juce::String sc = getShortcutBinding(sid).getDisplayNames();
+        if (sc.isNotEmpty())
+            item.shortcutKeyDescription = sc;
+    }
+    return item;
+}
+
+inline juce::PopupMenu::Item makeMenuItemWithShortcutAction(const juce::String& label,
+                                                            ShortcutId sid,
+                                                            std::function<void()> action)
+{
+    juce::PopupMenu::Item item;
+    item.text = label;
+    item.action = std::move(action);
+    if (sid != ShortcutId::Count)
+    {
+        const juce::String sc = getShortcutBinding(sid).getDisplayNames();
+        if (sc.isNotEmpty())
+            item.shortcutKeyDescription = sc;
+    }
+    return item;
 }
 
 inline void addShortcutBinding(ShortcutId id, const KeyBinding& binding)

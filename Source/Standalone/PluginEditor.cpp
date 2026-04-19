@@ -312,8 +312,16 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     // Initialize track volumes array
     lastTrackVolumes_.fill(1.0f);
     
-    // Hide original menu bar as we moved it to TransportBar
+    // macOS：系统菜单栏；Windows：Win32 HMENU 挂在顶层 HWND，客户端内不再绘制菜单条；其他平台：JUCE 自绘顶栏菜单
+#if JUCE_MAC
     menuBar_.setVisible(false);
+#elif JUCE_WINDOWS
+    menuBar_.setVisible(false);
+    transportBar_.setMenuButtonsVisible(false);
+#else
+    menuBar_.setVisible(true);
+    transportBar_.setMenuButtonsVisible(false);
+#endif
 
     // Set larger default size for the complete UI (increased height for menu bar)
     setResizable(true, true);
@@ -616,6 +624,13 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     });
 
     themeChanged(Theme::getActiveTheme());
+
+    tooltipWindow_ = std::make_unique<juce::TooltipWindow>(this, 200);
+#if JUCE_WINDOWS
+    juce::MessageManager::callAsync([this]() {
+        win32NativeMenu_.attach(*this, menuBar_);
+    });
+#endif
 }
 
 OpenTuneAudioProcessorEditor::~OpenTuneAudioProcessorEditor()
@@ -623,6 +638,11 @@ OpenTuneAudioProcessorEditor::~OpenTuneAudioProcessorEditor()
 #if JUCE_MAC
     // Clear the macOS system menu bar before menuBar_ is destroyed.
     juce::MenuBarModel::setMacMainMenu(nullptr);
+#endif
+
+    tooltipWindow_.reset();
+#if JUCE_WINDOWS
+    win32NativeMenu_.detach();
 #endif
 
     persistUserUiState();
@@ -829,6 +849,9 @@ void OpenTuneAudioProcessorEditor::waitForBackgroundUiTasks()
 
 bool OpenTuneAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 {
+    if (menuBar_.tryHandleTopLevelMenuMnemonic(key, transportBar_, topBar_, this))
+        return true;
+
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::Undo, key))
     {
         if (!shouldAcceptUndoRedoShortcut()) {
@@ -859,6 +882,13 @@ bool OpenTuneAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToggleBypass, key))
+    {
+        processorRef_.setBypassEnabled(!processorRef_.isBypassEnabled());
+        transportBar_.setBypassEnabled(processorRef_.isBypassEnabled());
+        return true;
+    }
+
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SaveProjectAs, key))
     {
         saveProjectAsRequested();
@@ -868,6 +898,73 @@ bool OpenTuneAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SaveProject, key))
     {
         quickSaveProject();
+        return true;
+    }
+
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ImportAudio, key))
+    {
+        importAudioRequested();
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::NewProject, key))
+    {
+        newProjectRequested();
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::LoadProject, key))
+    {
+        loadProjectRequested();
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::OpenPreferences, key))
+    {
+        preferencesRequested();
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::OpenHelp, key))
+    {
+        helpRequested();
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ExportSelectedClip, key))
+    {
+        exportAudioRequested(MenuBarComponent::ExportType::SelectedClip);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ExportTrack, key))
+    {
+        exportAudioRequested(MenuBarComponent::ExportType::Track);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ExportBus, key))
+    {
+        exportAudioRequested(MenuBarComponent::ExportType::Bus);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ExportStems, key))
+    {
+        exportStemsRequested();
+        return true;
+    }
+
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToggleShowWaveform, key))
+    {
+        const bool newState = !processorRef_.getShowWaveform();
+        processorRef_.setShowWaveform(newState);
+        showWaveformToggled(newState);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToggleShowLanes, key))
+    {
+        const bool newState = !processorRef_.getShowLanes();
+        processorRef_.setShowLanes(newState);
+        showLanesToggled(newState);
+        return true;
+    }
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::ToggleNoteBlockNoteNames, key))
+    {
+        const bool newState = !pianoRoll_.getShowNoteBlockNoteNames();
+        showNoteBlockNoteNamesToggled(newState);
         return true;
     }
 
@@ -982,6 +1079,11 @@ void OpenTuneAudioProcessorEditor::paint(juce::Graphics& g)
 
 void OpenTuneAudioProcessorEditor::resized()
 {
+#if JUCE_WINDOWS
+    if (isShowing())
+        win32NativeMenu_.attach(*this, menuBar_);
+#endif
+
     auto bounds = getLocalBounds();
 
     // 闃村奖杈硅窛锛氫负鍚勯潰鏉块鐣欓槾褰辨覆鏌撶┖闂?
@@ -1859,8 +1961,16 @@ void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int c
     const bool canMerge = processorRef_.canMergeAdjacentClips(trackId, clipIndex);
 
     juce::PopupMenu menu;
-    menu.addItem(SplitAtPlayhead, "Split at playhead", playheadInside, false);
-    menu.addItem(MergeWithNext, "Merge with next clip", canMerge, false);
+    menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+        SplitAtPlayhead,
+        LOC(kArrangementSplitAtPlayhead),
+        KeyShortcutConfig::ShortcutId::SplitClip,
+        playheadInside,
+        false));
+    menu.addItem(MergeWithNext,
+                   LOC(kArrangementMergeWithNextClip),
+                   canMerge,
+                   false);
 
     juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({ screenPos.x, screenPos.y, 1, 1 }),
@@ -1896,6 +2006,7 @@ void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int c
                     safeThis->processorRef_.getUndoManager().addAction(std::make_unique<ClipSplitAction>(
                         safeThis->processorRef_, trackId, originalClipId, splitResult, originalClipIndex, newClipIndex));
 
+                    safeThis->clipSelectionChanged(trackId, newClipIndex);
                     safeThis->clipTimingChanged(trackId, newClipIndex);
                     safeThis->arrangementView_.repaint();
                 }
@@ -2116,6 +2227,34 @@ void OpenTuneAudioProcessorEditor::startAutoTuneAsUnifiedEdit(bool forceShowOpti
         return;
     }
 
+    const auto existingNotes = processorRef_.getClipNotes(trackId, clipIndex);
+    if (!existingNotes.empty()) {
+        auto notePrompt = juce::MessageBoxOptions::makeOptionsYesNo(
+            juce::MessageBoxIconType::WarningIcon,
+            LOC(kAutoTuneNotesPresentTitle),
+            LOC(kAutoTuneNotesPresentMessage),
+            LOC(kYes),
+            LOC(kNo),
+            this);
+
+        juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+        juce::AlertWindow::showAsync(notePrompt, [safeThis, forceShowOptionsDialog, trackId, clipIndex, clipId](int result) {
+            if (safeThis == nullptr || result != 1) {
+                return;
+            }
+            safeThis->proceedAutoTuneAfterNoteCountCheck(forceShowOptionsDialog, trackId, clipIndex, clipId);
+        });
+        return;
+    }
+
+    proceedAutoTuneAfterNoteCountCheck(forceShowOptionsDialog, trackId, clipIndex, clipId);
+}
+
+void OpenTuneAudioProcessorEditor::proceedAutoTuneAfterNoteCountCheck(bool forceShowOptionsDialog,
+                                                                 int trackId,
+                                                                 int clipIndex,
+                                                                 uint64_t clipId)
+{
     bool hasEditedContent = false;
     if (auto curve = processorRef_.getClipPitchCurve(trackId, clipIndex)) {
         hasEditedContent = curve->hasAnyCorrection();

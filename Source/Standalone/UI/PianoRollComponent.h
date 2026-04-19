@@ -135,6 +135,7 @@ public:
     void setNoteNameDisplayMode(int mode);
     /** 音符块上是否绘制音名（视图菜单「音符音名」勾选，默认开启） */
     void setShowNoteBlockNoteNames(bool show);
+    bool getShowNoteBlockNoteNames() const { return showNoteBlockNoteNames_; }
 
     void resetUserZoomFlag() { userHasManuallyZoomed_ = false; }
     bool hasUserManuallyZoomed() const { return userHasManuallyZoomed_; }
@@ -279,7 +280,6 @@ private:
     void initializeToolButtons();
     void layoutToolButtons();
     void updateToolButtonStates();
-    void refreshToolButtonTooltips();
     void handleToolButtonClicked(ToolId tool);
     juce::String getToolDisplayName(ToolId tool) const;
     void setHoveredToolButton(ToolId tool, const juce::Rectangle<int>& buttonBounds);

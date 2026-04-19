@@ -21,6 +21,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ==============================================================================
+# Generated headers (git remote URL for Help → source repository)
+# ==============================================================================
+execute_process(
+    COMMAND git remote get-url origin
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE OPENTUNE_SOURCE_REPO_URL
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE _opentune_git_remote_result
+)
+if(NOT _opentune_git_remote_result EQUAL 0 OR OPENTUNE_SOURCE_REPO_URL STREQUAL "")
+    set(OPENTUNE_SOURCE_REPO_URL "https://github.com/Ciol-9472/OpenTune")
+endif()
+string(REGEX REPLACE "\\.git$" "" OPENTUNE_SOURCE_REPO_URL "${OPENTUNE_SOURCE_REPO_URL}")
+set(OPENTUNE_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${OPENTUNE_GENERATED_INCLUDE_DIR}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Utils/OpenTuneRepositoryUrl.h.in"
+    "${OPENTUNE_GENERATED_INCLUDE_DIR}/OpenTuneRepositoryUrl.h"
+    @ONLY
+)
+
+# ==============================================================================
 # MSVC Runtime (Static Linking - No external dependencies)
 # ==============================================================================
 if(MSVC)
@@ -264,6 +287,7 @@ target_sources(OpenTune
         Source/Standalone/PluginEditor.cpp
         Source/Standalone/PluginEditor.MenuActions.cpp
         Source/Standalone/PluginEditor.Transport.cpp
+        Source/Standalone/Win32NativeMenuBar.h
         Source/Standalone/PluginEditor.h
         Source/Services/F0ExtractionService.cpp
         Source/Services/F0ExtractionService.h
@@ -408,6 +432,12 @@ target_sources(OpenTune
         Source/Utils/D3D12AgilityBootstrap.cpp
 )
 
+if(WIN32)
+    target_sources(OpenTune PRIVATE
+        Source/Standalone/Win32NativeMenuBar_windows.cpp
+    )
+endif()
+
 # ==============================================================================
 # Include Directories
 # ==============================================================================
@@ -415,6 +445,7 @@ target_include_directories(OpenTune
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Source/Standalone
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
+        ${OPENTUNE_GENERATED_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/r8brain-free-src-master
         ${ONNXRUNTIME_INCLUDE_DIR}
 )

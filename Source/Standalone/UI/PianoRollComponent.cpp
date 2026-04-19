@@ -10,7 +10,6 @@
 #include "FrameScheduler.h"
 #include "UiText.h"
 #include "ToolbarIcons.h"
-#include "PianoRoll/PianoRollToolHints.h"
 #include "ThemeTokens.h"
 
 namespace {
@@ -233,7 +232,6 @@ void PianoRollComponent::initializeToolButtons()
     addAndMakeVisible(*vibratoToolButton_);
     addAndMakeVisible(*splitNoteToolButton_);
 
-    refreshToolButtonTooltips();
     updateToolButtonStates();
 }
 
@@ -343,24 +341,6 @@ juce::String PianoRollComponent::getToolDisplayName(ToolId tool) const
         case ToolId::SplitNote: return LOC(kSplitNote);
         default: return {};
     }
-}
-
-void PianoRollComponent::refreshToolButtonTooltips()
-{
-    if (autoTuneToolButton_)
-        autoTuneToolButton_->setTooltip(getToolDisplayName(ToolId::AutoTune) + " (" + LOC(kAutoRightClickOptions) + ")");
-    if (selectToolButton_)
-        selectToolButton_->setTooltip(getToolDisplayName(ToolId::Select));
-    if (drawNoteToolButton_)
-        drawNoteToolButton_->setTooltip(getToolDisplayName(ToolId::DrawNote));
-    if (lineAnchorToolButton_)
-        lineAnchorToolButton_->setTooltip(getToolDisplayName(ToolId::LineAnchor));
-    if (handDrawToolButton_)
-        handDrawToolButton_->setTooltip(getToolDisplayName(ToolId::HandDraw));
-    if (vibratoToolButton_)
-        vibratoToolButton_->setTooltip(getToolDisplayName(ToolId::Vibrato));
-    if (splitNoteToolButton_)
-        splitNoteToolButton_->setTooltip(getToolDisplayName(ToolId::SplitNote));
 }
 
 void PianoRollComponent::handleToolButtonClicked(ToolId tool)
@@ -628,7 +608,6 @@ PianoRollComponent::~PianoRollComponent() {
 void PianoRollComponent::languageChanged(Language newLanguage)
 {
     juce::ignoreUnused(newLanguage);
-    refreshToolButtonTooltips();
     if (hasHoveredToolButton_)
         hoveredToolName_ = getToolDisplayName(hoveredToolId_);
     repaint();

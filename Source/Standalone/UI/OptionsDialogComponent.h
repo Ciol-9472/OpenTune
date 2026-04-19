@@ -5,6 +5,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #include <functional>
+#include <vector>
 #include "../Utils/ZoomSensitivityConfig.h"
 #include "../../Utils/KeyShortcutConfig.h"
 #include "../../Utils/LocalizationManager.h"
@@ -42,8 +43,11 @@ public:
         tabbedComponent_.addTab(LOC(kMouse), UIColors::backgroundDark, sensitivityPanel, true);
 
         auto* keyswitchPanel = new KeyswitchPanel();
-        keyswitchPanel->setSize(500, 400);
-        tabbedComponent_.addTab(LOC(kKeyswitch), UIColors::backgroundDark, keyswitchPanel, true);
+        auto* keyswitchViewport = new juce::Viewport();
+        keyswitchViewport->setScrollBarsShown(true, false);
+        keyswitchViewport->setViewedComponent(keyswitchPanel, false);
+        keyswitchViewport->setSize(500, 400);
+        tabbedComponent_.addTab(LOC(kKeyswitch), UIColors::backgroundDark, keyswitchViewport, true);
 
         auto* languagePanel = new LanguagePanel();
         languagePanel->setSize(500, 150);
@@ -381,26 +385,60 @@ private:
 
         KeyswitchPanel()
         {
-            for (size_t i = 0; i < KeyShortcutConfig::kShortcutCount; ++i)
+            using Sid = KeyShortcutConfig::ShortcutId;
+
+            shortcutSections_ = {
+                { Sid::PlayPause, Sid::Stop, Sid::PlayFromStart, Sid::ToggleBypass },
+                { Sid::NewProject, Sid::LoadProject, Sid::SaveProject, Sid::SaveProjectAs, Sid::ImportAudio },
+                { Sid::ExportSelectedClip, Sid::ExportTrack, Sid::ExportBus, Sid::ExportStems },
+                { Sid::Undo, Sid::Redo, Sid::Cut, Sid::Copy, Sid::Paste, Sid::SelectAll, Sid::Delete },
+                { Sid::ToolSelect, Sid::ToolDrawNote, Sid::ToolLineAnchor, Sid::ToolHandDraw, Sid::ToolVibrato,
+                  Sid::ToolSplitNote, Sid::ToolAutoTune, Sid::SplitClip },
+                { Sid::ToggleShowWaveform, Sid::ToggleShowLanes, Sid::ToggleNoteBlockNoteNames, Sid::OpenPreferences },
+                { Sid::OpenHelp },
+            };
+
+            const char* sectionTitleKeys[] = {
+                Loc::Keys::kShortcutGroupTransport,
+                Loc::Keys::kShortcutGroupProject,
+                Loc::Keys::kShortcutGroupExport,
+                Loc::Keys::kShortcutGroupEdit,
+                Loc::Keys::kShortcutGroupPianoRoll,
+                Loc::Keys::kShortcutGroupView,
+                Loc::Keys::kShortcutGroupHelp,
+            };
+
+            for (size_t si = 0; si < shortcutSections_.size(); ++si)
             {
-                auto id = static_cast<KeyShortcutConfig::ShortcutId>(i);
-                const auto& binding = KeyShortcutConfig::getShortcutBinding(id);
+                auto* sectionLab = new juce::Label();
+                sectionLab->setText(LOC_KEY(sectionTitleKeys[si]), juce::dontSendNotification);
+                sectionLab->setColour(juce::Label::textColourId, UIColors::textSecondary);
+                sectionLab->setFont(UIColors::getUIFont(13.0f).boldened());
+                sectionLab->setJustificationType(juce::Justification::centredLeft);
+                sectionHeaderLabels_.add(sectionLab);
+                addAndMakeVisible(sectionLab);
 
-                auto* label = new juce::Label();
-                label->setText(KeyShortcutConfig::getShortcutDisplayName(id), juce::dontSendNotification);
-                label->setColour(juce::Label::textColourId, UIColors::textPrimary);
-                label->setFont(UIColors::getUIFont(13.0f));
-                shortcutLabels_.add(label);
-                addAndMakeVisible(label);
+                for (auto id : shortcutSections_[si])
+                {
+                    shortcutIds_.push_back(id);
+                    const auto& binding = KeyShortcutConfig::getShortcutBinding(id);
 
-                auto* button = new juce::TextButton(binding.getDisplayNames());
-                button->setColour(juce::TextButton::buttonColourId, UIColors::backgroundMedium);
-                button->setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
-                button->onClick = [this, id, button] {
-                    beginCaptureSession(id, button);
-                };
-                shortcutButtons_.add(button);
-                addAndMakeVisible(button);
+                    auto* label = new juce::Label();
+                    label->setText(KeyShortcutConfig::getShortcutDisplayName(id), juce::dontSendNotification);
+                    label->setColour(juce::Label::textColourId, UIColors::textPrimary);
+                    label->setFont(UIColors::getUIFont(13.0f));
+                    shortcutLabels_.add(label);
+                    addAndMakeVisible(label);
+
+                    auto* button = new juce::TextButton(binding.getDisplayNames());
+                    button->setColour(juce::TextButton::buttonColourId, UIColors::backgroundMedium);
+                    button->setColour(juce::TextButton::textColourOffId, UIColors::textPrimary);
+                    button->onClick = [this, id, button] {
+                        beginCaptureSession(id, button);
+                    };
+                    shortcutButtons_.add(button);
+                    addAndMakeVisible(button);
+                }
             }
 
             resetAllButton_.setButtonText(LOC(kResetAllToDefaults));
@@ -414,6 +452,23 @@ private:
 
             addAndMakeVisible(captureOverlay_);
             captureOverlay_.setVisible(false);
+
+            const int topPad = 20;
+            const int secHeaderH = 22;
+            const int afterHeaderGap = 4;
+            const int rowH = 32;
+            const int rowGap = 4;
+            const int betweenSectionsGap = 10;
+            const int bottomArea = 80;
+            int totalH = topPad;
+            for (const auto& sec : shortcutSections_)
+            {
+                totalH += secHeaderH + afterHeaderGap;
+                totalH += static_cast<int>(sec.size()) * (rowH + rowGap);
+                totalH += betweenSectionsGap;
+            }
+            totalH += bottomArea;
+            setSize(480, totalH);
         }
 
         void beginCaptureSession(KeyShortcutConfig::ShortcutId id, juce::TextButton* button)
@@ -499,11 +554,11 @@ private:
 
         void refreshAllButtons()
         {
-            for (size_t i = 0; i < KeyShortcutConfig::kShortcutCount; ++i)
+            for (size_t i = 0; i < shortcutIds_.size(); ++i)
             {
-                auto id = static_cast<KeyShortcutConfig::ShortcutId>(i);
+                const auto id = shortcutIds_[i];
                 const auto& binding = KeyShortcutConfig::getShortcutBinding(id);
-                if (shortcutButtons_[static_cast<int>(i)])
+                if (shortcutButtons_[static_cast<int>(i)] != nullptr)
                     shortcutButtons_[static_cast<int>(i)]->setButtonText(binding.getDisplayNames());
             }
         }
@@ -520,22 +575,40 @@ private:
             const int labelWidth = 180;
             const int buttonWidth = 200;
             const int buttonHeight = 26;
+            const int secHeaderH = 22;
+            const int afterHeaderGap = 4;
+            const int rowGap = 4;
+            const int betweenSectionsGap = 10;
 
-            for (size_t i = 0; i < KeyShortcutConfig::kShortcutCount; ++i)
+            int y = bounds.getY();
+            int shortcutIndex = 0;
+            for (size_t si = 0; si < shortcutSections_.size(); ++si)
             {
-                auto y = bounds.getY() + static_cast<int>(i) * (rowHeight + 4);
-                shortcutLabels_[static_cast<int>(i)]->setBounds(bounds.getX(), y, labelWidth, rowHeight);
-                shortcutButtons_[static_cast<int>(i)]->setBounds(
-                    bounds.getX() + labelWidth + 10, y + 3, buttonWidth, buttonHeight);
+                sectionHeaderLabels_[static_cast<int>(si)]->setBounds(bounds.getX(), y, bounds.getWidth() - 20, secHeaderH);
+                y += secHeaderH + afterHeaderGap;
+
+                for (size_t k = 0; k < shortcutSections_[si].size(); ++k)
+                {
+                    juce::ignoreUnused(k);
+                    const int idx = static_cast<int>(shortcutIndex);
+                    shortcutLabels_[idx]->setBounds(bounds.getX(), y, labelWidth, rowHeight);
+                    shortcutButtons_[idx]->setBounds(
+                        bounds.getX() + labelWidth + 10, y + 3, buttonWidth, buttonHeight);
+                    y += rowHeight + rowGap;
+                    ++shortcutIndex;
+                }
+                y += betweenSectionsGap;
             }
 
-            auto bottomY = bounds.getY() + static_cast<int>(KeyShortcutConfig::kShortcutCount) * (rowHeight + 4) + 20;
-            resetAllButton_.setBounds(bounds.getX(), bottomY, 140, 28);
+            resetAllButton_.setBounds(bounds.getX(), y + 6, 140, 28);
 
             captureOverlay_.setBounds(getLocalBounds());
         }
 
     private:
+        std::vector<std::vector<KeyShortcutConfig::ShortcutId>> shortcutSections_;
+        std::vector<KeyShortcutConfig::ShortcutId> shortcutIds_;
+        juce::OwnedArray<juce::Label> sectionHeaderLabels_;
         juce::OwnedArray<juce::Label> shortcutLabels_;
         juce::OwnedArray<juce::TextButton> shortcutButtons_;
         juce::TextButton resetAllButton_;

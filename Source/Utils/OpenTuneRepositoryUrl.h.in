@@ -1,0 +1,8 @@
+#pragma once
+
+namespace OpenTune {
+
+/** Configure-time git remote (origin), stripped of trailing .git when applicable. */
+inline constexpr const char* kSourceRepositoryUrl = "@OPENTUNE_SOURCE_REPO_URL@";
+
+} // namespace OpenTune

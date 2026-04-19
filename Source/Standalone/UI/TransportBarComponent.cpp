@@ -2,9 +2,26 @@
 #include "UIColors.h"
 #include "ToolbarIcons.h"
 #include "../../Utils/LocalizationManager.h"
+#include "../../Utils/KeyShortcutConfig.h"
 #include <cmath>
 
 namespace OpenTune {
+
+namespace {
+
+juce::String transportTooltipWithOptionalShortcut(const juce::String& title,
+                                                  KeyShortcutConfig::ShortcutId sid)
+{
+    juce::String out = title;
+    if (sid == KeyShortcutConfig::ShortcutId::Count)
+        return out;
+    const juce::String sc = KeyShortcutConfig::getShortcutBinding(sid).getDisplayNames();
+    if (sc.isNotEmpty())
+        out << "\n" << LOC(kToolbarTooltipShortcut) << " " << sc;
+    return out;
+}
+
+} // namespace
 
 DigitalTimeDisplay::DigitalTimeDisplay()
 {
@@ -570,9 +587,9 @@ void UnifiedToolbarButton::paintButton(juce::Graphics& g, bool shouldDrawButtonA
 }
 
 TransportBarComponent::TransportBarComponent()
-    : fileButton_(LOC(kFile), ToolbarIcons::getFileIcon())
-    , editButton_(LOC(kEdit), ToolbarIcons::getEditIcon())
-    , viewButton_(LOC(kView), ToolbarIcons::getEyeIcon())
+    : fileButton_(LOC(kMenuBarTitleFile), ToolbarIcons::getFileIcon())
+    , editButton_(LOC(kMenuBarTitleEdit), ToolbarIcons::getEditIcon())
+    , viewButton_(LOC(kMenuBarTitleView), ToolbarIcons::getEyeIcon())
     , playButton_(LOC(kPlay), ToolbarIcons::getPlayIcon())
     , pauseButton_(LOC(kPause), ToolbarIcons::getPauseIcon())
     , stopButton_(LOC(kStop), ToolbarIcons::getStopIcon())
@@ -581,38 +598,31 @@ TransportBarComponent::TransportBarComponent()
     , tapButton_("Tap", ToolbarIcons::getTapIcon())
 {
     // Setup Menu Buttons
-    fileButton_.setTooltip(LOC(kFile));
     fileButton_.onClick = [this] { if (onFileMenuRequested) onFileMenuRequested(); };
     addAndMakeVisible(fileButton_);
 
-    editButton_.setTooltip(LOC(kEdit));
     editButton_.onClick = [this] { if (onEditMenuRequested) onEditMenuRequested(); };
     addAndMakeVisible(editButton_);
 
-    viewButton_.setTooltip(LOC(kView));
     viewButton_.onClick = [this] { if (onViewMenuRequested) onViewMenuRequested(); };
     addAndMakeVisible(viewButton_);
 
     // Setup Play Button
     playButton_.onClick = [this] { onPlayClicked(); };
-    playButton_.setTooltip(LOC(kPlay));
     addAndMakeVisible(playButton_);
 
     // Setup Pause Button
     pauseButton_.onClick = [this] { onPauseClicked(); };
     pauseButton_.setEnabled(false);
-    pauseButton_.setTooltip(LOC(kPause));
     addAndMakeVisible(pauseButton_);
 
     // Setup Stop Button
     stopButton_.onClick = [this] { onStopClicked(); };
-    stopButton_.setTooltip(LOC(kStop));
     addAndMakeVisible(stopButton_);
 
     // Setup Loop Button
     loopButton_.setClickingTogglesState(true);
     loopButton_.onClick = [this] { onLoopToggled(); };
-    loopButton_.setTooltip(LOC(kLoop));
     addAndMakeVisible(loopButton_);
 
     // Setup Bypass Button (toggle original voice vs corrected voice)
@@ -621,7 +631,6 @@ TransportBarComponent::TransportBarComponent()
         const bool enabled = bypassButton_.getToggleState();
         listeners_.call([enabled](Listener& l) { l.bypassToggled(enabled); });
     };
-    bypassButton_.setTooltip("Bypass");
     addAndMakeVisible(bypassButton_);
 
     // Setup BPM Label
@@ -636,7 +645,6 @@ TransportBarComponent::TransportBarComponent()
 
     // Setup Tap Button
     tapButton_.onClick = [this] { onTapClicked(); };
-    tapButton_.setTooltip(LOC(kTapTempo));
     addAndMakeVisible(tapButton_);
 
     timeDisplay_.setTimeString("00:00");
@@ -688,6 +696,7 @@ TransportBarComponent::TransportBarComponent()
     scaleTypeSelector_.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(scaleTypeSelector_);
 
+    updateTransportTooltips();
     applyTheme();
 }
 
@@ -697,21 +706,31 @@ TransportBarComponent::~TransportBarComponent()
 
 void TransportBarComponent::refreshLocalizedText()
 {
-    // 刷新所有按钮的 tooltip
-    fileButton_.setTooltip(LOC(kFile));
-    editButton_.setTooltip(LOC(kEdit));
-    viewButton_.setTooltip(LOC(kView));
-    playButton_.setTooltip(LOC(kPlay));
-    pauseButton_.setTooltip(LOC(kPause));
-    stopButton_.setTooltip(LOC(kStop));
-    loopButton_.setTooltip(LOC(kLoop));
-    bypassButton_.setTooltip("Bypass");
-    tapButton_.setTooltip(LOC(kTapTempo));
-    
-    // 刷新 scaleLabel
+    updateTransportTooltips();
     scaleLabel_.setText(LOC(kScale), juce::dontSendNotification);
-    
     repaint();
+}
+
+void TransportBarComponent::updateTransportTooltips()
+{
+    if (menuButtonsVisible_)
+    {
+        fileButton_.setTooltip(LOC(kMenuBarTitleFile));
+        editButton_.setTooltip(LOC(kMenuBarTitleEdit));
+        viewButton_.setTooltip(LOC(kMenuBarTitleView));
+    }
+
+    using Sid = KeyShortcutConfig::ShortcutId;
+    playButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kPlay), Sid::PlayPause));
+    pauseButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kPause), Sid::PlayPause));
+    stopButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kStop), Sid::Stop));
+    loopButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kLoop), Sid::Count));
+    bypassButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kTransportBypass), Sid::ToggleBypass));
+    tapButton_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kTapTempo), Sid::Count));
+    timeDisplay_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kTransportTimeDisplay), Sid::Count));
+    bpmField_.setTooltip(transportTooltipWithOptionalShortcut(LOC(kTransportBpm), Sid::Count));
+    scaleRootSelector_.setTooltip(LOC(kTransportScaleRoot));
+    scaleTypeSelector_.setTooltip(LOC(kTransportScaleType));
 }
 
 void TransportBarComponent::applyTheme()
@@ -736,6 +755,42 @@ void TransportBarComponent::setEmbeddedInTopBar(bool embedded)
 {
     embeddedInTopBar_ = embedded;
     repaint();
+}
+
+void TransportBarComponent::setMenuButtonsVisible(bool show)
+{
+    if (menuButtonsVisible_ == show)
+        return;
+
+    menuButtonsVisible_ = show;
+    fileButton_.setVisible(show);
+    editButton_.setVisible(show);
+    viewButton_.setVisible(show);
+    updateTransportTooltips();
+    resized();
+}
+
+int TransportBarComponent::getPreferredContentWidth() const
+{
+    const int horizontalMargin = 12 + 12;
+    const int buttonWidth = 50;
+    const int spacing = 10;
+    const int groupGap = 20;
+
+    int inner = 0;
+    if (menuButtonsVisible_)
+        inner += buttonWidth * 3 + spacing * 2 + groupGap;
+
+    inner += buttonWidth * 5 + spacing * 4 + groupGap;
+    const int timeDisplayWidth = 156;
+    inner += timeDisplayWidth + spacing;
+    const int bpmWidth = 110;
+    inner += bpmWidth + spacing + buttonWidth + 4;
+    const int rootWidth = 60;
+    const int typeWidth = 180;
+    inner += rootWidth + 4 + typeWidth;
+
+    return horizontalMargin + inner;
 }
 
 void TransportBarComponent::paint(juce::Graphics& g)
@@ -813,12 +868,21 @@ void TransportBarComponent::resized()
     
     auto row = bounds.withHeight(controlHeight).withY(bounds.getCentreY() - controlHeight / 2);
 
-    fileButton_.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(spacing);
-    editButton_.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(spacing);
-    viewButton_.setBounds(row.removeFromLeft(buttonWidth));
-    row.removeFromLeft(groupGap);
+    if (menuButtonsVisible_)
+    {
+        fileButton_.setBounds(row.removeFromLeft(buttonWidth));
+        row.removeFromLeft(spacing);
+        editButton_.setBounds(row.removeFromLeft(buttonWidth));
+        row.removeFromLeft(spacing);
+        viewButton_.setBounds(row.removeFromLeft(buttonWidth));
+        row.removeFromLeft(groupGap);
+    }
+    else
+    {
+        fileButton_.setBounds({});
+        editButton_.setBounds({});
+        viewButton_.setBounds({});
+    }
 
     playButton_.setBounds(row.removeFromLeft(buttonWidth));
     row.removeFromLeft(spacing);

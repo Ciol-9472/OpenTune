@@ -19,6 +19,9 @@ public:
 
     void refreshLocalizedText();
 
+    MenuBarComponent& getMenuBar() noexcept { return menuBar_; }
+    TransportBarComponent& getTransportBar() noexcept { return transportBar_; }
+
 private:
     MenuBarComponent& menuBar_;
     TransportBarComponent& transportBar_;

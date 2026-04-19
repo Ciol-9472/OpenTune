@@ -1,5 +1,7 @@
 #include "MenuBarComponent.h"
 #include "../PluginProcessor.h"
+#include "TransportBarComponent.h"
+#include "TopBarComponent.h"
 #include "UIColors.h"
 #include "../../Utils/LocalizationManager.h"
 #include "../../Utils/KeyShortcutConfig.h"
@@ -12,6 +14,7 @@ MenuBarComponent::MenuBarComponent(OpenTuneAudioProcessor& processor)
 {
     menuBar_.setModel(this);
     addAndMakeVisible(menuBar_);
+    // JUCE 8 MenuBarComponent 无独立 ColourId；外观由 LookAndFeel 绘制
 }
 
 MenuBarComponent::~MenuBarComponent()
@@ -52,7 +55,7 @@ void MenuBarComponent::setRecentProjectsManager(RecentProjectsManager* mgr)
 
 juce::StringArray MenuBarComponent::getMenuBarNames()
 {
-    return { LOC(kFile), LOC(kEdit), LOC(kView) };
+    return { LOC(kMenuBarTitleFile), LOC(kMenuBarTitleEdit), LOC(kMenuBarTitleView), LOC(kMenuBarTitleHelp) };
 }
 
 juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String&)
@@ -63,24 +66,30 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
     {
         case 0:
         {
-            menu.addItem(ImportAudio, LOC(kImportAudio));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ImportAudio, LOC(kImportAudio), KeyShortcutConfig::ShortcutId::ImportAudio));
 
             juce::PopupMenu exportMenu;
-            exportMenu.addItem(ExportSelectedClip, LOC(kExportSelectedClip));
-            exportMenu.addItem(ExportTrack, LOC(kExportTrack));
-            exportMenu.addItem(ExportBus, LOC(kExportBus));
+            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ExportSelectedClip, LOC(kExportSelectedClip), KeyShortcutConfig::ShortcutId::ExportSelectedClip));
+            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ExportTrack, LOC(kExportTrack), KeyShortcutConfig::ShortcutId::ExportTrack));
+            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ExportBus, LOC(kExportBus), KeyShortcutConfig::ShortcutId::ExportBus));
             exportMenu.addSeparator();
-            exportMenu.addItem(ExportStems, LOC(kExportStems));
+            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ExportStems, LOC(kExportStems), KeyShortcutConfig::ShortcutId::ExportStems));
             menu.addSubMenu(LOC(kExportAudio), exportMenu);
 
             menu.addSeparator();
-            menu.addItem(NewProject, LOC(kNewProject));
-            menu.addItem(SaveProject, LOC(kSaveProject));
-            {
-                const auto binding = KeyShortcutConfig::getShortcutBinding(KeyShortcutConfig::ShortcutId::SaveProjectAs);
-                menu.addItem(SaveProjectAs, LOC(kSaveProjectAs) + "  " + binding.getDisplayNames());
-            }
-            menu.addItem(LoadProject, LOC(kLoadProject));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                NewProject, LOC(kNewProject), KeyShortcutConfig::ShortcutId::NewProject));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                SaveProject, LOC(kSaveProject), KeyShortcutConfig::ShortcutId::SaveProject));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                SaveProjectAs, LOC(kSaveProjectAs), KeyShortcutConfig::ShortcutId::SaveProjectAs));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                LoadProject, LOC(kLoadProject), KeyShortcutConfig::ShortcutId::LoadProject));
 
             juce::PopupMenu recentMenu;
             if (recentProjects_ != nullptr) {
@@ -104,28 +113,49 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
             menu.addSubMenu(LOC(kRecentProjects), recentMenu);
 
             menu.addSeparator();
-            menu.addItem(OpenPreferences, LOC(kOptions));
-            menu.addSeparator();
-            menu.addItem(OpenHelp, LOC(kHelp));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                OpenPreferences, LOC(kOptions), KeyShortcutConfig::ShortcutId::OpenPreferences));
             break;
         }
         case 1:
         {
-            {
-                auto undoBinding = KeyShortcutConfig::getShortcutBinding(KeyShortcutConfig::ShortcutId::Undo);
-                menu.addItem(EditUndo, LOC(kUndo) + "  " + undoBinding.getDisplayNames(), true);
-            }
-            {
-                auto redoBinding = KeyShortcutConfig::getShortcutBinding(KeyShortcutConfig::ShortcutId::Redo);
-                menu.addItem(EditRedo, LOC(kRedo) + "  " + redoBinding.getDisplayNames(), true);
-            }
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditUndo, LOC(kUndo), KeyShortcutConfig::ShortcutId::Undo, true));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditRedo, LOC(kRedo), KeyShortcutConfig::ShortcutId::Redo, true));
+            menu.addSeparator();
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditCut, LOC(kCut), KeyShortcutConfig::ShortcutId::Cut, true));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditCopy, LOC(kCopy), KeyShortcutConfig::ShortcutId::Copy, true));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditPaste, LOC(kPaste), KeyShortcutConfig::ShortcutId::Paste, true));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditSelectAll, LOC(kSelectAll), KeyShortcutConfig::ShortcutId::SelectAll, true));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                EditDelete, LOC(kDelete), KeyShortcutConfig::ShortcutId::Delete, true));
             break;
         }
         case 2:
         {
-            menu.addItem(ShowWaveform, LOC(kShowWaveform), true, processor_.getShowWaveform());
-            menu.addItem(ShowLanes, LOC(kShowLanes), true, processor_.getShowLanes());
-            menu.addItem(ShowNoteBlockNoteNames, LOC(kShowNoteBlockNoteNames), true, showNoteBlockNoteNames_);
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ShowWaveform,
+                LOC(kShowWaveform),
+                KeyShortcutConfig::ShortcutId::ToggleShowWaveform,
+                true,
+                processor_.getShowWaveform()));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ShowLanes,
+                LOC(kShowLanes),
+                KeyShortcutConfig::ShortcutId::ToggleShowLanes,
+                true,
+                processor_.getShowLanes()));
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ShowNoteBlockNoteNames,
+                LOC(kShowNoteBlockNoteNames),
+                KeyShortcutConfig::ShortcutId::ToggleNoteBlockNoteNames,
+                true,
+                showNoteBlockNoteNames_));
 
             {
                 juce::PopupMenu noteNamesMenu;
@@ -157,6 +187,13 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
                 menu.addSeparator();
                 menu.addSubMenu(LOC(kMouseTrail), mouseTrailMenu);
             }
+            break;
+        }
+        case 3:
+        {
+            menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                OpenHelp, LOC(kHelp), KeyShortcutConfig::ShortcutId::OpenHelp));
+            menu.addItem(OpenSourceRepository, LOC(kOpenSourceRepository));
             break;
         }
         default:
@@ -208,6 +245,9 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             break;
         case OpenHelp:
             listeners_.call([](Listener& l) { l.helpRequested(); });
+            break;
+        case OpenSourceRepository:
+            listeners_.call([](Listener& l) { l.openSourceRepositoryRequested(); });
             break;
 
         case ShowWaveform:
@@ -302,6 +342,21 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         case EditRedo:
             listeners_.call([](Listener& l) { l.redoRequested(); });
             break;
+        case EditCut:
+            listeners_.call([](Listener& l) { l.editCutRequested(); });
+            break;
+        case EditCopy:
+            listeners_.call([](Listener& l) { l.editCopyRequested(); });
+            break;
+        case EditPaste:
+            listeners_.call([](Listener& l) { l.editPasteRequested(); });
+            break;
+        case EditSelectAll:
+            listeners_.call([](Listener& l) { l.editSelectAllRequested(); });
+            break;
+        case EditDelete:
+            listeners_.call([](Listener& l) { l.editDeleteRequested(); });
+            break;
 
         default:
             if (menuItemID == RecentProjectsEmpty) {
@@ -321,6 +376,77 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             }
             break;
     }
+}
+
+bool MenuBarComponent::tryHandleTopLevelMenuMnemonic(const juce::KeyPress& key,
+                                                     TransportBarComponent& transport,
+                                                     TopBarComponent& topBar,
+                                                     juce::Component* parentForPopup)
+{
+#if JUCE_MAC || JUCE_WINDOWS
+    juce::ignoreUnused(key, transport, topBar, parentForPopup);
+    return false;
+#else
+    if (!key.getModifiers().isAltDown())
+        return false;
+    if (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())
+        return false;
+
+    const int k = key.getKeyCode();
+    int menuIndex = -1;
+    if (k == 'f' || k == 'F')
+        menuIndex = 0;
+    else if (k == 'e' || k == 'E')
+        menuIndex = 1;
+    else if (k == 'v' || k == 'V')
+        menuIndex = 2;
+    else if (k == 'h' || k == 'H')
+        menuIndex = 3;
+    else
+        return false;
+
+    const auto menuNames = getMenuBarNames();
+    if (menuIndex < 0 || menuIndex >= menuNames.size())
+        return false;
+
+    juce::PopupMenu menu = getMenuForIndex(menuIndex, menuNames[menuIndex]);
+
+    juce::Component* target = nullptr;
+    if (transport.isMenuButtonsVisible())
+    {
+        switch (menuIndex)
+        {
+            case 0:
+                target = &transport.getFileButton();
+                break;
+            case 1:
+                target = &transport.getEditButton();
+                break;
+            case 2:
+                target = &transport.getViewButton();
+                break;
+            case 3:
+                target = &topBar.getMenuBar();
+                break;
+            default:
+                break;
+        }
+    }
+    else
+    {
+        target = &topBar.getMenuBar();
+    }
+
+    if (target == nullptr)
+        return false;
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(target).withParentComponent(parentForPopup),
+                       [this, menuIndex](int result) {
+                           if (result != 0)
+                               menuItemSelected(result, menuIndex);
+                       });
+    return true;
+#endif
 }
 
 } // namespace OpenTune

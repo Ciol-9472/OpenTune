@@ -247,6 +247,10 @@ void OpenTuneAudioProcessorEditor::clipSelectionChanged(int trackId, int clipInd
     processorRef_.setActiveTrack(trackId);
     processorRef_.setSelectedClip(trackId, clipIndex);
     trackPanel_.setActiveTrack(trackId);
+
+    if (clipIndex >= 0) {
+        syncPianoRollFromClipSelection(trackId, clipIndex);
+    }
 }
 
 void OpenTuneAudioProcessorEditor::timeDisplayModeChanged(TransportBarComponent::TimeDisplayMode mode)
@@ -327,20 +331,14 @@ void OpenTuneAudioProcessorEditor::clipTimingChanged(int trackId, int clipIndex)
 {
     juce::ignoreUnused(clipIndex);
 
-    // Update PianoRoll if this clip is active
+    // Always refresh PianoRoll from processor when the active track matches. Clip splits replace
+    // audio buffers and PitchCurve shared_ptrs; a partial update (time offset only) leaves
+    // currentCurve_ pointing at the wrong clip so HandDraw / LineAnchor see null or mismatched F0.
     if (processorRef_.getActiveTrackId() == trackId)
     {
         const int selectedClip = processorRef_.getSelectedClip(trackId);
-        if (selectedClip >= 0)
-        {
-            const uint64_t selectedClipId = processorRef_.getClipId(trackId, selectedClip);
-            const bool contextOutdated = (pianoRoll_.getCurrentTrackId() != trackId)
-                || (pianoRoll_.getCurrentClipId() != selectedClipId);
-
-            if (contextOutdated)
-                syncPianoRollFromClipSelection(trackId, selectedClip);
-            else
-                pianoRoll_.setTrackTimeOffset(processorRef_.getClipStartSeconds(trackId, selectedClip));
+        if (selectedClip >= 0) {
+            syncPianoRollFromClipSelection(trackId, selectedClip);
         }
     }
 
@@ -362,7 +360,6 @@ void OpenTuneAudioProcessorEditor::verticalScrollChanged(int newOffset)
 void OpenTuneAudioProcessorEditor::clipDoubleClicked(int trackId, int clipIndex)
 {
     clipSelectionChanged(trackId, clipIndex);
-    syncPianoRollFromClipSelection(trackId, clipIndex);
     markSessionNeedsSave();
 
     juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);

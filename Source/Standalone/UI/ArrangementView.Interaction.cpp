@@ -1,4 +1,5 @@
 #include "ArrangementViewComponent.h"
+#include "TopBarComponent.h"
 #include "FrameScheduler.h"
 #include "../Utils/ZoomSensitivityConfig.h"
 #include "../../Utils/KeyShortcutConfig.h"
@@ -679,6 +680,13 @@ void ArrangementViewComponent::mouseWheelMove(const juce::MouseEvent& e, const j
 
 bool ArrangementViewComponent::keyPressed(const juce::KeyPress& key)
 {
+    if (auto* top = findParentComponentOfClass<TopBarComponent>())
+    {
+        auto* parentEditor = findParentComponentOfClass<juce::AudioProcessorEditor>();
+        if (top->getMenuBar().tryHandleTopLevelMenuMnemonic(key, top->getTransportBar(), *top, parentEditor))
+            return true;
+    }
+
     if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::PlayPause, key))
     {
         processor_.setPlaying(!processor_.isPlaying());
@@ -715,7 +723,7 @@ bool ArrangementViewComponent::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S')
+    if (KeyShortcutConfig::matchesShortcut(KeyShortcutConfig::ShortcutId::SplitClip, key))
     {
         if (selectedTrack_ < 0 || selectedTrack_ >= OpenTuneAudioProcessor::MAX_TRACKS)
             return true;
@@ -766,7 +774,10 @@ bool ArrangementViewComponent::keyPressed(const juce::KeyPress& key)
             else
                 selectedClipId_ = 0;
 
-            listeners_.call([this](Listener& l) { l.clipTimingChanged(selectedTrack_, selectedClip_); });
+            listeners_.call([this](Listener& l) {
+                l.clipSelectionChanged(selectedTrack_, selectedClip_);
+                l.clipTimingChanged(selectedTrack_, selectedClip_);
+            });
             repaint();
         }
         return true;
