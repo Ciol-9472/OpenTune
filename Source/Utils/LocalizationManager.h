@@ -546,8 +546,8 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kPianoRollHintVibrato3, "Shortcut [5] Vibrato tool.", "快捷键 [5] 颤音工具。", "[5] ビブラート。", "[5] — вибрато.", "Atajo [5] vibrato." },
         { Keys::kPianoRollHintSplit1, "Click a note at the mouse position to split it into two.", "在鼠标位置单击音符可将其一分为二。", "マウス位置でノートをクリックして分割。", "Клик по ноте под курсором — разрез.", "Clic en la nota bajo el cursor para partirla." },
         { Keys::kPianoRollHintSplit2, "Shortcut [6] Split Note tool.", "快捷键 [6] 分割音符工具。", "[6] ノート分割。", "[6] — разрезать.", "Atajo [6] dividir nota." },
-        { Keys::kPianoRollHintAuto1, "Click to run Auto note generation for the current F0 range/selection.", "单击可根据当前 F0 与选区自动生成音符。", "クリックでF0範囲から自動ノート生成。", "Клик — авто-ноты по F0/выделению.", "Clic: generar notas automáticas según F0/selección." },
-        { Keys::kPianoRollHintAuto2, "Right-click AUTO for options; default shortcut Ctrl+Shift+7 (change in Options → Keyswitch).", "右键 AUTO 打开参数；默认快捷键 Ctrl+Shift+7（可在选项→快捷键中修改）。", "AUTO を右クリックでオプション。既定は Ctrl+Shift+7（オプション→キースイッチで変更）。", "ПКМ по AUTO — параметры; по умолчанию Ctrl+Shift+7 (смена в Настройки → клавиши).", "Clic derecho en AUTO para opciones; atajo por defecto Ctrl+Shift+7 (cambiar en Opciones → atajos)." },
+        { Keys::kPianoRollHintAuto1, "Click to run AUTO for the full current clip using its Original F0.", "单击可基于当前 Clip 的整段 Original F0 执行 AUTO。", "クリックで現在のクリップ全体の Original F0 に対して AUTO を実行。", "Клик — запустить AUTO для всего текущего клипа по его Original F0.", "Clic para ejecutar AUTO sobre todo el clip actual usando su Original F0." },
+        { Keys::kPianoRollHintAuto2, "Right-click AUTO for options; default shortcut Ctrl/Cmd+Shift+7 (change in Options → Keyswitch).", "右键 AUTO 打开参数；默认快捷键 Ctrl/Cmd+Shift+7（可在选项→快捷键中修改）。", "AUTO を右クリックでオプション。既定のショートカットは Ctrl/Cmd+Shift+7（オプション→キースイッチで変更可能）。", "ПКМ по AUTO — параметры; по умолчанию Ctrl/Cmd+Shift+7 (можно изменить в Настройки → клавиши).", "Clic derecho en AUTO para opciones; atajo por defecto Ctrl/Cmd+Shift+7 (puede cambiarse en Opciones → atajos)." },
     };
     
     for (const auto& t : translations)

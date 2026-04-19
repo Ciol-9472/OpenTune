@@ -329,7 +329,7 @@
     <h1>OpenTune</h1>
     <div class="subtitle">AI 智能修音软件</div>
     <div class="tagline">保留共振峰，移调不失真</div>
-    <div class="version">用户指南 v1.3</div>
+    <div class="version">用户指南 v1.4</div>
     <div class="version" style="margin-top: 10px;">2026 年 4 月</div>
 </div>
 
@@ -440,13 +440,13 @@
     </tr>
     <tr>
         <td>显卡</td>
-        <td>支持 CUDA 的 NVIDIA 显卡（可选，可加速 AI 推理）</td>
+        <td>支持 DirectX 12 / DirectML 的独立显卡（可选，可加速 AI 推理）</td>
     </tr>
 </table>
 
 <div class="note">
     <div class="note-title">✓ GPU 加速</div>
-    OpenTune 支持 NVIDIA GPU 的 CUDA/DirectML 加速。如果检测到兼容显卡，AI 推理将自动使用 GPU，大幅提升处理速度。无独立显卡时自动回退到 CPU 模式运行。
+    当前 Windows 版本优先使用经过验证的 DirectML GPU 加速；若系统或驱动不满足条件，软件会自动回退到 CPU 模式运行。
 </div>
 
 <!-- 第3章：安装与启动 -->
@@ -491,27 +491,27 @@
     </tr>
     <tr>
         <td><strong>菜单栏</strong></td>
-        <td>文件导入/导出、编辑操作、视图切换、主题设置</td>
+        <td>File / Edit / View / Help 菜单；包含导入导出、工程文件、显示选项、主题与帮助入口</td>
     </tr>
     <tr>
         <td><strong>传输控制栏</strong></td>
-        <td>播放/暂停/停止按钮、BPM 设置、调式选择、Tap Tempo</td>
+        <td>播放/暂停/停止、循环、Bypass、时间显示（秒/小节）、BPM、Tap Tempo、调式选择</td>
     </tr>
     <tr>
         <td><strong>轨道面板</strong></td>
-        <td>多轨道管理、音量控制、Solo/Mute 开关、电平显示</td>
+        <td>位于工作区左侧，仅与编曲视图同列显示；用于多轨管理、音量控制、Solo/Mute、电平显示</td>
     </tr>
     <tr>
         <td><strong>编曲视图</strong></td>
-        <td>音频片段显示、波形预览、时间轴、片段排列</td>
+        <td>工作区上半部分；用于片段排列、拖拽、分割、合并、重命名与多轨浏览</td>
     </tr>
     <tr>
         <td><strong>钢琴卷帘视图</strong></td>
-        <td>音高曲线编辑、音符绘制、F0 曲线显示；调式高亮（Major/Minor）；左下角当前工具说明</td>
+        <td>工作区下半部分；用于音高曲线编辑、音符绘制、F0 曲线显示、调式高亮与工具提示</td>
     </tr>
     <tr>
-        <td><strong>参数面板</strong></td>
-        <td>音高校正参数、工具选择、颤音设置</td>
+        <td><strong>工作区分隔条</strong></td>
+        <td>拖动可调整编曲视图与钢琴卷帘的上下占比；该比例会随 UI 状态一同保存</td>
     </tr>
     <tr>
         <td><strong>首选项（Options）</strong></td>
@@ -519,11 +519,13 @@
     </tr>
 </table>
 
-<h3>4.2 视图切换</h3>
-<p>软件提供两种主要视图：</p>
+<h3>4.2 工作区布局</h3>
+<p>当前版本采用固定的<strong>上下分栏工作区</strong>，而不是在两个大视图之间来回切换：</p>
 <ul>
-    <li><strong>轨道视图 (Track View)</strong>：显示编曲视图，适合管理多个音频片段</li>
-    <li><strong>钢琴卷帘视图 (Piano Roll View)</strong>：显示音高曲线编辑界面，适合精细编辑</li>
+    <li><strong>上半部分</strong>：编曲视图，专注片段与轨道编排。</li>
+    <li><strong>下半部分</strong>：钢琴卷帘，专注音高与音符编辑。</li>
+    <li><strong>中间分隔条</strong>：可拖动调整高度比例；程序会记住上次使用的工作区比例与钢琴卷帘缩放状态。</li>
+    <li><strong>双击片段</strong>：会把对应 Clip 同步到下方钢琴卷帘，方便继续精修。</li>
 </ul>
 
 <h3>4.3 主题</h3>
@@ -554,12 +556,10 @@
 <ul>
     <li><strong>Show Waveform（显示波形）</strong>：在钢琴卷帘背景中叠加当前片段的波形，便于对齐乐句与音高。</li>
     <li><strong>Show Lanes（显示音高分层）</strong>：以半音为行划分卷帘区域，水平线与左侧琴键行一一对应；便于辨认音区。黑键行<strong>不再</strong>单独铺一层深灰底，以便与左侧琴键延伸区、调式高亮的叠色一致。</li>
-</ul>
-
-<h3>4.7 钢琴卷帘：调式高亮与工具提示</h3>
-<ul>
-    <li><strong>调式高亮</strong>：在传输栏选择 <strong>Major / Minor</strong>（非半音阶）时，当前调式内的音级会在<strong>左侧琴键</strong>与<strong>右侧音道</strong>上以同一套规则标示（调外琴键略压暗，调内叠加主题色高亮）。半音阶模式下不进行调内强调。</li>
-    <li><strong>工具提示</strong>：在钢琴卷帘左下角（琴键右侧、横向滚动条<strong>之上</strong>）显示<strong>当前工具</strong>的简要操作说明（半透明文字，随界面语言与主题变化）；切换工具或语言后会<strong>立即</strong>更新，无需再单击卷帘。</li>
+    <li><strong>Show Note Block Note Names（显示音符音名）</strong>：控制音符块内部是否直接显示音名。</li>
+    <li><strong>Note Names</strong>：可切换左侧琴键音名显示为“全部 / 仅 C / 隐藏”。</li>
+    <li><strong>Theme</strong>：切换 BlueBreeze、DarkBlueGrey、Aurora 三种主题。</li>
+    <li><strong>Mouse Trail</strong>：切换鼠标轨迹特效主题，或关闭该效果。</li>
 </ul>
 
 <h3>4.5 首选项（Options）</h3>
@@ -567,12 +567,20 @@
 <ul>
     <li><strong>Audio</strong>：音频输入/输出设备与缓冲区设置（独立运行时可用）。</li>
     <li><strong>Mouse</strong>：水平/垂直缩放灵敏度、滚动速度；可一键恢复默认。</li>
-    <li><strong>快捷键</strong>：为播放、停止、撤销/重做、剪切/复制/粘贴、全选、删除、保存工程等项目绑定按键；支持多键组合、冲突检测与恢复默认。</li>
+    <li><strong>快捷键（Keyswitch）</strong>：为播放、停止、撤销/重做、导入导出、钢琴卷帘工具等项目绑定按键；支持多键组合、冲突检测与恢复默认。</li>
     <li><strong>Language</strong>：界面语言，支持英语、简体中文、日语、俄语、西班牙语等；切换后立即生效。</li>
 </ul>
 
-<h3>4.6 时间轴单位（秒 / 小节）</h3>
-<p>在编曲视图与钢琴卷帘中，可通过时间轴附近的切换控件在<strong>秒</strong>与<strong>小节（Bars）</strong>显示之间切换（与当前 BPM、拍号共同决定小节刻度）。</p>
+<h3>4.6 时间显示单位（秒 / 小节）</h3>
+<p>点击传输栏中的<strong>时间显示屏</strong>，即可在<strong>秒</strong>与<strong>小节（Bars）</strong>显示之间切换；小节显示会结合当前 BPM 与拍号实时换算。</p>
+
+<h3>4.7 钢琴卷帘：调式高亮、工具栏与提示</h3>
+<ul>
+    <li><strong>调式高亮</strong>：在传输栏选择任意<strong>非半音阶调式</strong>时，当前调式内的音级会在<strong>左侧琴键</strong>与<strong>右侧音道</strong>上以同一套规则标示（调外琴键略压暗，调内叠加主题色高亮）。半音阶模式下不进行调内强调。</li>
+    <li><strong>内嵌工具栏</strong>：钢琴卷帘左上角提供 <strong>Select / DrawNote / LineAnchor / HandDraw / Vibrato / SplitNote / AUTO</strong> 工具按钮；无需依赖单独参数面板。</li>
+    <li><strong>AUTO 选项快捷入口</strong>：右键点击左上角 <strong>AUTO</strong> 按钮，可直接打开 AUTO 选项对话框。</li>
+    <li><strong>工具提示</strong>：在钢琴卷帘左下角（琴键右侧、横向滚动条<strong>之上</strong>）显示<strong>当前工具</strong>的简要操作说明（半透明文字，随界面语言与主题变化）；切换工具或语言后会<strong>立即</strong>更新。</li>
+</ul>
 
 <!-- 第5章：快速入门 -->
 <h2 id="quickstart">5. 快速入门</h2>
@@ -598,7 +606,7 @@
         <div class="step-number">3</div>
         <div class="step-content">
             <h4>设置调式</h4>
-            <p>软件自动检测调式，或手动在传输控制栏选择主音（C, C#, D...）和调式（Major/Minor）。</p>
+            <p>软件会尝试自动检测调式；也可在传输控制栏手动选择主音（C, C#, D...）与调式类型（如 Major、Minor、Chromatic、Harmonic Minor、Dorian 等）。</p>
         </div>
     </div>
     <div class="workflow-step">
@@ -612,7 +620,7 @@
         <div class="step-number">5</div>
         <div class="step-content">
             <h4>调整参数</h4>
-            <p>在参数面板调节 Retune Speed、Vibrato 等参数，实时预览效果。</p>
+            <p>如需更自然或更激进的结果，可通过 AUTO 选项对话框调整 Retune Speed 与 Note Split；再用 Vibrato 工具对单个音符细修颤音。</p>
         </div>
     </div>
     <div class="workflow-step">
@@ -626,7 +634,7 @@
 
 <div class="tip">
     <div class="tip-title">💡 快捷操作</div>
-    导入音频后可以直接使用 AutoTune 工具进行一键修正，适合快速处理。精细调整时再使用其他工具。
+    导入音频后可以先点击左上角 <strong>AUTO</strong> 快速打底；若想先设定 Retune Speed / Note Split，再对 <strong>AUTO</strong> 按钮使用右键打开选项。
 </div>
 
 <!-- 第6章：核心功能 -->
@@ -646,7 +654,7 @@
 <p>软件使用 RMVPE（Robust Multi-Scale Pitch Estimation）进行高精度音高提取：</p>
 <ul>
     <li><strong>帧率</strong>：100fps（每帧 10ms）</li>
-    <li><strong>频率范围</strong>：默认 50Hz - 1100Hz（可调整）</li>
+    <li><strong>频率范围</strong>：典型人声工作范围约 50Hz - 1100Hz</li>
     <li><strong>特性</strong>：支持八度错误修正、静音段检测、间隙填充</li>
 </ul>
 
@@ -654,8 +662,8 @@
 <p>内置基于 Krumhansl-Schmuckler 算法的自动调式检测：</p>
 <ul>
     <li>支持 12 种主音：C, C#, D, D#, E, F, F#, G, G#, A, A#, B</li>
-    <li>支持调式：大调（Major）、小调（Minor）、半音阶</li>
-    <li>提供置信度评估</li>
+    <li>传输栏可选择的调式类型包括：Major、Minor、Chromatic、Harmonic Minor、Dorian、Mixolydian、Pentatonic Major、Pentatonic Minor</li>
+    <li>内部会记录调式检测结果并用于后续自动流程</li>
 </ul>
 
 <h3>6.4 音高校正</h3>
@@ -680,7 +688,11 @@
     </tr>
     <tr>
         <td><strong>锚点工具</strong></td>
-        <td>设置关键锚点，在锚点之间用单调 Hermite 样条在 MIDI 空间插值生成平滑音高线；切换工具时可按当前渲染曲线自动拟合锚点</td>
+        <td>在线锚点之间用单调 Hermite 样条生成平滑音高线；只在已有音符范围内生效，切换工具时可按当前渲染曲线自动拟合锚点</td>
+    </tr>
+    <tr>
+        <td><strong>颤音工具</strong></td>
+        <td>对单个音符的颤音深度与速率进行快速精修；更适合在 AUTO 或手工建音后做局部润色</td>
     </tr>
     <tr>
         <td><strong>分割音符</strong></td>
@@ -739,9 +751,9 @@
 <h3>6.9 GPU 加速</h3>
 <p>支持 GPU 加速 AI 推理：</p>
 <ul>
-    <li>自动检测 NVIDIA GPU 并启用 CUDA/DirectML 加速</li>
-    <li>CPU 回退模式确保兼容性</li>
-    <li>显著提升处理速度</li>
+    <li>Windows 版本优先检测并验证 DirectML 加速能力</li>
+    <li>兼容的 DirectX 12 GPU 可用于加速 RMVPE / 声码器推理</li>
+    <li>GPU 不可用或验证失败时自动回退到 CPU，保证工程可继续打开和处理</li>
 </ul>
 
 <h3>6.10 多主题系统</h3>
@@ -767,14 +779,16 @@
 <div class="page-break"></div>
 <h2 id="tools">7. 编辑工具</h2>
 
-<p>OpenTune 提供六种专业编辑工具，通过参数面板的工具选择区切换。在钢琴卷帘上<strong>右键（或长按）</strong>也可弹出工具菜单快速切换。</p>
+<p>OpenTune 当前提供<strong>七种</strong>钢琴卷帘编辑工具。默认入口是钢琴卷帘<strong>左上角内嵌工具栏</strong>；在钢琴卷帘上<strong>右键（或长按）</strong>也可弹出工具菜单快速切换。</p>
 
 <div class="tool-card">
     <h4>🎹 AutoTune - 自动修正工具</h4>
     <p>根据当前调式与原始 F0 自动生成音符并应用音高校正。适合快速打底、整段修正。</p>
     <p><strong>使用场景</strong>：需要一键生成音符并量化到调性时；精细修音可再配合选择、分割与手绘等工具。</p>
     <p><strong>音符切分（概要）</strong>：除「音符分割阈值」控制的平滑段切分外，相邻有声帧若瞬时音高跳变超过约<strong>两个半音</strong>也会拆成新音符；最短音符时长已放宽以利于短促发声。在 Major/Minor 吸附时，若某段原始音高与<strong>前后相邻音符</strong>的原始音高在约<strong>一个半音</strong>以内，允许按半音保留类似经过音的落点，而不强行吸附到调内音。AUTO 流程在具备每帧能量数据时，还会<strong>实验性</strong>地根据能量低谷尝试拆分相邻音（大电平—弱电平—大电平等情形）。</p>
-    <p><strong>快捷方式</strong>：钢琴卷帘处于焦点且未按修饰键时，按数字键 <strong>6</strong> 可触发与点击该工具相同的自动修正流程。</p>
+    <p><strong>选项对话框</strong>：右键点击左上角 <strong>AUTO</strong> 按钮，可打开 AUTO 选项，设置 <strong>Retune Speed</strong> 与 <strong>Note Split</strong>，并可记住默认值。</p>
+    <p><strong>安全提示</strong>：若当前 Clip 已有音符或已有修音结果，AUTO 会先给出确认提示，避免误覆盖。</p>
+    <p><strong>默认快捷键</strong>：钢琴卷帘处于焦点时，默认可使用 <strong>Ctrl/Cmd + Shift + 7</strong> 触发 AUTO；该快捷键可在 Options 中自定义。</p>
 </div>
 
 <div class="tool-card">
@@ -793,7 +807,7 @@
 
 <div class="tool-card">
     <h4>📍 LineAnchor - 线锚点工具</h4>
-    <p>在音符时间范围内放置锚点；锚点之间使用<strong>单调埃尔米特样条（Hermite）</strong>在 MIDI 音高空间插值，曲线平滑且通常不会出现不合理的“尖峰过冲”，适合滑音、乐句形状控制。</p>
+    <p>在已有音符的时间范围内放置锚点；锚点之间使用<strong>单调埃尔米特样条（Hermite）</strong>在 MIDI 音高空间插值，曲线平滑且通常不会出现不合理的“尖峰过冲”，适合滑音、乐句形状控制。</p>
     <p><strong>自动拟合</strong>：切换到线锚点工具时，软件会按当前<strong>已渲染音高曲线</strong>（含已有校正）在每个音符上自动拟合一组锚点，便于在现有结果上继续细调。</p>
     <p><strong>优势</strong>：关键帧式编辑，比纯手绘更易保持连贯形状。</p>
 </div>
@@ -805,24 +819,32 @@
 </div>
 
 <div class="tool-card">
+    <h4>〰️ Vibrato - 颤音工具</h4>
+    <p>用于快速调整单个音符的颤音参数。将鼠标靠近音符左右边缘时可拖动调整<strong>颤音速率</strong>；靠近上下边缘时可拖动调整<strong>颤音深度</strong>。</p>
+    <p><strong>适用场景</strong>：在 AUTO 或手工建音之后，为句尾或长音补充更自然的抖动与表现力。</p>
+</div>
+
+<div class="tool-card">
     <h4>✂️ SplitNote - 分割音符工具</h4>
     <p>在音符上单击，于<strong>鼠标点击位置对应的时间</strong>将音符分成两段（非播放头位置），便于分段设置 Retune、颤音或后续编辑。</p>
     <p><strong>光标</strong>：使用文本竖线形光标提示当前为分割模式。</p>
 </div>
 
 <h3>工具切换</h3>
-<p>在参数面板点击对应工具按钮、使用数字快捷键（见第 9 章），或通过钢琴卷帘右键菜单切换。</p>
+<p>可通过钢琴卷帘左上角工具栏、默认数字快捷键（见第 9 章），或钢琴卷帘右键菜单切换工具。</p>
 
 <h3>线锚点工具补充说明</h3>
 <ul>
     <li>锚点按<strong>音符</strong>分组；至少两个锚点才会生成该段的线锚点校正。插值在<strong>MIDI 半音空间</strong>进行，与感知上的音高比例一致。</li>
     <li><strong>Ctrl</strong>（macOS 上为 Cmd）+ 在空白处按下并拖动：进行锚点的<strong>矩形框选</strong>，松开后框内的锚点被选中，便于批量移动或删除。</li>
     <li>可选中锚点后使用 <strong>Delete / Backspace</strong> 删除；<strong>Esc</strong> 可先清除锚点选中状态；切换至其他工具会结束当前锚点编辑会话。</li>
-    <li>校正结果仍受各音符的 <strong>Retune Speed</strong> 等参数影响（与手绘等工具一致，详见参数面板与内部算法说明）。</li>
+    <li>校正结果仍受各音符的 <strong>Retune Speed</strong> 等参数影响；当前版本中这类默认值主要通过 AUTO 选项与音符本身的参数状态决定。</li>
 </ul>
 
 <!-- 第8章：参数详解 -->
 <h2 id="parameters">8. 参数详解</h2>
+
+<p>当前版本<strong>不再提供独立的参数侧边栏</strong>。常用参数的入口主要分为两类：一类是在 <strong>AUTO</strong> 选项对话框中设置（如 Retune Speed、Note Split Threshold），另一类是在钢琴卷帘中直接编辑（如通过 <strong>Vibrato</strong> 工具调整颤音深度/速率）。</p>
 
 <h3>8.1 音高校正参数</h3>
 
@@ -839,21 +861,21 @@
 
 <div class="param-item">
     <div class="param-name">Vibrato Depth（颤音深度）</div>
-    <div class="param-range">范围：0 - 1 | 默认值：0</div>
-    <p>为音符添加人工颤音的深度。0 表示不添加，1 表示最大深度。</p>
+    <div class="param-range">范围：0 - 100 | 默认值：0</div>
+    <p>为音符添加人工颤音的深度。数值越大，音高摆动越明显。当前最直接的编辑方式是使用 <strong>Vibrato</strong> 工具拖动音符上下边缘。</p>
 </div>
 
 <div class="param-item">
     <div class="param-name">Vibrato Rate（颤音速率）</div>
-    <div class="param-range">范围：0 - 15 Hz | 默认值：7.5 Hz</div>
-    <p>控制人工颤音的振动频率。人声自然颤音通常在 5-8 Hz 范围。</p>
+    <div class="param-range">范围：0.1 - 30 Hz | 默认值：7.5 Hz</div>
+    <p>控制人工颤音的振动频率。人声自然颤音通常在 5-8 Hz 范围。当前最直接的编辑方式是使用 <strong>Vibrato</strong> 工具拖动音符左右边缘。</p>
 </div>
 
 <div class="param-item">
     <div class="param-name">Note Split Threshold（音符分割阈值）</div>
-    <div class="param-range">范围：0 - 100 音分 | 默认值：80 音分</div>
+    <div class="param-range">范围：0 - 200 音分 | 默认值：80 音分</div>
     <p>控制自动音符分割的灵敏度。值越小，越容易分割成独立音符；值越大，倾向于合并相邻音高。</p>
-    <p><strong>说明</strong>：AUTO 生成音符时还受内部策略影响，例如大于约两半音的瞬时跳变会强制拆段、默认最短音符时长与能量低谷（见 AutoTune 工具说明）等；本旋钮主要调节「相对平均音高」变化触发的切分灵敏度。</p>
+    <p><strong>说明</strong>：AUTO 生成音符时还受内部策略影响，例如大于约两半音的瞬时跳变会强制拆段、默认最短音符时长与能量低谷（见 AutoTune 工具说明）等；本参数主要调节「相对平均音高」变化触发的切分灵敏度，入口在 AUTO 选项对话框。</p>
 </div>
 
 <h3>8.2 轨道参数</h3>
@@ -966,7 +988,7 @@
     </tr>
     <tr>
         <td>滚轮</td>
-        <td>垂直缩放（钢琴卷帘）/ 水平滚动</td>
+        <td>默认滚动当前视图；在钢琴卷帘中为垂直滚动，在编曲视图中为垂直滚动/横向触控板滚动</td>
     </tr>
     <tr>
         <td>Shift + 滚轮</td>
@@ -974,12 +996,28 @@
     </tr>
     <tr>
         <td>Ctrl + 滚轮</td>
-        <td>缩放时间轴</td>
+        <td>时间轴水平缩放</td>
+    </tr>
+    <tr>
+        <td>Alt + 滚轮</td>
+        <td>垂直缩放（钢琴卷帘）或调整轨道高度（轨道面板 / 编曲视图）</td>
+    </tr>
+    <tr>
+        <td>Ctrl + Alt + 滚轮</td>
+        <td>同时进行水平与垂直缩放</td>
+    </tr>
+    <tr>
+        <td>F1</td>
+        <td>打开帮助文档</td>
+    </tr>
+    <tr>
+        <td>F5 / F6 / F7 / F8</td>
+        <td>切换波形显示 / 音高分层 / 音符音名 / Bypass</td>
     </tr>
 </table>
 
-<h3>9.4 工具切换（钢琴卷帘焦点下，无 Ctrl/Alt 修饰）</h3>
-<p>以下数字键用于<strong>切换工具</strong>；其中 <strong>6</strong> 为触发一次自动修正流程（与点击 AutoTune 工具等效），而非单独“第 7 种工具”。</p>
+<h3>9.4 工具切换（钢琴卷帘焦点下，默认配置）</h3>
+<p>以下为当前默认工具快捷键；它们都可以在 <strong>Options → Keyswitch</strong> 中重新绑定。</p>
 <table class="shortcut-table">
     <tr>
         <th>快捷键</th>
@@ -1003,11 +1041,15 @@
     </tr>
     <tr>
         <td>5</td>
-        <td>SplitNote - 分割音符</td>
+        <td>Vibrato - 颤音工具</td>
     </tr>
     <tr>
         <td>6</td>
-        <td>根据当前片段与调式执行 AutoTune（一键生成/校正）</td>
+        <td>SplitNote - 分割音符</td>
+    </tr>
+    <tr>
+        <td>Ctrl/Cmd + Shift + 7</td>
+        <td>AUTO - 根据当前片段与调式执行自动生成/校正</td>
     </tr>
 </table>
 <p><strong>Ctrl + A</strong> 在钢琴卷帘内为<strong>全选音符</strong>（与全局“全选”快捷键配置一致时）。</p>
@@ -1051,7 +1093,7 @@
     <li>菜单路径：<strong>File → Export Audio → Export Stems</strong></li>
     <li>在对话框中设置<strong>文件名前缀</strong>（可选；会写入每个输出文件名，非法字符会自动替换）</li>
     <li>勾选需要导出的<strong>轨道</strong>（无音频的轨道不可选）</li>
-    <li>选择<strong>输出文件夹</strong>后，软件按轨道依次导出为 WAV（命名形如 <code>前缀-Track N.wav</code> 或 <code>Track N.wav</code>）</li>
+    <li>选择<strong>输出文件夹</strong>后，软件按轨道依次导出为 WAV（命名形如 <code>前缀_Track Name.wav</code> 或 <code>Track Name.wav</code>）</li>
 </ul>
 <p>分轨导出与单轨/总线导出一样，会基于当前修音与声码器渲染结果输出。</p>
 
@@ -1076,25 +1118,25 @@
 <p><strong>A:</strong> 请确保 <code>models/rmvpe.onnx</code> 模型文件存在且完整。首次加载模型可能需要几秒钟。如果问题持续，请检查音频是否包含明显的人声内容。</p>
 
 <h3>Q2: 音频处理速度很慢？</h3>
-<p><strong>A:</strong> 在兼容环境下，声码器等推理可使用 <strong>GPU（如 DirectML / NVIDIA 相关路径）</strong> 加速；若未启用或仍偏慢，可尝试：</p>
+<p><strong>A:</strong> 在兼容环境下，声码器等推理会优先尝试 <strong>DirectML GPU 加速</strong>；若未启用或仍偏慢，可尝试：</p>
 <ul>
     <li>关闭其他占用 CPU/GPU 的程序</li>
     <li>先处理较短片段，或减少同时多轨重负载操作</li>
-    <li>升级 CPU；有独立显卡时确认驱动正常并留意软件是否回退到 CPU</li>
+    <li>升级 CPU；有独立显卡时确认驱动正常，并留意软件是否因环境不满足而回退到 CPU</li>
 </ul>
 
 <h3>Q3: 修正后的音质有异常？</h3>
 <p><strong>A:</strong> 可能原因：</p>
 <ul>
     <li>声码器模型损坏 - 重新下载模型文件</li>
-    <li>原始音频质量较差 - 尝试调整 Note Split 阈值</li>
-    <li>参数设置不当 - 降低 Retune Speed 值</li>
+    <li>原始音频质量较差 - 可重新运行 AUTO，并适当调整 Note Split Threshold</li>
+    <li>参数设置不当 - 可在 AUTO 选项中降低 Retune Speed，避免过度拉平</li>
 </ul>
 
 <h3>Q4: 如何实现自然的音高修正？</h3>
 <p><strong>A:</strong> 建议：</p>
 <ul>
-    <li>使用较低的 Retune Speed（10-30%）</li>
+    <li>在 AUTO 选项中使用较低的 Retune Speed（10-30%）</li>
     <li>保留原始颤音，不添加人工颤音</li>
     <li>使用 Line Anchor 工具进行精细调整，而非全自动修正</li>
 </ul>
