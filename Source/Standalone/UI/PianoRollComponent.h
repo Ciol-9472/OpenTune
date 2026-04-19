@@ -164,11 +164,7 @@ public:
     bool hasSelectionRange() const;
     std::pair<double, double> getSelectionTimeRange() const;
 
-    void setTrackTimeOffset(double offsetSeconds) {
-        trackOffsetSeconds_ = juce::jmax(0.0, offsetSeconds);
-        playheadOverlay_.setTrackOffsetSeconds(trackOffsetSeconds_);
-        repaint();
-    }
+    void setTrackTimeOffset(double offsetSeconds);
     double getTrackTimeOffset() const { return trackOffsetSeconds_; }
     
     void setAlignmentOffset(double offsetSeconds) { 
@@ -383,6 +379,7 @@ public:
     void setCurrentClipContext(int trackId, uint64_t clipId);
     void clearClipContext();
     bool hasActiveClipContext() const { return currentClipId_ != 0; }
+
     int getCurrentTrackId() const { return currentTrackId_; }
     uint64_t getCurrentClipId() const { return currentClipId_; }
     bool isCurrentClipOriginalF0Visible() const
@@ -426,6 +423,8 @@ private:
     int hopSize_ = 512;
     double f0SampleRate_ = 16000.0;
     double trackOffsetSeconds_ = 0.0;
+    /** 轨道上最早 clip 的起点（时间轴横向滚动与 timeToX 锚点） */
+    double timelineAnchorSeconds_ = 0.0;
     double alignmentOffsetSeconds_ = 0.0;
     double lastPaintedPlayheadTime_ = -1.0;
     double lastInteractiveRepaintMs_ = 0.0;
@@ -463,6 +462,10 @@ private:
     std::unique_ptr<PianoRollToolHandler> toolHandler_;
     std::unique_ptr<PianoRollCorrectionWorker> correctionWorker_;
     WaveformMipmap waveformMipmap_;
+    WaveformMipmapCache waveformMipmapCache_;
+
+    void recomputeTimelineAnchor();
+    void syncWaveformCachesForCurrentTrack();
 
     static constexpr int pianoKeyWidth_ = 60;
     static constexpr int rulerHeight_ = 30;

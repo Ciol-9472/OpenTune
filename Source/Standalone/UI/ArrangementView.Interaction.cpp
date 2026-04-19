@@ -557,8 +557,17 @@ void ArrangementViewComponent::mouseUp(const juce::MouseEvent& e)
 void ArrangementViewComponent::mouseDoubleClick(const juce::MouseEvent& e)
 {
     auto hit = hitTestClip(e.getPosition());
-    if (hit.trackId >= 0 && hit.clipIndex >= 0)
-        listeners_.call([&](Listener& l) { l.clipDoubleClicked(hit.trackId, hit.clipIndex); });
+    if (hit.trackId < 0 || hit.clipIndex < 0)
+        return;
+
+    selectedTrack_ = hit.trackId;
+    selectedClip_ = hit.clipIndex;
+    selectedClipId_ = processor_.getClipId(hit.trackId, hit.clipIndex);
+    processor_.setActiveTrack(hit.trackId);
+    processor_.setSelectedClip(hit.trackId, hit.clipIndex);
+    listeners_.call([this](Listener& l) { l.clipSelectionChanged(selectedTrack_, selectedClip_); });
+
+    beginClipRename(hit.trackId, hit.clipIndex);
 }
 
 void ArrangementViewComponent::applyWheelHorizontalPan(float deltaX, float deltaY)

@@ -35,6 +35,10 @@ ArrangementViewComponent::ArrangementViewComponent(OpenTuneAudioProcessor& proce
 
 ArrangementViewComponent::~ArrangementViewComponent()
 {
+    if (clipRenameLabel_)
+        clipRenameLabel_->onEditorHide = nullptr;
+    clipRenameLabel_.reset();
+
     scrollVBlankAttachment_.reset();
     stopTimer();
     horizontalScrollBar_.removeListener(this);
@@ -217,6 +221,17 @@ void ArrangementViewComponent::resized()
 
     // 播放头覆盖层覆盖整个组件区域
     playheadOverlay_.setBounds(getLocalBounds());
+
+    if (clipRenameLabel_ != nullptr && clipRenameLabel_->isVisible() && clipRenameTrack_ >= 0 && clipRenameClipIdx_ >= 0)
+    {
+        auto cb = getClipBounds(clipRenameTrack_, clipRenameClipIdx_);
+        if (!cb.isEmpty())
+        {
+            auto nameRow = cb.removeFromTop(juce::jmin(20, cb.getHeight())).reduced(4, 2);
+            clipRenameLabel_->setBounds(nameRow);
+            clipRenameLabel_->toFront(false);
+        }
+    }
 }
 
 void ArrangementViewComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart)
@@ -229,7 +244,7 @@ void ArrangementViewComponent::scrollBarMoved(juce::ScrollBar* scrollBar, double
     }
     else if (scrollBar == &verticalScrollBar_)
     {
-        verticalScrollOffset_ = static_cast<int>(newRangeStart);
+        setVerticalScrollOffset(static_cast<int>(newRangeStart));
         // 通知监听器垂直滚动偏移变化（用于同步TrackPanel）
         listeners_.call([this](Listener& l) { l.verticalScrollChanged(verticalScrollOffset_); });
         FrameScheduler::instance().requestInvalidate(*this, FrameScheduler::Priority::Normal);
@@ -264,6 +279,8 @@ void ArrangementViewComponent::updateScrollBars()
     const int rows = getTimelineLayoutTrackRows();
     const int totalTrackHeight = rulerHeight_ + rows * processor_.getTrackHeight() + kTrackAddButtonRegion_;
     int visibleHeight = juce::jmax(1, getHeight() - kScrollbarBreadth_);
+    const int maxVerticalScroll = juce::jmax(0, totalTrackHeight - visibleHeight);
+    verticalScrollOffset_ = juce::jlimit(0, maxVerticalScroll, verticalScrollOffset_);
     verticalScrollBar_.setRangeLimits(0.0, static_cast<double>(totalTrackHeight));
     verticalScrollBar_.setCurrentRange(verticalScrollOffset_, visibleHeight);
 }
@@ -359,6 +376,9 @@ double ArrangementViewComponent::getMinimumHorizontalZoomLevel() const
 int ArrangementViewComponent::getTimelineLayoutTrackRows() const
 {
     int rows = 2;
+    if (timelineTrackRowCountSource_) {
+        rows = juce::jmax(rows, timelineTrackRowCountSource_());
+    }
     rows = juce::jmax(rows, processor_.getActiveTrackId() + 1);
 
     for (int trackId = 0; trackId < OpenTuneAudioProcessor::MAX_TRACKS; ++trackId)
@@ -370,13 +390,28 @@ int ArrangementViewComponent::getTimelineLayoutTrackRows() const
     return juce::jlimit(1, OpenTuneAudioProcessor::MAX_TRACKS, rows);
 }
 
+void ArrangementViewComponent::syncTimeConverterForGeometryQueries() const
+{
+    const double bpm = processor_.getBpm();
+    const int timeSigNum = processor_.getTimeSigNumerator();
+    const int timeSigDenom = processor_.getTimeSigDenominator();
+    timeConverter_.setContext(bpm, timeSigNum, timeSigDenom);
+    timeConverter_.setZoom(zoomLevel_);
+    if (processor_.isPlaying())
+        timeConverter_.setScrollOffset(static_cast<double>(smoothScrollCurrent_));
+    else
+        timeConverter_.setScrollOffset(static_cast<double>(scrollOffset_));
+}
+
 int ArrangementViewComponent::timeToX(double seconds) const
 {
+    syncTimeConverterForGeometryQueries();
     return timeConverter_.timeToPixel(seconds) + 8;
 }
 
 double ArrangementViewComponent::xToTime(int x) const
 {
+    syncTimeConverterForGeometryQueries();
     return timeConverter_.pixelToTime(x - 8);
 }
 
@@ -426,6 +461,70 @@ int ArrangementViewComponent::getTrackIndexAtPoint(juce::Point<int> p) const
     if (trackId < 0 || trackId >= OpenTuneAudioProcessor::MAX_TRACKS)
         return -1;
     return trackId;
+}
+
+void ArrangementViewComponent::beginClipRenameForClip(int trackId, int clipIndex)
+{
+    beginClipRename(trackId, clipIndex);
+}
+
+void ArrangementViewComponent::beginClipRename(int trackId, int clipIndex)
+{
+    if (trackId < 0 || clipIndex < 0)
+        return;
+
+    auto bounds = getClipBounds(trackId, clipIndex);
+    if (bounds.isEmpty())
+        return;
+
+    if (clipRenameLabel_ == nullptr)
+    {
+        clipRenameLabel_ = std::make_unique<juce::Label>();
+        clipRenameLabel_->setEditable(false, true, false);
+        clipRenameLabel_->setJustificationType(juce::Justification::centredLeft);
+        clipRenameLabel_->setFont(UIColors::getUIFont(13.0f));
+        clipRenameLabel_->setColour(juce::Label::backgroundColourId, UIColors::backgroundLight);
+        clipRenameLabel_->setColour(juce::Label::outlineColourId, UIColors::accent);
+        clipRenameLabel_->setColour(juce::Label::textColourId, UIColors::textPrimary);
+        addChildComponent(*clipRenameLabel_);
+    }
+
+    clipRenameTrack_ = trackId;
+    clipRenameClipIdx_ = clipIndex;
+
+    clipRenameLabel_->onEditorHide = [this] { handleClipRenameEditorHidden(); };
+
+    juce::String cur = processor_.getClipName(trackId, clipIndex);
+    if (cur.isEmpty())
+        cur = "Clip";
+    clipRenameLabel_->setText(cur, juce::dontSendNotification);
+
+    auto nameRow = bounds.removeFromTop(juce::jmin(20, bounds.getHeight())).reduced(4, 2);
+    clipRenameLabel_->setBounds(nameRow);
+    clipRenameLabel_->setVisible(true);
+    clipRenameLabel_->toFront(false);
+    clipRenameLabel_->showEditor();
+}
+
+void ArrangementViewComponent::handleClipRenameEditorHidden()
+{
+    const int tid = clipRenameTrack_;
+    const int cid = clipRenameClipIdx_;
+    if (tid < 0 || cid < 0 || clipRenameLabel_ == nullptr)
+        return;
+
+    juce::String name = clipRenameLabel_->getText().trim();
+    if (name.isEmpty())
+        name = "Clip";
+
+    clipRenameTrack_ = -1;
+    clipRenameClipIdx_ = -1;
+
+    processor_.setClipName(tid, cid, name);
+    listeners_.call([tid, cid](Listener& l) { l.arrangementClipNameEdited(tid, cid); });
+
+    clipRenameLabel_->setVisible(false);
+    repaint();
 }
 
 ArrangementViewComponent::HitTestResult ArrangementViewComponent::hitTestClip(juce::Point<int> p) const

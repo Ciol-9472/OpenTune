@@ -109,6 +109,31 @@ void computeClipSilentGaps(ClipT& clip)
     clip.silentGaps = SilentGapDetector::detectAllGapsAdaptive(*clip.audioBuffer);
 }
 
+void copyTrackState(OpenTuneAudioProcessor::TrackState& dst,
+                    const OpenTuneAudioProcessor::TrackState& src)
+{
+    dst.clips = src.clips;
+    dst.selectedClipIndex = src.selectedClipIndex;
+    dst.isMuted = src.isMuted;
+    dst.isSolo = src.isSolo;
+    dst.volume = src.volume;
+    dst.name = src.name;
+    dst.colour = src.colour;
+    dst.currentRMS.store(src.currentRMS.load());
+}
+
+void resetTrackStateToDefault(OpenTuneAudioProcessor::TrackState& track, int trackId)
+{
+    track.clips.clear();
+    track.selectedClipIndex = 0;
+    track.isMuted = false;
+    track.isSolo = false;
+    track.volume = 1.0f;
+    track.name = "Track " + juce::String(trackId + 1);
+    track.colour = juce::Colour::fromHSV(trackId * 0.3f, 0.6f, 0.8f, 1.0f);
+    track.currentRMS.store(-100.0f);
+}
+
 } // namespace
 
 void OpenTuneAudioProcessor::setActiveTrack(int trackId)
@@ -293,6 +318,98 @@ juce::String OpenTuneAudioProcessor::getClipName(int trackId, int clipIndex) con
     return {};
 }
 
+void OpenTuneAudioProcessor::setClipName(int trackId, int clipIndex, const juce::String& name)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS)
+        return;
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    auto& clips = tracks_[trackId].clips;
+    if (clipIndex >= 0 && clipIndex < static_cast<int>(clips.size())) {
+        clips[static_cast<size_t>(clipIndex)].name = name;
+        bumpEditVersion();
+    }
+}
+
+juce::String OpenTuneAudioProcessor::getTrackName(int trackId) const
+{
+    if (trackId >= 0 && trackId < MAX_TRACKS) {
+        const juce::ScopedReadLock tracksReadLock(tracksLock_);
+        return tracks_[static_cast<size_t>(trackId)].name;
+    }
+    return {};
+}
+
+void OpenTuneAudioProcessor::setTrackName(int trackId, const juce::String& name)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS)
+        return;
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+    tracks_[static_cast<size_t>(trackId)].name = name.trim();
+    bumpEditVersion();
+}
+
+bool OpenTuneAudioProcessor::insertEmptyTrackAt(int trackId)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS)
+        return false;
+
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+
+    const auto& lastTrack = tracks_[static_cast<size_t>(MAX_TRACKS - 1)];
+    if (!lastTrack.clips.empty())
+        return false;
+
+    for (int i = MAX_TRACKS - 1; i > trackId; --i) {
+        copyTrackState(tracks_[static_cast<size_t>(i)], tracks_[static_cast<size_t>(i - 1)]);
+    }
+    resetTrackStateToDefault(tracks_[static_cast<size_t>(trackId)], trackId);
+
+    if (activeTrackId_ >= trackId && activeTrackId_ < MAX_TRACKS - 1) {
+        ++activeTrackId_;
+    }
+
+    anyTrackSoloed_ = false;
+    for (const auto& t : tracks_) {
+        if (t.isSolo) {
+            anyTrackSoloed_ = true;
+            break;
+        }
+    }
+
+    bumpEditVersion();
+    return true;
+}
+
+bool OpenTuneAudioProcessor::deleteTrackAt(int trackId)
+{
+    if (trackId < 0 || trackId >= MAX_TRACKS)
+        return false;
+
+    const juce::ScopedWriteLock tracksWriteLock(tracksLock_);
+
+    for (int i = trackId; i < MAX_TRACKS - 1; ++i) {
+        copyTrackState(tracks_[static_cast<size_t>(i)], tracks_[static_cast<size_t>(i + 1)]);
+    }
+    resetTrackStateToDefault(tracks_[static_cast<size_t>(MAX_TRACKS - 1)], MAX_TRACKS - 1);
+
+    if (activeTrackId_ > trackId) {
+        --activeTrackId_;
+    } else if (activeTrackId_ == trackId) {
+        activeTrackId_ = juce::jlimit(0, MAX_TRACKS - 1, trackId);
+    }
+
+    anyTrackSoloed_ = false;
+    for (const auto& t : tracks_) {
+        if (t.isSolo) {
+            anyTrackSoloed_ = true;
+            break;
+        }
+    }
+
+    bumpEditVersion();
+    return true;
+}
+
 float OpenTuneAudioProcessor::getClipGain(int trackId, int clipIndex) const
 {
     if (trackId >= 0 && trackId < MAX_TRACKS) {
@@ -361,7 +478,12 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
 
     TrackState::AudioClip newClip;
     newClip.clipId = nextClipId_.fetch_add(1);
-    newClip.name = originalClip.name;
+    {
+        juce::String base = originalClip.name.trim();
+        if (base.isEmpty())
+            base = "Clip";
+        newClip.name = base + "_1";
+    }
     newClip.colour = originalClip.colour;
     newClip.gain = originalClip.gain;
     newClip.startSeconds = splitSeconds;
@@ -398,6 +520,7 @@ bool OpenTuneAudioProcessor::splitClipAtSeconds(int trackId, int clipIndex, doub
     newClip.notes = std::move(rightNotes);
 
     if (originalClip.pitchCurve) {
+        originalClip.pitchCurve->alignOriginalDataToStoredPcmSamples(static_cast<int>(totalSamples));
         auto snap = originalClip.pitchCurve->getSnapshot();
         const int totalF0 = static_cast<int>(snap->getOriginalF0().size());
         if (totalF0 > 1) {

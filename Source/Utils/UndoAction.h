@@ -665,6 +665,43 @@ private:
     double newStartSeconds_;
 };
 
+class TrackInsertDeleteAction : public UndoAction
+{
+public:
+    enum class Type { Insert, Delete };
+
+    /** visibleTrackCountBefore/After：左侧轨道列表可见行数；撤销/重做时恢复，避免与「+ 展开」混淆为一次撤销 */
+    TrackInsertDeleteAction(OpenTuneAudioProcessor& processor, int trackId, Type type,
+                            int visibleTrackCountBefore, int visibleTrackCountAfter,
+                            std::function<void(int)> applyVisibleTrackCount)
+        : processor_(processor),
+          trackId_(trackId),
+          type_(type),
+          visibleBefore_(visibleTrackCountBefore),
+          visibleAfter_(visibleTrackCountAfter),
+          applyVisibleTrackCount_(std::move(applyVisibleTrackCount))
+    {
+    }
+
+    void undo() override;
+    void redo() override;
+
+    juce::String getDescription() const override
+    {
+        return type_ == Type::Insert ? "Insert Track" : "Delete Track";
+    }
+
+    uint64_t getClipId() const override { return 0; }
+
+private:
+    OpenTuneAudioProcessor& processor_;
+    int trackId_;
+    Type type_;
+    int visibleBefore_{2};
+    int visibleAfter_{2};
+    std::function<void(int)> applyVisibleTrackCount_;
+};
+
 class UndoManager
 {
 public:
@@ -768,6 +805,21 @@ public:
     int getHistorySize() const
     {
         return static_cast<int>(actions_.size());
+    }
+
+    std::vector<juce::String> getRecentUndoDescriptions(int maxCount) const
+    {
+        std::vector<juce::String> out;
+        if (maxCount <= 0 || currentIndex_ < 0) {
+            return out;
+        }
+        const int count = juce::jmin(maxCount, currentIndex_ + 1);
+        out.reserve(static_cast<size_t>(count));
+        for (int i = 0; i < count; ++i) {
+            const int idx = currentIndex_ - i;
+            out.push_back(actions_[static_cast<size_t>(idx)]->getDescription());
+        }
+        return out;
     }
 
 private:

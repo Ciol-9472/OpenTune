@@ -1,4 +1,5 @@
 ﻿#include "PianoRollComponent.h"
+#include "../../PluginProcessor.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/PitchUtils.h"
 #include "PianoRoll/PianoRollToolHints.h"
@@ -8,6 +9,35 @@
 #include <cmath>
 
 namespace OpenTune {
+
+namespace {
+
+PianoRollRenderer::RenderContext renderContextForClipPitchSnapshot(
+    const PianoRollRenderer::RenderContext& base,
+    std::shared_ptr<const PitchCurveSnapshot> snap)
+{
+    if (!snap || snap->getHopSize() <= 0 || snap->getSampleRate() <= 1e-15) {
+        return base;
+    }
+    PianoRollRenderer::RenderContext out = base;
+    out.hopSize = snap->getHopSize();
+    out.f0SampleRate = snap->getSampleRate();
+    const int hop = out.hopSize;
+    const double sr = out.f0SampleRate;
+    out.clipSecondsToFrameIndex = [hop, sr](double seconds) -> double {
+        const double fd = static_cast<double>(hop) / sr;
+        if (fd <= 1e-15) {
+            return 0.0;
+        }
+        return seconds / fd;
+    };
+    out.frameIndexToClipSeconds = [hop, sr](int frame) -> double {
+        return static_cast<double>(frame) * static_cast<double>(hop) / sr;
+    };
+    return out;
+}
+
+} // namespace
 
 void PianoRollComponent::drawToolHintOverlay(juce::Graphics& g)
 {
@@ -424,6 +454,24 @@ void PianoRollComponent::paint(juce::Graphics& g)
 {
     AppLogger::debug("[PianoRollComponent] paint: starting");
     auto ctx = buildRenderContext();
+    constexpr double kStoredSr = OpenTuneAudioProcessor::getStoredAudioSampleRate();
+    const auto clipDurationForIndex = [&](int clipIndex) -> double {
+        if (processor_ == nullptr || currentTrackId_ < 0 || clipIndex < 0) {
+            return -1.0;
+        }
+        const auto buf = processor_->getClipAudioBuffer(currentTrackId_, clipIndex);
+        if (buf == nullptr || buf->getNumSamples() <= 0) {
+            return -1.0;
+        }
+        return static_cast<double>(buf->getNumSamples()) / kStoredSr;
+    };
+    const auto clipDurationForActiveClipId = [&]() -> double {
+        if (processor_ == nullptr || currentTrackId_ < 0 || currentClipId_ == 0) {
+            return -1.0;
+        }
+        const int idx = processor_->findClipIndexById(currentTrackId_, currentClipId_);
+        return clipDurationForIndex(idx);
+    };
     auto bounds = getLocalBounds().toFloat().reduced(12.0f);
     const auto themeId = Theme::getActiveTheme();
 
@@ -453,7 +501,22 @@ void PianoRollComponent::paint(juce::Graphics& g)
             renderer_->drawWaveform(g, ctx);
 
         renderer_->drawLanes(g, ctx);
-        renderer_->drawNotes(g, ctx, getCurrentClipNotes(), trackOffsetSeconds_);
+
+        if (processor_ != nullptr && currentTrackId_ >= 0 && processor_->getNumClips(currentTrackId_) > 0)
+        {
+            const int numClips = processor_->getNumClips(currentTrackId_);
+            for (int ci = 0; ci < numClips; ++ci)
+            {
+                const double clipStartAbs = processor_->getClipStartSeconds(currentTrackId_, ci);
+                const bool clipIsActive = (processor_->getClipId(currentTrackId_, ci) == currentClipId_);
+                const auto clipNotes = processor_->getClipNotes(currentTrackId_, ci);
+                renderer_->drawNotes(g, ctx, clipNotes, clipStartAbs, clipIsActive);
+            }
+        }
+        else
+        {
+            renderer_->drawNotes(g, ctx, getCurrentClipNotes(), trackOffsetSeconds_, true);
+        }
 
         const bool hasActiveAnchors = interactionState_.drawing.anchorEdit.hasAnyPoints();
         if (interactionState_.drawing.isDrawingF0 || interactionState_.drawing.isPlacingAnchors || hasActiveAnchors)
@@ -518,43 +581,172 @@ void PianoRollComponent::paint(juce::Graphics& g)
             }
         }
 
+        if (processor_ != nullptr && currentTrackId_ >= 0 && showOriginalF0_
+            && processor_->getNumClips(currentTrackId_) > 0)
+        {
+            const int numClips = processor_->getNumClips(currentTrackId_);
+            for (int ci = 0; ci < numClips; ++ci)
+            {
+                auto curve = processor_->getClipPitchCurve(currentTrackId_, ci);
+                if (curve == nullptr)
+                    continue;
+                auto snapshot = curve->getSnapshot();
+                if (snapshot == nullptr)
+                    continue;
+                const auto& originalF0 = snapshot->getOriginalF0();
+                if (originalF0.empty())
+                    continue;
+
+                const double clipStartAbs = processor_->getClipStartSeconds(currentTrackId_, ci);
+                const bool clipIsActive = (processor_->getClipId(currentTrackId_, ci) == currentClipId_);
+
+                PianoRollRenderer::RenderContext ctxF0 = renderContextForClipPitchSnapshot(ctx, snapshot);
+                if (!clipIsActive)
+                    ctxF0.hasF0Selection = false;
+
+                const juce::Colour origCol = clipIsActive ? UIColors::originalF0 : UIColors::originalF0.darker(0.5f);
+                const float origAlpha = clipIsActive ? 0.55f : 0.36f;
+                const double clipDurSec = clipDurationForIndex(ci);
+                renderer_->drawF0Curve(
+                    g, originalF0, origCol, origAlpha, true, ctxF0, curve, nullptr, clipStartAbs, clipDurSec);
+                if (clipIsActive)
+                    drawSelectedOriginalF0Curve(g, originalF0, trackOffsetSeconds_);
+            }
+        }
+        else if (currentCurve_ != nullptr && showOriginalF0_)
+        {
+            auto snapshot = currentCurve_->getSnapshot();
+            const auto& originalF0 = snapshot->getOriginalF0();
+            if (!originalF0.empty())
+            {
+                const PianoRollRenderer::RenderContext ctxOrig = renderContextForClipPitchSnapshot(ctx, snapshot);
+                renderer_->drawF0Curve(
+                    g,
+                    originalF0,
+                    UIColors::originalF0,
+                    0.55f,
+                    true,
+                    ctxOrig,
+                    currentCurve_,
+                    nullptr,
+                    trackOffsetSeconds_,
+                    clipDurationForActiveClipId());
+                drawSelectedOriginalF0Curve(g, originalF0, trackOffsetSeconds_);
+            }
+        }
+
+        // Corrected F0: same contract as original F0 above — when multiple clips exist on the track,
+        // each clip must be drawn with its own PitchCurve at clipStartAbs. Drawing only currentCurve_
+        // at trackOffsetSeconds_ hid the right clip's corrections after split (inactive clip had no green line).
+        if (processor_ != nullptr && currentTrackId_ >= 0 && showCorrectedF0_
+            && processor_->getNumClips(currentTrackId_) > 0)
+        {
+            const int numClips = processor_->getNumClips(currentTrackId_);
+            for (int ci = 0; ci < numClips; ++ci)
+            {
+                auto curve = processor_->getClipPitchCurve(currentTrackId_, ci);
+                if (curve == nullptr)
+                    continue;
+                auto snapshot = curve->getSnapshot();
+                if (snapshot == nullptr)
+                    continue;
+                const int totalFrames = static_cast<int>(snapshot->size());
+                if (totalFrames <= 0 || !snapshot->hasAnyCorrection())
+                    continue;
+
+                const double clipStartAbs = processor_->getClipStartSeconds(currentTrackId_, ci);
+                const bool clipIsActive = (processor_->getClipId(currentTrackId_, ci) == currentClipId_);
+
+                PianoRollRenderer::RenderContext ctxCorr = renderContextForClipPitchSnapshot(ctx, snapshot);
+                if (!clipIsActive)
+                    ctxCorr.hasF0Selection = false;
+
+                renderer_->updateCorrectedF0Cache(snapshot);
+                const float corrAlpha = clipIsActive ? 1.0f : 0.55f;
+                const double clipDurSec = clipDurationForIndex(ci);
+                renderer_->drawF0Curve(
+                    g,
+                    renderer_->getCorrectedF0Cache(),
+                    UIColors::correctedF0,
+                    corrAlpha,
+                    false,
+                    ctxCorr,
+                    curve,
+                    nullptr,
+                    clipStartAbs,
+                    clipDurSec);
+            }
+        }
+        else if (currentCurve_ != nullptr && showCorrectedF0_)
+        {
+            auto currentSnapshot = currentCurve_->getSnapshot();
+            const int totalFrames = static_cast<int>(currentSnapshot->size());
+            if (totalFrames > 0 && currentSnapshot->hasAnyCorrection())
+            {
+                renderer_->updateCorrectedF0Cache(currentSnapshot);
+                const PianoRollRenderer::RenderContext ctxCorr = renderContextForClipPitchSnapshot(ctx, currentSnapshot);
+                renderer_->drawF0Curve(
+                    g,
+                    renderer_->getCorrectedF0Cache(),
+                    UIColors::correctedF0,
+                    1.0f,
+                    false,
+                    ctxCorr,
+                    currentCurve_,
+                    nullptr,
+                    trackOffsetSeconds_,
+                    clipDurationForActiveClipId());
+            }
+        }
+
         if (currentCurve_ != nullptr)
         {
-            if (showOriginalF0_)
-            {
-                auto snapshot = currentCurve_->getSnapshot();
-                const auto& originalF0 = snapshot->getOriginalF0();
-                if (!originalF0.empty())
-                {
-                    renderer_->drawF0Curve(g, originalF0, UIColors::originalF0, 0.55f, true, ctx, currentCurve_);
-                    drawSelectedOriginalF0Curve(g, originalF0, trackOffsetSeconds_);
-                }
-            }
-
-            if (showCorrectedF0_)
-            {
-                auto currentSnapshot = currentCurve_->getSnapshot();
-                const int totalFrames = static_cast<int>(currentSnapshot->size());
-                if (totalFrames > 0 && currentSnapshot->hasAnyCorrection())
-                {
-                    renderer_->updateCorrectedF0Cache(currentSnapshot);
-                    renderer_->drawF0Curve(
-                        g,
-                        renderer_->getCorrectedF0Cache(),
-                        UIColors::correctedF0,
-                        1.0f,
-                        false,
-                        ctx,
-                        currentCurve_,
-                        nullptr);
-                }
-            }
-
             drawHandDrawPreview(g, trackOffsetSeconds_);
             drawLineAnchorPreview(g, trackOffsetSeconds_);
         }
 
-        renderer_->drawNoteLabels(g, ctx, getCurrentClipNotes(), trackOffsetSeconds_);
+        if (processor_ != nullptr && currentTrackId_ >= 0 && processor_->getNumClips(currentTrackId_) > 0)
+        {
+            const int numClips = processor_->getNumClips(currentTrackId_);
+            for (int ci = 0; ci < numClips; ++ci)
+            {
+                const double clipStartAbs = processor_->getClipStartSeconds(currentTrackId_, ci);
+                const bool clipIsActive = (processor_->getClipId(currentTrackId_, ci) == currentClipId_);
+                const auto clipNotes = processor_->getClipNotes(currentTrackId_, ci);
+                renderer_->drawNoteLabels(g, ctx, clipNotes, clipStartAbs, clipIsActive);
+            }
+        }
+        else
+        {
+            renderer_->drawNoteLabels(g, ctx, getCurrentClipNotes(), trackOffsetSeconds_, true);
+        }
+
+        // 常时：当前编辑 clip 以外的轨道片段上叠灰色遮罩（与播放头位置无关）
+        if (processor_ != nullptr && currentTrackId_ >= 0 && currentClipId_ != 0)
+        {
+            const int numClipsOther = processor_->getNumClips(currentTrackId_);
+            g.setColour(juce::Colour(0xFF1E1E22).withAlpha(0.48f));
+            for (int i = 0; i < numClipsOther; ++i)
+            {
+                if (processor_->getClipId(currentTrackId_, i) == currentClipId_)
+                    continue;
+
+                const double clipStartAbs = processor_->getClipStartSeconds(currentTrackId_, i);
+                const auto buf = processor_->getClipAudioBuffer(currentTrackId_, i);
+                const double dur = buf ? static_cast<double>(buf->getNumSamples()) / kStoredSr : 0.0;
+                if (dur <= 0.0)
+                    continue;
+
+                const double clipEndAbs = clipStartAbs + dur;
+                const int x1 = timeToX(clipStartAbs);
+                const int x2 = timeToX(clipEndAbs);
+                const int rw = juce::jmax(0, x2 - x1);
+                if (rw <= 0)
+                    continue;
+
+                g.fillRect(x1, 0, rw, getHeight());
+            }
+        }
     }
 
     renderer_->drawPianoKeys(g, ctx);
@@ -580,7 +772,12 @@ PianoRollRenderer::RenderContext PianoRollComponent::buildRenderContext() const
     ctx.bpm = bpm_;
     ctx.timeSigNum = timeSigNum_;
     ctx.timeSigDenom = timeSigDenom_;
-    ctx.trackOffsetSeconds = trackOffsetSeconds_;
+    ctx.trackOffsetSeconds = timelineAnchorSeconds_;
+    ctx.editingClipStartSeconds = trackOffsetSeconds_;
+    ctx.processor = processor_;
+    ctx.waveformTrackId = currentTrackId_;
+    ctx.waveformEditingClipId = currentClipId_;
+    ctx.waveformCache = &waveformMipmapCache_;
     ctx.audioSampleRate = PianoRollComponent::kAudioSampleRate;
     ctx.hopSize = hopSize_;
     ctx.f0SampleRate = f0SampleRate_;

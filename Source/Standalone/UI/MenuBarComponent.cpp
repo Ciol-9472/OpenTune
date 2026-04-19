@@ -9,6 +9,40 @@
 
 namespace OpenTune {
 
+namespace {
+
+juce::String localizeUndoActionDescription(const juce::String& raw)
+{
+    using namespace Loc::Keys;
+    if (raw == "Split Clip") return LOC(kUndoActionSplitClip);
+    if (raw == "Merge Clips") return LOC(kUndoActionMergeClips);
+    if (raw == "Delete Clip") return LOC(kUndoActionDeleteClip);
+    if (raw == "Import Audio") return LOC(kUndoActionImportAudio);
+    if (raw == "Move Clip") return LOC(kUndoActionMoveClip);
+    if (raw.startsWith("Move Clip to Track")) return LOC(kUndoActionMoveClipToTrack);
+    if (raw == "Change Clip Gain") return LOC(kUndoActionChangeClipGain);
+    if (raw == "Edit Notes") return LOC(kUndoActionEditNotes);
+    if (raw == "Edit F0 Curve") return LOC(kUndoActionEditPitchCurve);
+    if (raw == "Edit Anchor") return LOC(kUndoActionEditAnchor);
+    if (raw == "Draw F0 Curve") return LOC(kUndoActionDrawPitchCurve);
+    if (raw == "Draw Note") return LOC(kUndoActionDrawNote);
+    if (raw == "Split Note") return LOC(kUndoActionSplitNote);
+    if (raw == "Resize Note") return LOC(kUndoActionResizeNote);
+    if (raw == "Move Notes") return LOC(kUndoActionMoveNotes);
+    if (raw == "Delete Notes") return LOC(kUndoActionDeleteNotes);
+    if (raw == "Toggle Track Mute") return LOC(kUndoActionToggleTrackMute);
+    if (raw == "Toggle Track Solo") return LOC(kUndoActionToggleTrackSolo);
+    if (raw == "Change Track Volume") return LOC(kUndoActionChangeTrackVolume);
+    if (raw == "Scale + Auto Tune") return LOC(kUndoActionScaleAutoTune);
+    if (raw == "Change Scale/Key") return LOC(kUndoActionChangeScaleKey);
+    if (raw == "Change Clip Scale/Key") return LOC(kUndoActionChangeClipScaleKey);
+    if (raw == "Insert Track") return LOC(kUndoActionInsertTrack);
+    if (raw == "Delete Track") return LOC(kUndoActionDeleteTrack);
+    return raw;
+}
+
+} // namespace
+
 MenuBarComponent::MenuBarComponent(OpenTuneAudioProcessor& processor)
     : processor_(processor)
 {
@@ -71,9 +105,9 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
 
             juce::PopupMenu exportMenu;
             exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
-                ExportSelectedClip, LOC(kExportSelectedClip), KeyShortcutConfig::ShortcutId::ExportSelectedClip));
-            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
                 ExportTrack, LOC(kExportTrack), KeyShortcutConfig::ShortcutId::ExportTrack));
+            exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
+                ExportSelectedClip, LOC(kExportSelectedClip), KeyShortcutConfig::ShortcutId::ExportSelectedClip));
             exportMenu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
                 ExportBus, LOC(kExportBus), KeyShortcutConfig::ShortcutId::ExportBus));
             exportMenu.addSeparator();
@@ -123,6 +157,23 @@ juce::PopupMenu MenuBarComponent::getMenuForIndex(int topLevelMenuIndex, const j
                 EditUndo, LOC(kUndo), KeyShortcutConfig::ShortcutId::Undo, true));
             menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
                 EditRedo, LOC(kRedo), KeyShortcutConfig::ShortcutId::Redo, true));
+            {
+                juce::PopupMenu undoToMenu;
+                const auto actions = processor_.getRecentUndoDescriptions(10);
+                for (int i = 0; i < static_cast<int>(actions.size()) && i < 10; ++i)
+                {
+                    const juce::String title =
+                        juce::String(i + 1) + ". " + localizeUndoActionDescription(actions[static_cast<size_t>(i)]);
+                    undoToMenu.addItem(
+                        EditUndoToFirst + i,
+                        title,
+                        true);
+                }
+                if (actions.empty()) {
+                    undoToMenu.addItem(EditUndoToFirst, LOC(kUndoToMenuEmpty), false);
+                }
+                menu.addSubMenu(LOC(kUndoToMenuTitle), undoToMenu, !actions.empty());
+            }
             menu.addSeparator();
             menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
                 EditCut, LOC(kCut), KeyShortcutConfig::ShortcutId::Cut, true));
@@ -339,6 +390,21 @@ void MenuBarComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
         case EditUndo:
             listeners_.call([](Listener& l) { l.undoRequested(); });
             break;
+        case EditUndoToFirst:
+        case EditUndoToFirst + 1:
+        case EditUndoToFirst + 2:
+        case EditUndoToFirst + 3:
+        case EditUndoToFirst + 4:
+        case EditUndoToFirst + 5:
+        case EditUndoToFirst + 6:
+        case EditUndoToFirst + 7:
+        case EditUndoToFirst + 8:
+        case EditUndoToFirst + 9:
+        {
+            const int steps = menuItemID - EditUndoToFirst + 1;
+            listeners_.call([steps](Listener& l) { l.undoToRequested(steps); });
+            break;
+        }
         case EditRedo:
             listeners_.call([](Listener& l) { l.redoRequested(); });
             break;
@@ -383,8 +449,24 @@ bool MenuBarComponent::tryHandleTopLevelMenuMnemonic(const juce::KeyPress& key,
                                                      TopBarComponent& topBar,
                                                      juce::Component* parentForPopup)
 {
-#if JUCE_MAC || JUCE_WINDOWS
+#if JUCE_MAC
     juce::ignoreUnused(key, transport, topBar, parentForPopup);
+    return false;
+#elif JUCE_WINDOWS
+    // JUCE 会先把 WM_SYSKEYDOWN 转成 KeyPress，不会交给 DefWindowProc 打开 HMENU。
+    // 由 Win32NativeMenuBar 向框架窗口发送 WM_SYSCOMMAND/SC_KEYMENU，与 SetMenu 菜单栏一致。
+    juce::ignoreUnused(transport, topBar, parentForPopup);
+    if (!key.getModifiers().isAltDown())
+        return false;
+    if (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())
+        return false;
+
+    const int k = key.getKeyCode();
+    if (k != 'f' && k != 'F' && k != 'e' && k != 'E' && k != 'v' && k != 'V' && k != 'h' && k != 'H')
+        return false;
+
+    if (win32MenuMnemonicPoster_)
+        return win32MenuMnemonicPoster_(static_cast<juce::juce_wchar>(k));
     return false;
 #else
     if (!key.getModifiers().isAltDown())

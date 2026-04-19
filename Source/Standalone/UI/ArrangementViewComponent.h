@@ -39,7 +39,8 @@ public:
         virtual ~Listener() = default;
         virtual void clipSelectionChanged(int trackId, int clipIndex) = 0;
         virtual void clipTimingChanged(int trackId, int clipIndex) = 0;
-        virtual void clipDoubleClicked(int /*trackId*/, int /*clipIndex*/) {}
+        /** 片段在排列区通过内联编辑完成重命名后调用 */
+        virtual void arrangementClipNameEdited(int /*trackId*/, int /*clipIndex*/) {}
         virtual void arrangementClipContextMenu(int /*trackId*/, int /*clipIndex*/, juce::Point<int> /*screenPos*/) {}
         virtual void playheadPositionChangeRequested(double timeSeconds) { juce::ignoreUnused(timeSeconds); }
         // Y轴缩放回调 - 通知外部轨道高度变化（用于同步TrackPanel）
@@ -90,6 +91,7 @@ public:
     void setVerticalScrollOffset(int offset);
     void setTimeUnitSeconds(bool useSeconds);
     bool isTimeUnitSeconds() const { return timeUnit_ == TimeUnit::Seconds; }
+    void setTimelineTrackRowCountSource(std::function<int()> fn) { timelineTrackRowCountSource_ = std::move(fn); }
 
     /** 与 mouse 滚轮一致：水平平移时间线（Shift+滚轮） */
     void applyWheelHorizontalPan(float deltaX, float deltaY);
@@ -125,6 +127,9 @@ public:
     void deleteSelectedClips();
     void selectAllClipsInTrack(int trackId);
 
+    /** 与轨道侧栏一致：在片段上弹出内联名称编辑（双击或菜单「重命名」） */
+    void beginClipRenameForClip(int trackId, int clipIndex);
+
 #if JUCE_DEBUG
     static bool runDebugSelfTest();
 #endif
@@ -139,8 +144,14 @@ private:
 
     HitTestResult hitTestClip(juce::Point<int> p) const;
 
+    void beginClipRename(int trackId, int clipIndex);
+    void handleClipRenameEditorHidden();
+
     juce::Rectangle<int> getTrackLaneBounds(int trackId) const;
     juce::Rectangle<int> getClipBounds(int trackId, int clipIndex) const;
+
+    /** 与 paint() 使用相同的 zoom/scroll，保证 hitTest 与屏幕绘制一致 */
+    void syncTimeConverterForGeometryQueries() const;
 
     int timeToX(double seconds) const;
     double xToTime(int x) const;
@@ -153,6 +164,7 @@ private:
     void applyVerticalScrollBarThumbResize(double thumbStartNormalized, double thumbEndNormalized);
     double getTimelineSpanSeconds() const;
     double getMinimumHorizontalZoomLevel() const;
+    std::function<int()> timelineTrackRowCountSource_;
     int getTimelineLayoutTrackRows() const;
     void drawTimeRuler(juce::Graphics& g);
     void drawGridLines(juce::Graphics& g);
@@ -164,6 +176,9 @@ private:
     bool buildWaveformCaches(double timeBudgetMs);
 
     WaveformMipmapCache waveformMipmapCache_;
+    std::unique_ptr<juce::Label> clipRenameLabel_;
+    int clipRenameTrack_{ -1 };
+    int clipRenameClipIdx_{ -1 };
     double lastContextBpm_{ 0.0 };
     int lastContextTimeSigNum_{ 0 };
     int lastContextTimeSigDenom_{ 0 };

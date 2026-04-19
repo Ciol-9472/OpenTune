@@ -13,6 +13,29 @@ juce::String stripOuterWhitespace(juce::String s)
 
 } // namespace
 
+juce::String StemExportDialogContent::sanitizeFileNameSegment(juce::String s)
+{
+    s = stripOuterWhitespace(s);
+    const juce::String badChars("\\/:*?\"<>|");
+    for (int i = 0; i < badChars.length(); ++i)
+        s = s.replaceCharacter(badChars[i], juce::juce_wchar('_'));
+
+    while (s.startsWithChar('.'))
+        s = s.substring(1);
+    while (s.endsWithChar('.') || s.endsWithChar(' '))
+        s = s.dropLastCharacters(1);
+
+    return stripOuterWhitespace(s);
+}
+
+juce::String StemExportDialogContent::sanitizePrefixForFileNames(juce::String s)
+{
+    s = sanitizeFileNameSegment(s);
+    if (s.isEmpty())
+        return {};
+    return s;
+}
+
 StemExportDialogContent::StemExportDialogContent(OpenTuneAudioProcessor& processor, juce::String defaultPrefix)
     : processor_(processor)
 {
@@ -35,15 +58,21 @@ StemExportDialogContent::StemExportDialogContent(OpenTuneAudioProcessor& process
 
     for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i)
     {
-        auto& tb = trackToggles_[static_cast<size_t>(i)];
-        tb.setButtonText("Track " + juce::String(i + 1));
-        tb.setClickingTogglesState(true);
-        tb.setColour(juce::ToggleButton::textColourId, UIColors::textPrimary);
-        tb.setColour(juce::ToggleButton::tickColourId, UIColors::accent);
-        const bool hasAudio = processor_.hasTrackAudio(i);
-        tb.setEnabled(hasAudio);
-        tb.setToggleState(hasAudio, juce::dontSendNotification);
-        addAndMakeVisible(tb);
+        if (!processor_.hasTrackAudio(i))
+            continue;
+
+        auto tb = std::make_unique<juce::ToggleButton>();
+        juce::String label = processor_.getTrackName(i).trim();
+        if (label.isEmpty())
+            label = "Track " + juce::String(i + 1);
+        tb->setButtonText(label);
+        tb->setClickingTogglesState(true);
+        tb->setColour(juce::ToggleButton::textColourId, UIColors::textPrimary);
+        tb->setColour(juce::ToggleButton::tickColourId, UIColors::accent);
+        tb->setToggleState(true, juce::dontSendNotification);
+        addAndMakeVisible(*tb);
+        trackToggles_.push_back(std::move(tb));
+        trackIds_.push_back(i);
     }
 
     okButton_.setButtonText(LOC(kOk));
@@ -84,17 +113,20 @@ void StemExportDialogContent::resized()
     tracksLabel_.setBounds(bounds.removeFromTop(18));
     bounds.removeFromTop(6);
 
+    const int n = static_cast<int>(trackToggles_.size());
+    if (n == 0)
+        return;
+
     const int cols = 2;
-    constexpr int nTracks = OpenTuneAudioProcessor::MAX_TRACKS;
-    const int rows = (nTracks + cols - 1) / cols;
+    const int rows = (n + cols - 1) / cols;
     const int cellH = juce::jmax(22, bounds.getHeight() / juce::jmax(1, rows));
     const int cellW = bounds.getWidth() / cols;
 
-    for (int i = 0; i < nTracks; ++i)
+    for (int i = 0; i < n; ++i)
     {
         const int col = i % cols;
         const int row = i / cols;
-        trackToggles_[static_cast<size_t>(i)].setBounds(
+        trackToggles_[static_cast<size_t>(i)]->setBounds(
             bounds.getX() + col * cellW,
             bounds.getY() + row * cellH,
             cellW,
@@ -102,33 +134,13 @@ void StemExportDialogContent::resized()
     }
 }
 
-juce::String StemExportDialogContent::sanitizePrefixForFileNames(juce::String s)
-{
-    s = stripOuterWhitespace(s);
-    if (s.isEmpty())
-        return {};
-
-    const juce::String badChars("\\/:*?\"<>|");
-    for (int i = 0; i < badChars.length(); ++i)
-        s = s.replaceCharacter(badChars[i], juce::juce_wchar('_'));
-
-    // 去掉首尾点，避免 Windows 上无效或隐蔽路径问题
-    while (s.startsWithChar('.'))
-        s = s.substring(1);
-    while (s.endsWithChar('.') || s.endsWithChar(' '))
-        s = s.dropLastCharacters(1);
-
-    return stripOuterWhitespace(s);
-}
-
 void StemExportDialogContent::okPressed()
 {
     juce::Array<int> selected;
-    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i)
+    for (size_t k = 0; k < trackToggles_.size(); ++k)
     {
-        const auto& tb = trackToggles_[static_cast<size_t>(i)];
-        if (tb.getToggleState() && tb.isEnabled())
-            selected.add(i);
+        if (trackToggles_[k]->getToggleState())
+            selected.add(trackIds_[k]);
     }
 
     if (selected.isEmpty())

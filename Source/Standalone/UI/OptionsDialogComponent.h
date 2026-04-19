@@ -390,7 +390,7 @@ private:
             shortcutSections_ = {
                 { Sid::PlayPause, Sid::Stop, Sid::PlayFromStart, Sid::ToggleBypass },
                 { Sid::NewProject, Sid::LoadProject, Sid::SaveProject, Sid::SaveProjectAs, Sid::ImportAudio },
-                { Sid::ExportSelectedClip, Sid::ExportTrack, Sid::ExportBus, Sid::ExportStems },
+                { Sid::ExportTrack, Sid::ExportSelectedClip, Sid::ExportBus, Sid::ExportStems },
                 { Sid::Undo, Sid::Redo, Sid::Cut, Sid::Copy, Sid::Paste, Sid::SelectAll, Sid::Delete },
                 { Sid::ToolSelect, Sid::ToolDrawNote, Sid::ToolLineAnchor, Sid::ToolHandDraw, Sid::ToolVibrato,
                   Sid::ToolSplitNote, Sid::ToolAutoTune, Sid::SplitClip },

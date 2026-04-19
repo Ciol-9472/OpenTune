@@ -352,6 +352,12 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     menuBar_.setRecentProjectsManager(&recentProjects_);
     processorRef_.getUndoManager().setStackChangeCallback([this]() { markSessionNeedsSave(); });
 
+#if JUCE_WINDOWS
+    menuBar_.setWin32MenuMnemonicPoster([this](juce::juce_wchar c) {
+        return win32NativeMenu_.tryPostMenuMnemonicKey(c);
+    });
+#endif
+
 #if JUCE_MAC
     // Populate the macOS system menu bar with File/Edit/View menus.
     // JUCE automatically adds "About OpenTune" and "Quit OpenTune" to the app menu.
@@ -423,6 +429,10 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
     addAndMakeVisible(topBar_);
 
     trackPanel_.addListener(this);
+    trackPanel_.setTrackNameCommittedHandler([this](int trackId, const juce::String& name) {
+        processorRef_.setTrackName(trackId, name);
+        markSessionNeedsSave();
+    });
     trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
     // 鍒濆鍖栬建閬撻珮搴︼紙涓嶢rrangementView鍚屾锛?
     trackPanel_.setTrackHeight(processorRef_.getTrackHeight());
@@ -433,6 +443,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
         trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
         trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
     }
+    trackPanel_.syncTrackNamesFromProcessor(processorRef_);
     addAndMakeVisible(trackPanel_);
 
     {
@@ -467,6 +478,7 @@ OpenTuneAudioProcessorEditor::OpenTuneAudioProcessorEditor(OpenTuneAudioProcesso
             return juce::jmax(trackPanel_.getVisibleTrackCount(), used);
         };
         trackPanel_.setTimelineTrackRowCountSource(timelineRowsFn);
+        arrangementView_.setTimelineTrackRowCountSource(timelineRowsFn);
     }
 
     addAndMakeVisible(workspaceSplitter_);
@@ -1164,56 +1176,6 @@ void OpenTuneAudioProcessorEditor::timerCallback()
     double currentPositionSeconds = processorRef_.getPosition();
     double sampleRate = processorRef_.getSampleRate();
 
-    // When playhead leaves current clip, auto-focus the clip under playhead on the same active track.
-    {
-        const int activeTrack = processorRef_.getActiveTrackId();
-        const int currentClipIndex = processorRef_.getSelectedClip(activeTrack);
-        const int clipCount = processorRef_.getNumClips(activeTrack);
-        if (activeTrack >= 0 && activeTrack < OpenTuneAudioProcessor::MAX_TRACKS
-            && currentClipIndex >= 0 && currentClipIndex < clipCount)
-        {
-            const auto currentBuffer = processorRef_.getClipAudioBuffer(activeTrack, currentClipIndex);
-            double currentStart = processorRef_.getClipStartSeconds(activeTrack, currentClipIndex);
-            double currentDuration = 0.0;
-            if (currentBuffer != nullptr)
-                currentDuration = static_cast<double>(currentBuffer->getNumSamples()) / OpenTuneAudioProcessor::getStoredAudioSampleRate();
-            const double currentEnd = currentStart + currentDuration;
-            const bool insideCurrent = (currentDuration > 0.0
-                && currentPositionSeconds >= currentStart
-                && currentPositionSeconds < currentEnd);
-
-            if (!insideCurrent)
-            {
-                int clipAtPlayhead = -1;
-                for (int i = 0; i < clipCount; ++i)
-                {
-                    const auto buffer = processorRef_.getClipAudioBuffer(activeTrack, i);
-                    if (buffer == nullptr)
-                        continue;
-
-                    const double start = processorRef_.getClipStartSeconds(activeTrack, i);
-                    const double duration = static_cast<double>(buffer->getNumSamples()) / OpenTuneAudioProcessor::getStoredAudioSampleRate();
-                    if (duration <= 0.0)
-                        continue;
-
-                    const double end = start + duration;
-                    if (currentPositionSeconds >= start && currentPositionSeconds < end)
-                    {
-                        clipAtPlayhead = i;
-                        break;
-                    }
-                }
-
-                if (clipAtPlayhead >= 0 && clipAtPlayhead != currentClipIndex)
-                {
-                    processorRef_.setSelectedClip(activeTrack, clipAtPlayhead);
-                    arrangementView_.syncSelectionFromProcessor(activeTrack);
-                    syncPianoRollFromClipSelection(activeTrack, clipAtPlayhead);
-                }
-            }
-        }
-    }
-
     const double bpm = processorRef_.getBpm();
     if (bpm > 0.0 && std::abs(bpm - lastSyncedBpm_) > 0.001) {
         transportBar_.setBpm(bpm);
@@ -1418,26 +1380,8 @@ void OpenTuneAudioProcessorEditor::syncPianoRollFromClipSelection(int trackId, i
     {
         clipDurationSeconds = static_cast<double>(clipBuffer->getNumSamples()) / OpenTuneAudioProcessor::getStoredAudioSampleRate();
     }
-    const double clipEndSeconds = clipStartSeconds + clipDurationSeconds;
-
-    // Keep linked timeline focus in current clip:
-    // - when playhead is inside clip, use "offset inside clip"
-    // - otherwise fallback to clip start (never jump to clip end unexpectedly)
-    const double playheadSeconds = processorRef_.getPosition();
-    double selectedOffsetSeconds = 0.0;
-    if (clipDurationSeconds > 0.0
-        && playheadSeconds >= clipStartSeconds
-        && playheadSeconds < clipEndSeconds)
-    {
-        selectedOffsetSeconds = playheadSeconds - clipStartSeconds;
-    }
-
-    // For split clips this equals: sum(previous clip durations) + selected offset in current clip.
-    const double syncedVisibleStartSeconds = juce::jmax(0.0, clipStartSeconds + selectedOffsetSeconds);
-
     suppressLinkedTimelineScroll_ = true;
     pianoRoll_.setTrackTimeOffset(clipStartSeconds);
-    pianoRoll_.setVisibleStartTimeSeconds(syncedVisibleStartSeconds);
     suppressLinkedTimelineScroll_ = false;
 
     pianoRoll_.setAudioBuffer(clipBuffer, sr);
@@ -1943,8 +1887,9 @@ void OpenTuneAudioProcessorEditor::trackTimeOffsetChanged(int trackId, double ne
 void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int clipIndex, juce::Point<int> screenPos)
 {
     enum MenuIds : int {
-        SplitAtPlayhead = 1,
-        MergeWithNext
+        RenameClip = 1,
+        SplitAtPlayhead = 2,
+        MergeWithNext = 3
     };
 
     const double posSec = processorRef_.getPosition();
@@ -1961,6 +1906,7 @@ void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int c
     const bool canMerge = processorRef_.canMergeAdjacentClips(trackId, clipIndex);
 
     juce::PopupMenu menu;
+    menu.addItem(RenameClip, LOC(kArrangementRenameClip), true, false);
     menu.addItem(KeyShortcutConfig::makeMenuItemWithShortcut(
         SplitAtPlayhead,
         LOC(kArrangementSplitAtPlayhead),
@@ -1976,6 +1922,14 @@ void OpenTuneAudioProcessorEditor::arrangementClipContextMenu(int trackId, int c
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({ screenPos.x, screenPos.y, 1, 1 }),
         [safeThis, trackId, clipIndex, playheadInside, canMerge](int result) {
             if (safeThis == nullptr || result == 0) {
+                return;
+            }
+
+            if (result == RenameClip)
+            {
+                safeThis->processorRef_.setActiveTrack(trackId);
+                safeThis->processorRef_.setSelectedClip(trackId, clipIndex);
+                safeThis->arrangementView_.beginClipRenameForClip(trackId, clipIndex);
                 return;
             }
 

@@ -138,6 +138,8 @@ constexpr const char* kStandaloneAudioSampleRateDriverDefault = "Driver default"
 
 constexpr const char* kUndo = "Undo";
 constexpr const char* kRedo = "Redo";
+constexpr const char* kUndoToMenuTitle = "Undo to";
+constexpr const char* kUndoToMenuEmpty = "No actions available";
 
 constexpr const char* kShowWaveform = "Show Waveform";
 constexpr const char* kShowLanes = "Show Lanes";
@@ -246,6 +248,12 @@ constexpr const char* kShortcutSplitClip = "Split clip (Arrangement)";
 /** Arrangement clip context menu */
 constexpr const char* kArrangementSplitAtPlayhead = "Split at playhead";
 constexpr const char* kArrangementMergeWithNextClip = "Merge with next clip";
+constexpr const char* kArrangementRenameClip = "Rename clip...";
+constexpr const char* kTrackInsert = "Insert Track";
+constexpr const char* kTrackDelete = "Delete Track";
+constexpr const char* kRenameClipDialogTitle = "Rename clip";
+constexpr const char* kRenameClipPrompt = "Enter a new name for this clip:";
+constexpr const char* kRenameClipEditorLabel = "Name";
 /** Toolbar tooltip: prefix before key binding display */
 constexpr const char* kToolbarTooltipShortcut = "Shortcut:";
 /** AUTO: current clip already has notes */
@@ -259,6 +267,30 @@ constexpr const char* kLineAnchorTool = "Line Anchor Tool";
 constexpr const char* kHandDrawTool = "Hand Draw Tool";
 constexpr const char* kSplitNoteTool = "Split Note Tool";
 constexpr const char* kVibratoTool = "Vibrato Tool";
+constexpr const char* kUndoActionSplitClip = "Undo action Split Clip";
+constexpr const char* kUndoActionMergeClips = "Undo action Merge Clips";
+constexpr const char* kUndoActionDeleteClip = "Undo action Delete Clip";
+constexpr const char* kUndoActionImportAudio = "Undo action Import Audio";
+constexpr const char* kUndoActionMoveClip = "Undo action Move Clip";
+constexpr const char* kUndoActionMoveClipToTrack = "Undo action Move Clip To Track";
+constexpr const char* kUndoActionChangeClipGain = "Undo action Change Clip Gain";
+constexpr const char* kUndoActionEditNotes = "Undo action Edit Notes";
+constexpr const char* kUndoActionEditPitchCurve = "Undo action Edit Pitch Curve";
+constexpr const char* kUndoActionEditAnchor = "Undo action Edit Anchor";
+constexpr const char* kUndoActionDrawPitchCurve = "Undo action Draw Pitch Curve";
+constexpr const char* kUndoActionDrawNote = "Undo action Draw Note";
+constexpr const char* kUndoActionSplitNote = "Undo action Split Note";
+constexpr const char* kUndoActionResizeNote = "Undo action Resize Note";
+constexpr const char* kUndoActionMoveNotes = "Undo action Move Notes";
+constexpr const char* kUndoActionDeleteNotes = "Undo action Delete Notes";
+constexpr const char* kUndoActionToggleTrackMute = "Undo action Toggle Track Mute";
+constexpr const char* kUndoActionToggleTrackSolo = "Undo action Toggle Track Solo";
+constexpr const char* kUndoActionChangeTrackVolume = "Undo action Change Track Volume";
+constexpr const char* kUndoActionScaleAutoTune = "Undo action Scale + Auto Tune";
+constexpr const char* kUndoActionChangeScaleKey = "Undo action Change Scale/Key";
+constexpr const char* kUndoActionChangeClipScaleKey = "Undo action Change Clip Scale/Key";
+constexpr const char* kUndoActionInsertTrack = "Undo action Insert Track";
+constexpr const char* kUndoActionDeleteTrack = "Undo action Delete Track";
 
 constexpr const char* kPianoRollHintSelect1 = "PR hint: select click";
 constexpr const char* kPianoRollHintSelect2 = "PR hint: select modifiers";
@@ -343,6 +375,8 @@ inline juce::String get(Language lang, const char* key)
         
         { Keys::kUndo, "Undo", "撤销", "元に戻す", "Отменить", "Deshacer" },
         { Keys::kRedo, "Redo", "重做", "やり直す", "Повтор", "Rehacer" },
+        { Keys::kUndoToMenuTitle, "Undo to", "撤回到", "ここまで元に戻す", "Отменить до", "Deshacer hasta" },
+        { Keys::kUndoToMenuEmpty, "No actions available", "没有可撤销的操作", "操作履歴がありません", "Нет доступных действий", "No hay acciones disponibles" },
         
         { Keys::kShowWaveform, "Show Waveform", "显示波形", "波形を表示", "Волновая форма", "Ver forma de onda" },
         { Keys::kShowLanes, "Show Lanes", "显示音道", "レーンを表示", "Дорожки", "Ver carriles" },
@@ -445,6 +479,12 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kShortcutSplitClip, "Split clip (Arrangement)", "切分片段（编曲区）", "クリップ分割（アレンジ）", "Разделить клип (аранжировка)", "Dividir clip (arreglo)" },
         { Keys::kArrangementSplitAtPlayhead, "Split at playhead", "在播放头处切分", "再生ヘッドで分割", "Разделить по позиции воспроизведения", "Dividir en cabezal" },
         { Keys::kArrangementMergeWithNextClip, "Merge with next clip", "与下一段合并", "次のクリップと結合", "Объединить со следующим клипом", "Fusionar con el siguiente clip" },
+        { Keys::kArrangementRenameClip, "Rename clip...", "重命名片段...", "クリップ名を変更...", "Переименовать клип...", "Renombrar clip..." },
+        { Keys::kTrackInsert, "Insert Track", "插入轨道", "トラックを挿入", "Вставить дорожку", "Insertar pista" },
+        { Keys::kTrackDelete, "Delete Track", "删除轨道", "トラックを削除", "Удалить дорожку", "Eliminar pista" },
+        { Keys::kRenameClipDialogTitle, "Rename clip", "重命名片段", "クリップ名の変更", "Переименование клипа", "Renombrar clip" },
+        { Keys::kRenameClipPrompt, "Enter a new name for this clip:", "请输入新的片段名称：", "新しいクリップ名を入力:", "Введите новое имя клипа:", "Escriba un nombre nuevo para el clip:" },
+        { Keys::kRenameClipEditorLabel, "Name", "名称", "名前", "Имя", "Nombre" },
         { Keys::kToolbarTooltipShortcut, "Shortcut:", "快捷键:", "ショートカット:", "Сочетание:", "Atajo:" },
         { Keys::kAutoTuneNotesPresentTitle, "AUTO", "AUTO", "AUTO", "AUTO", "AUTO" },
         { Keys::kAutoTuneNotesPresentMessage,
@@ -461,6 +501,30 @@ inline juce::String get(Language lang, const char* key)
         { Keys::kHandDrawTool, "Hand Draw Tool", "手绘工具", "手描きツール", "Рисование", "Herram. libre" },
         { Keys::kSplitNoteTool, "Split Note Tool", "分割音符工具", "ノート分割ツール", "Инструмент разделения", "Herram. dividir" },
         { Keys::kVibratoTool, "Vibrato Tool", "颤音工具", "ビブラートツール", "Вибрато", "Herram. vibrato" },
+        { Keys::kUndoActionSplitClip, "Split Clip", "切分片段", "クリップを分割", "Разделить клип", "Dividir clip" },
+        { Keys::kUndoActionMergeClips, "Merge Clips", "合并片段", "クリップを結合", "Объединить клипы", "Unir clips" },
+        { Keys::kUndoActionDeleteClip, "Delete Clip", "删除片段", "クリップを削除", "Удалить клип", "Eliminar clip" },
+        { Keys::kUndoActionImportAudio, "Import Audio", "导入音频", "オーディオをインポート", "Импорт аудио", "Importar audio" },
+        { Keys::kUndoActionMoveClip, "Move Clip", "移动片段", "クリップを移動", "Переместить клип", "Mover clip" },
+        { Keys::kUndoActionMoveClipToTrack, "Move Clip to Track", "跨轨移动片段", "クリップを別トラックへ移動", "Переместить клип на дорожку", "Mover clip a pista" },
+        { Keys::kUndoActionChangeClipGain, "Change Clip Gain", "调整片段增益", "クリップゲインを変更", "Изменить усиление клипа", "Cambiar ganancia del clip" },
+        { Keys::kUndoActionEditNotes, "Edit Notes", "编辑音符", "ノートを編集", "Редактировать ноты", "Editar notas" },
+        { Keys::kUndoActionEditPitchCurve, "Edit Pitch Curve", "编辑音高曲线", "ピッチカーブを編集", "Редактировать кривую высоты", "Editar curva de tono" },
+        { Keys::kUndoActionEditAnchor, "Edit Anchor", "编辑锚点", "アンカーを編集", "Редактировать якоря", "Editar anclas" },
+        { Keys::kUndoActionDrawPitchCurve, "Draw F0 Curve", "绘制音高曲线", "F0カーブを描画", "Рисовать кривую F0", "Dibujar curva F0" },
+        { Keys::kUndoActionDrawNote, "Draw Note", "绘制音符", "ノートを描画", "Нарисовать ноту", "Dibujar nota" },
+        { Keys::kUndoActionSplitNote, "Split Note", "切分音符", "ノートを分割", "Разделить ноту", "Dividir nota" },
+        { Keys::kUndoActionResizeNote, "Resize Note", "调整音符长度", "ノート長を変更", "Изменить длительность ноты", "Redimensionar nota" },
+        { Keys::kUndoActionMoveNotes, "Move Notes", "移动音符", "ノートを移動", "Переместить ноты", "Mover notas" },
+        { Keys::kUndoActionDeleteNotes, "Delete Notes", "删除音符", "ノートを削除", "Удалить ноты", "Eliminar notas" },
+        { Keys::kUndoActionToggleTrackMute, "Toggle Track Mute", "切换轨道静音", "トラックミュート切替", "Переключить mute дорожки", "Alternar silencio de pista" },
+        { Keys::kUndoActionToggleTrackSolo, "Toggle Track Solo", "切换轨道独奏", "トラックソロ切替", "Переключить solo дорожки", "Alternar solo de pista" },
+        { Keys::kUndoActionChangeTrackVolume, "Change Track Volume", "调整轨道音量", "トラック音量を変更", "Изменить громкость дорожки", "Cambiar volumen de pista" },
+        { Keys::kUndoActionScaleAutoTune, "Scale + Auto Tune", "调式 + 自动校正", "スケール + 自動補正", "Лад + авто-тюн", "Escala + Auto Tune" },
+        { Keys::kUndoActionChangeScaleKey, "Change Scale/Key", "更改调式/调性", "スケール/キーを変更", "Изменить лад/тональность", "Cambiar escala/tono" },
+        { Keys::kUndoActionChangeClipScaleKey, "Change Clip Scale/Key", "更改片段调式/调性", "クリップのスケール/キーを変更", "Изменить лад/тональность клипа", "Cambiar escala/tono del clip" },
+        { Keys::kUndoActionInsertTrack, "Insert Track", "插入轨道", "トラックを挿入", "Вставить дорожку", "Insertar pista" },
+        { Keys::kUndoActionDeleteTrack, "Delete Track", "删除轨道", "トラックを削除", "Удалить дорожку", "Eliminar pista" },
 
         { Keys::kPianoRollHintSelect1, "Click a note to select; drag on empty area to box-select.", "单击音符可选中；在空白处拖拽可框选。", "ノートをクリックで選択；空き領域をドラッグで範囲選択。", "Клик по ноте — выбор; рамка на пустом месте.", "Clic en nota para seleccionar; arrastra en vacío para marco." },
         { Keys::kPianoRollHintSelect2, "Ctrl/Cmd+click toggles; Shift+click extends selection between notes.", "Ctrl/Cmd+单击反选；Shift+单击在音符间扩展选区。", "Ctrl/Cmd+クリックで切替；Shift+クリックで範囲拡張。", "Ctrl/Cmd — переключить; Shift — диапазон.", "Ctrl/Cmd alterna; Shift extiende la selección." },

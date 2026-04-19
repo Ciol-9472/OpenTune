@@ -489,6 +489,30 @@ void OpenTuneAudioProcessorEditor::processDeferredImportPostProcessQueue()
     }
 }
 
+namespace {
+
+juce::String buildDefaultExportWavFileName(const juce::File& sessionProjectFile,
+                                          const juce::String& itemName,
+                                          const juce::String& fallbackIfItemEmpty)
+{
+    juce::String seg = itemName.trim();
+    if (seg.isEmpty())
+        seg = fallbackIfItemEmpty;
+    const juce::String safeSeg = StemExportDialogContent::sanitizeFileNameSegment(seg);
+    const juce::String proj =
+        StemExportDialogContent::sanitizeFileNameSegment(sessionProjectFile.getFileNameWithoutExtension());
+
+    if (proj.isEmpty())
+        return (safeSeg.isEmpty() ? juce::String("export") : safeSeg) + ".wav";
+
+    if (safeSeg.isEmpty())
+        return proj + ".wav";
+
+    return proj + "_" + safeSeg + ".wav";
+}
+
+} // namespace
+
 void OpenTuneAudioProcessorEditor::exportAudioRequested(MenuBarComponent::ExportType exportType)
 {
     using ExportType = MenuBarComponent::ExportType;
@@ -503,16 +527,27 @@ void OpenTuneAudioProcessorEditor::exportAudioRequested(MenuBarComponent::Export
         return;
     }
     
-    // 鏍规嵁瀵煎嚭绫诲瀷纭畾榛樿鏂囦欢鍚?
     juce::String defaultFileName;
     switch (exportType)
     {
         case ExportType::SelectedClip:
-            defaultFileName = "selected_clip.wav";
+        {
+            const int tid = processorRef_.getActiveTrackId();
+            const int cidx = processorRef_.getSelectedClip(tid);
+            juce::String clipName = cidx >= 0 ? processorRef_.getClipName(tid, cidx) : juce::String();
+            defaultFileName = buildDefaultExportWavFileName(sessionProjectFile_, clipName, "Clip");
             break;
+        }
         case ExportType::Track:
-            defaultFileName = "track_" + juce::String(processorRef_.getActiveTrackId() + 1) + ".wav";
+        {
+            const int tid = processorRef_.getActiveTrackId();
+            juce::String tn = processorRef_.getTrackName(tid);
+            defaultFileName = buildDefaultExportWavFileName(
+                sessionProjectFile_,
+                tn,
+                "Track " + juce::String(tid + 1));
             break;
+        }
         case ExportType::Bus:
             defaultFileName = "master_mix.wav";
             break;
@@ -569,16 +604,20 @@ void OpenTuneAudioProcessorEditor::exportAudioRequested(MenuBarComponent::Export
                     return;
                 }
 
-                request.targetName = "Selected Clip (Track "
-                    + juce::String(request.trackId + 1)
-                    + ", Clip " + juce::String(request.clipIndex + 1) + ")";
+                juce::String cn = safeThis->processorRef_.getClipName(request.trackId, request.clipIndex);
+                if (cn.isEmpty())
+                    cn = "Clip";
+                request.targetName = cn;
                 break;
             }
 
             case ExportType::Track:
             {
                 request.trackId = safeThis->processorRef_.getActiveTrackId();
-                request.targetName = "Track " + juce::String(request.trackId + 1);
+                juce::String tn = safeThis->processorRef_.getTrackName(request.trackId);
+                if (tn.isEmpty())
+                    tn = "Track " + juce::String(request.trackId + 1);
+                request.targetName = tn;
                 break;
             }
 
@@ -676,8 +715,18 @@ void OpenTuneAudioProcessorEditor::exportStemsRequested()
     if (sessionProjectFile_.getFullPathName().isNotEmpty())
         defaultPrefix = sessionProjectFile_.getFileNameWithoutExtension();
 
+    int nAudioTracks = 0;
+    for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t)
+    {
+        if (processorRef_.hasTrackAudio(t))
+            ++nAudioTracks;
+    }
+    const int cols = 2;
+    const int rows = nAudioTracks > 0 ? (nAudioTracks + cols - 1) / cols : 1;
+    const int dialogH = juce::jmax(200, 168 + rows * 26);
+
     auto* content = new StemExportDialogContent(processorRef_, defaultPrefix);
-    content->setSize(440, 400);
+    content->setSize(440, dialogH);
 
     juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
 
@@ -754,11 +803,16 @@ void OpenTuneAudioProcessorEditor::startStemExportWorker(juce::String prefix, ju
 
         for (int tid : trackIds)
         {
+            juce::String trackLabel = audioProcessor->getTrackName(tid).trim();
+            if (trackLabel.isEmpty())
+                trackLabel = "Track " + juce::String(tid + 1);
+            const juce::String safeTrack = StemExportDialogContent::sanitizeFileNameSegment(trackLabel);
+
             juce::String fileName;
             if (prefix.isEmpty())
-                fileName = "Track " + juce::String(tid + 1) + ".wav";
+                fileName = safeTrack + ".wav";
             else
-                fileName = prefix + "-Track " + juce::String(tid + 1) + ".wav";
+                fileName = prefix + "_" + safeTrack + ".wav";
 
             const juce::File outFile = outputDir.getChildFile(fileName);
             if (audioProcessor->exportTrackAudio(tid, outFile))
@@ -1293,6 +1347,18 @@ void OpenTuneAudioProcessorEditor::undoRequested()
     performUndoWithRangeTracking();
 }
 
+void OpenTuneAudioProcessorEditor::undoToRequested(int steps)
+{
+    const int n = juce::jlimit(1, 10, steps);
+    for (int i = 0; i < n; ++i)
+    {
+        if (!processorRef_.canUndo()) {
+            break;
+        }
+        performUndoWithRangeTracking();
+    }
+}
+
 void OpenTuneAudioProcessorEditor::redoRequested()
 {
     performRedoWithRangeTracking();
@@ -1353,10 +1419,37 @@ void OpenTuneAudioProcessorEditor::languageChanged(Language newLanguage)
     repaint();
 }
 
+void OpenTuneAudioProcessorEditor::syncTrackPanelFromProcessorState(bool preserveExpandedVisibleRows)
+{
+    int usedTrackRows = 0;
+    for (int t = 0; t < OpenTuneAudioProcessor::MAX_TRACKS; ++t) {
+        if (processorRef_.getNumClips(t) > 0) {
+            usedTrackRows = t + 1;
+        }
+    }
+    const int computedVisible = juce::jlimit(
+        1,
+        OpenTuneAudioProcessor::MAX_TRACKS,
+        juce::jmax(DEFAULT_VISIBLE_TRACKS, juce::jmax(usedTrackRows, processorRef_.getActiveTrackId() + 1)));
+    const int targetVisibleTracks = preserveExpandedVisibleRows
+        ? juce::jmax(computedVisible, trackPanel_.getVisibleTrackCount())
+        : computedVisible;
+    trackPanel_.setVisibleTrackCount(targetVisibleTracks);
+    trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
+    trackPanel_.syncTrackNamesFromProcessor(processorRef_);
+    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i) {
+        trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
+        trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
+        trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
+        lastTrackVolumes_[static_cast<size_t>(i)] = processorRef_.getTrackVolume(i);
+    }
+}
+
 void OpenTuneAudioProcessorEditor::refreshAfterUndoRedo()
 {
     pianoRoll_.refreshAfterUndoRedo();
     arrangementView_.repaint();
+    syncTrackPanelFromProcessorState(true);
     trackPanel_.repaint();
 }
 
@@ -1376,14 +1469,8 @@ void OpenTuneAudioProcessorEditor::syncUiAfterProjectLoad()
     pianoRoll_.setIsPlaying(false);
     arrangementView_.setIsPlaying(false);
 
-    trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
     trackPanel_.setTrackHeight(processorRef_.getTrackHeight());
-    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i) {
-        trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
-        trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
-        trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
-        lastTrackVolumes_[static_cast<size_t>(i)] = processorRef_.getTrackVolume(i);
-    }
+    syncTrackPanelFromProcessorState();
 
     arrangementView_.setZoomLevel(processorRef_.getZoomLevel());
     pianoRoll_.setShowWaveform(processorRef_.getShowWaveform());
@@ -1423,7 +1510,13 @@ void OpenTuneAudioProcessorEditor::performUndoWithRangeTracking()
     
     pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
     arrangementView_.repaint();
+    syncTrackPanelFromProcessorState(true);
+    const int activeTrack = processorRef_.getActiveTrackId();
+    syncPianoRollFromClipSelection(activeTrack, processorRef_.getSelectedClip(activeTrack));
     trackPanel_.repaint();
+#if JUCE_WINDOWS
+    win32NativeMenu_.refresh();
+#endif
 }
 
 void OpenTuneAudioProcessorEditor::performRedoWithRangeTracking()
@@ -1438,7 +1531,13 @@ void OpenTuneAudioProcessorEditor::performRedoWithRangeTracking()
     
     pianoRoll_.refreshAfterUndoRedoWithRange(start, end);
     arrangementView_.repaint();
+    syncTrackPanelFromProcessorState(true);
+    const int activeTrack = processorRef_.getActiveTrackId();
+    syncPianoRollFromClipSelection(activeTrack, processorRef_.getSelectedClip(activeTrack));
     trackPanel_.repaint();
+#if JUCE_WINDOWS
+    win32NativeMenu_.refresh();
+#endif
 }
 
 } // namespace OpenTune

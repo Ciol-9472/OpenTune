@@ -427,6 +427,7 @@ static bool parseProjectClip(const juce::ValueTree& clipState,
         if (clipValueTreeHasPitchData(curveState)) {
             clip.pitchCurve = std::make_shared<PitchCurve>();
             restorePitchCurveFromValueTree(*clip.pitchCurve, curveState);
+            clip.pitchCurve->alignOriginalDataToStoredPcmSamples(clip.audioBuffer->getNumSamples());
             if (hasReadyOriginalF0Curve(clip.pitchCurve)) {
                 clip.originalF0State = OriginalF0State::Ready;
             }
@@ -647,6 +648,7 @@ void OpenTuneAudioProcessor::setStateInformation(const void* data, int sizeInByt
             }
 
             restorePitchCurveFromValueTree(*it->pitchCurve, curveState);
+            it->pitchCurve->alignOriginalDataToStoredPcmSamples(it->audioBuffer->getNumSamples());
             it->originalF0State = hasReadyOriginalF0Curve(it->pitchCurve)
                                       ? OriginalF0State::Ready
                                       : OriginalF0State::NotRequested;

@@ -1,5 +1,7 @@
 #include "TrackPanelComponent.h"
 #include "UIColors.h"
+#include "../PluginProcessor.h"
+#include "../../Utils/LocalizationManager.h"
 
 namespace OpenTune {
 
@@ -63,6 +65,16 @@ TrackPanelComponent::TrackPanelComponent()
         track.soloButton.setVisible(visible);
         track.volumeSlider.setVisible(visible);
         track.levelMeter.setVisible(visible);
+
+        auto& nameLabel = trackNameLabels_[static_cast<size_t>(i)];
+        nameLabel.setText(juce::String("Track ") + juce::String(i + 1), juce::dontSendNotification);
+        nameLabel.setEditable(false, true, false);
+        nameLabel.setJustificationType(juce::Justification::centredLeft);
+        nameLabel.setFont(UIColors::getUIFont(12.5f));
+        nameLabel.setColour(juce::Label::textColourId, UIColors::textPrimary);
+        nameLabel.addListener(this);
+        addAndMakeVisible(nameLabel);
+        nameLabel.setVisible(visible);
     }
 
     // 初始化+号按钮
@@ -76,6 +88,9 @@ TrackPanelComponent::TrackPanelComponent()
 
 TrackPanelComponent::~TrackPanelComponent()
 {
+    for (auto& nl : trackNameLabels_)
+        nl.removeListener(this);
+
     // Clear LookAndFeel to avoid dangling pointers
     for (auto& track : tracks_)
     {
@@ -305,6 +320,7 @@ void TrackPanelComponent::resized()
         track.soloButton.setVisible(visible);
         track.volumeSlider.setVisible(visible);
         track.levelMeter.setVisible(visible);
+        trackNameLabels_[static_cast<size_t>(i)].setVisible(visible);
         
         if (!visible)
             continue;
@@ -317,6 +333,10 @@ void TrackPanelComponent::resized()
         
         // 轨道卡片内部区域（与paint()中cardBounds对应）
         auto cardBounds = trackBounds.reduced(trackCardMarginX, trackCardMarginY);
+
+        constexpr int nameRowH = 18;
+        auto nameRow = cardBounds.removeFromTop(nameRowH);
+        trackNameLabels_[static_cast<size_t>(i)].setBounds(nameRow.reduced(4, 0));
         
         // 控件尺寸固定不变
         const int btnSize = 28;      // M/S按钮尺寸
@@ -365,8 +385,43 @@ void TrackPanelComponent::mouseDown(const juce::MouseEvent& event)
     // 只响应可见轨道的点击
     if (clickedTrack >= 0 && clickedTrack < visibleTrackCount_)
     {
+        if (event.mods.isRightButtonDown())
+        {
+            showTrackContextMenu(clickedTrack, event.getScreenPosition());
+            return;
+        }
         onTrackSelected(clickedTrack);
     }
+}
+
+void TrackPanelComponent::showTrackContextMenu(int trackId, juce::Point<int> screenPos)
+{
+    if (trackId < 0 || trackId >= visibleTrackCount_)
+        return;
+
+    enum MenuIds
+    {
+        InsertTrack = 1,
+        DeleteTrack = 2
+    };
+
+    juce::PopupMenu menu;
+    menu.addItem(InsertTrack, LOC(kTrackInsert), visibleTrackCount_ < MAX_TRACKS);
+    menu.addItem(DeleteTrack, LOC(kTrackDelete), visibleTrackCount_ > 1);
+
+    juce::Component::SafePointer<TrackPanelComponent> safeThis(this);
+    menu.showMenuAsync(
+        juce::PopupMenu::Options().withTargetScreenArea({screenPos.x, screenPos.y, 1, 1}),
+        [safeThis, trackId](int result) {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            if (result == InsertTrack) {
+                safeThis->listeners_.call([trackId](Listener& l) { l.trackInsertRequested(trackId); });
+            } else if (result == DeleteTrack) {
+                safeThis->listeners_.call([trackId](Listener& l) { l.trackDeleteRequested(trackId); });
+            }
+        });
 }
 
 // Shift+滚轮：排列区水平滚动；Alt+滚轮：轨道高度；Alt+Ctrl+滚轮：横向缩放+轨道高度
@@ -628,6 +683,36 @@ void TrackPanelComponent::showMoreTracks()
     {
         // 每次增加1条轨道
         setVisibleTrackCount(visibleTrackCount_ + 1);
+    }
+}
+
+void TrackPanelComponent::syncTrackNamesFromProcessor(OpenTuneAudioProcessor& processor)
+{
+    for (int i = 0; i < MAX_TRACKS; ++i)
+    {
+        juce::String n = processor.getTrackName(i);
+        if (n.isEmpty())
+            n = juce::String("Track ") + juce::String(i + 1);
+        trackNameLabels_[static_cast<size_t>(i)].setText(n, juce::dontSendNotification);
+    }
+}
+
+void TrackPanelComponent::labelTextChanged(juce::Label* labelThatHasChanged)
+{
+    for (int i = 0; i < MAX_TRACKS; ++i)
+    {
+        if (labelThatHasChanged != &trackNameLabels_[static_cast<size_t>(i)])
+            continue;
+
+        juce::String t = labelThatHasChanged->getText().trim();
+        if (t.isEmpty())
+            t = juce::String("Track ") + juce::String(i + 1);
+        if (t != labelThatHasChanged->getText())
+            labelThatHasChanged->setText(t, juce::dontSendNotification);
+
+        if (onTrackNameCommitted_)
+            onTrackNameCommitted_(i, t);
+        return;
     }
 }
 

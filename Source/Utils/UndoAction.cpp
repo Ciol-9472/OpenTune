@@ -281,4 +281,28 @@ void ClipCrossTrackMoveAction::redo()
     processor_.moveClipToTrack(sourceTrackId_, targetTrackId_, clipId_, newStartSeconds_);
 }
 
+void TrackInsertDeleteAction::undo()
+{
+    if (type_ == Type::Insert) {
+        processor_.deleteTrackAt(trackId_);
+    } else {
+        processor_.insertEmptyTrackAt(trackId_);
+    }
+    if (applyVisibleTrackCount_) {
+        applyVisibleTrackCount_(visibleBefore_);
+    }
+}
+
+void TrackInsertDeleteAction::redo()
+{
+    if (type_ == Type::Insert) {
+        processor_.insertEmptyTrackAt(trackId_);
+    } else {
+        processor_.deleteTrackAt(trackId_);
+    }
+    if (applyVisibleTrackCount_) {
+        applyVisibleTrackCount_(visibleAfter_);
+    }
+}
+
 } // namespace OpenTune

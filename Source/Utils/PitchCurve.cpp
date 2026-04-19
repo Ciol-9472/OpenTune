@@ -1,5 +1,6 @@
 #include "PitchCurve.h"
 #include "PitchUtils.h"
+#include "TimeCoordinate.h"
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -853,6 +854,94 @@ void PitchCurve::restoreSegmentsAndAnchors(const std::vector<CorrectedSegment>& 
         oldSnapshot->getSampleRate(),
         newGen
     );
+    std::atomic_store(&snapshot_, newSnapshot);
+}
+
+void PitchCurve::alignOriginalDataToStoredPcmSamples(int numPcmSamples44100)
+{
+    if (numPcmSamples44100 <= 0) {
+        return;
+    }
+
+    auto oldSnapshot = getSnapshot();
+    const int hop = oldSnapshot->getHopSize();
+    const double f0Sr = oldSnapshot->getSampleRate();
+    const int n = static_cast<int>(oldSnapshot->getOriginalF0().size());
+    if (n <= 0 || hop <= 0 || f0Sr <= 1e-9) {
+        return;
+    }
+
+    const int expectedFrames = static_cast<int>(std::ceil(
+        (static_cast<double>(numPcmSamples44100) * f0Sr)
+        / (TimeCoordinate::kRenderSampleRate * static_cast<double>(hop))));
+    if (expectedFrames <= 0) {
+        return;
+    }
+
+    if (n == expectedFrames) {
+        return;
+    }
+
+    std::vector<float> f0 = oldSnapshot->getOriginalF0();
+    std::vector<float> en = oldSnapshot->getOriginalEnergy();
+    f0.resize(static_cast<size_t>(expectedFrames), 0.0f);
+    en.resize(static_cast<size_t>(expectedFrames), 0.0f);
+
+    std::vector<CorrectedSegment> segments = oldSnapshot->getCorrectedSegments();
+    std::vector<AnchorGroup> anchors = oldSnapshot->getAnchorGroups();
+
+    if (n > expectedFrames) {
+        const double clipDurSec =
+            static_cast<double>(numPcmSamples44100) / TimeCoordinate::kRenderSampleRate;
+
+        std::vector<CorrectedSegment> clamped;
+        clamped.reserve(segments.size());
+        for (auto seg : segments) {
+            if (seg.startFrame >= expectedFrames) {
+                continue;
+            }
+            const int ns = seg.startFrame;
+            const int ne = juce::jmin(seg.endFrame, expectedFrames);
+            if (ne <= ns) {
+                continue;
+            }
+            const int srcOff = ns - seg.startFrame;
+            const int len = ne - ns;
+            if (srcOff < 0 || len <= 0 || srcOff + len > static_cast<int>(seg.f0Data.size())) {
+                continue;
+            }
+            seg.startFrame = ns;
+            seg.endFrame = ne;
+            seg.f0Data.assign(seg.f0Data.begin() + srcOff, seg.f0Data.begin() + srcOff + len);
+            clamped.push_back(std::move(seg));
+        }
+        segments = std::move(clamped);
+
+        std::vector<AnchorGroup> trimmedAnchors;
+        for (auto g : anchors) {
+            AnchorGroup ng;
+            for (const auto& pt : g.points) {
+                if (pt.time <= clipDurSec + 1e-5) {
+                    ng.points.push_back(pt);
+                }
+            }
+            ng.sortByTime();
+            if (ng.points.size() >= 2u) {
+                trimmedAnchors.push_back(std::move(ng));
+            }
+        }
+        anchors = std::move(trimmedAnchors);
+    }
+
+    const uint64_t newGen = incrementGeneration();
+    auto newSnapshot = std::make_shared<const PitchCurveSnapshot>(
+        std::move(f0),
+        std::move(en),
+        std::move(segments),
+        std::move(anchors),
+        hop,
+        f0Sr,
+        newGen);
     std::atomic_store(&snapshot_, newSnapshot);
 }
 

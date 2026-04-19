@@ -9,6 +9,19 @@ namespace OpenTune {
 
 namespace {
 
+/** Alt+顶层菜单助记键 → 横向索引（与 getMenuBarNames 顺序一致：File/Edit/View/Help） */
+int letterToTopLevelMenuIndex(juce::juce_wchar upper)
+{
+    switch (upper)
+    {
+        case 'F': return 0;
+        case 'E': return 1;
+        case 'V': return 2;
+        case 'H': return 3;
+        default: return -1;
+    }
+}
+
 /** JUCE 的 peer 有时是子 HWND，SetMenu 必须作用在顶层帧窗口上才会出现系统菜单栏。 */
 HWND resolveFrameHwndForMenu(HWND peerHwnd)
 {
@@ -236,6 +249,53 @@ void Win32NativeMenuBar::refresh()
         if (SetMenu(static_cast<HWND>(hwnd_), static_cast<HMENU>(hMenuBar_)) != FALSE)
             DrawMenuBar(static_cast<HWND>(hwnd_));
     }
+}
+
+bool Win32NativeMenuBar::tryPostMenuMnemonicKey(juce::juce_wchar letter)
+{
+    if (hwnd_ == nullptr)
+        return false;
+
+    const juce::juce_wchar upper = juce::CharacterFunctions::toUpperCase(letter);
+    const int menuIdx = letterToTopLevelMenuIndex(upper);
+    if (menuIdx < 0)
+        return false;
+
+    HWND h = static_cast<HWND>(hwnd_);
+    HMENU hBar = GetMenu(h);
+    if (hBar == nullptr)
+        return false;
+
+    if (static_cast<int>(GetMenuItemCount(hBar)) <= menuIdx)
+        return false;
+
+    HMENU hPopup = GetSubMenu(hBar, menuIdx);
+    if (hPopup == nullptr)
+        return false;
+
+    RECT rcItem{};
+    if (!GetMenuItemRect(h, hBar, static_cast<UINT>(menuIdx), &rcItem))
+        return false;
+
+    const int x = rcItem.left;
+    const int y = rcItem.bottom;
+
+    // 在 JUCE 的 keyPressed 内 SendMessage(SC_KEYMENU) 往往无法真正弹出菜单栏下拉。
+    // 使用与 HMENU 绑定的 TrackPopupMenu，并在异步回调里执行，避免嵌套消息派发问题。
+    juce::MessageManager::callAsync([h, hPopup, x, y]() {
+        if (!IsWindow(h))
+            return;
+        SetForegroundWindow(h);
+        TrackPopupMenu(
+            hPopup,
+            TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+            x,
+            y,
+            0,
+            h,
+            nullptr);
+    });
+    return true;
 }
 
 void Win32NativeMenuBar::rebuild()

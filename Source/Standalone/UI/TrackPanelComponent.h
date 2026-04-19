@@ -19,6 +19,8 @@
 
 namespace OpenTune {
 
+class OpenTuneAudioProcessor;
+
 // 轨道面板常量
 static constexpr int TRACK_PANEL_WIDTH = 120; // 紧凑模式宽度
 static constexpr int MAX_TRACKS = 12;           // 最大轨道数量
@@ -441,7 +443,8 @@ private:
     }
 };
 
-class TrackPanelComponent : public juce::Component
+class TrackPanelComponent : public juce::Component,
+                            private juce::Label::Listener
 {
 public:
     class Listener
@@ -466,6 +469,8 @@ public:
         virtual void arrangementTrackHeightWheel(float deltaY) { juce::ignoreUnused(deltaY); }
         // Alt+Ctrl+滚轮：横向缩放 + 轨道高度
         virtual void arrangementAltCtrlWheel(float deltaY) { juce::ignoreUnused(deltaY); }
+        virtual void trackInsertRequested(int trackId) { juce::ignoreUnused(trackId); }
+        virtual void trackDeleteRequested(int trackId) { juce::ignoreUnused(trackId); }
     };
 
     // 构造函数，高度由外部传入
@@ -515,11 +520,20 @@ public:
     void setTrackStartYOffset(int offset);
     int getTrackStartYOffset() const { return trackStartYOffset_; }
 
+    /** 从处理器同步各轨名称标签（工程加载、撤销等后调用） */
+    void syncTrackNamesFromProcessor(OpenTuneAudioProcessor& processor);
+
+    /** 用户在侧栏编辑轨名后提交（不经过 Listener 虚函数，便于 Editor 直接绑定处理器） */
+    void setTrackNameCommittedHandler(std::function<void(int, const juce::String&)> fn)
+    {
+        onTrackNameCommitted_ = std::move(fn);
+    }
+
     /** 与 ArrangementView 一致的时间线行数（用于垂直滚动范围） */
     void setTimelineTrackRowCountSource(std::function<int()> fn) { timelineTrackRowCountSource_ = std::move(fn); }
     
     // 轨道高度限制常量
-    static constexpr int MIN_TRACK_HEIGHT = 70;   // 最小高度：控件不重叠
+    static constexpr int MIN_TRACK_HEIGHT = 78;   // 最小高度：含轨名一行 + 控件不重叠
     static constexpr int DEFAULT_TRACK_HEIGHT = 100;  // 默认高度
     static constexpr int MAX_TRACK_HEIGHT = 300;  // 最大高度：窗口1/3左右
 
@@ -535,6 +549,7 @@ private:
     };
 
     std::array<TrackControl, MAX_TRACKS> tracks_;  // 12条轨道
+    std::array<TransparentLabel, MAX_TRACKS> trackNameLabels_;
     int activeTrackId_{0};
     int visibleTrackCount_{DEFAULT_VISIBLE_TRACKS};  // 当前可见轨道数量，默认2
     int trackHeight_{DEFAULT_TRACK_HEIGHT};  // 动态轨道高度
@@ -551,7 +566,11 @@ private:
     void onVolumeChanged(int trackId);
 
     void updateTrackAppearance(int trackId);
+    void showTrackContextMenu(int trackId, juce::Point<int> screenPos);
 
+    void labelTextChanged(juce::Label* labelThatHasChanged) override;
+
+    std::function<void(int, const juce::String&)> onTrackNameCommitted_;
     std::function<int()> timelineTrackRowCountSource_;
 
     int getTimelineLayoutTrackRows() const

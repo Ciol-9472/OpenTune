@@ -18,6 +18,9 @@ public:
     void detach();
     void refresh();
 
+    /** Alt+顶层菜单助记键：触发与 SetMenu(HMENU) 绑定的系统菜单栏下拉 */
+    bool tryPostMenuMnemonicKey(juce::juce_wchar letter);
+
     /** WM_COMMAND 子类化回调（内部使用） */
     void onWin32MenuCommand(int commandId);
 
@@ -36,6 +39,7 @@ public:
     void attach(juce::Component&, MenuBarComponent&) {}
     void detach() {}
     void refresh() {}
+    bool tryPostMenuMnemonicKey(juce::juce_wchar) { return false; }
     void onWin32MenuCommand(int) {}
 };
 #endif

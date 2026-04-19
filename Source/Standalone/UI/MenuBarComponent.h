@@ -11,6 +11,7 @@
  */
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
 #include "ThemeTokens.h"
 #include "../../Utils/MouseTrailConfig.h"
 
@@ -54,6 +55,7 @@ public:
         virtual void showNoteBlockNoteNamesToggled(bool shouldShow) {}
         virtual void themeChanged(ThemeId themeId) = 0;
         virtual void undoRequested() = 0;
+        virtual void undoToRequested(int steps) { juce::ignoreUnused(steps); }
         virtual void redoRequested() = 0;
         virtual void editCutRequested() {}
         virtual void editCopyRequested() {}
@@ -78,6 +80,14 @@ public:
 
     void setRecentProjectsManager(RecentProjectsManager* mgr);
 
+#if JUCE_WINDOWS
+    /** 将 Alt+字母 转为 WM_SYSCOMMAND/SC_KEYMENU，由 Win32NativeMenuBar 在框架 HWND 上投递 */
+    void setWin32MenuMnemonicPoster(std::function<bool(juce::juce_wchar)> fn)
+    {
+        win32MenuMnemonicPoster_ = std::move(fn);
+    }
+#endif
+
     /** Keep checkbox state in sync when toggled via keyboard shortcut (not via menu). */
     void syncShowNoteBlockNoteNames(bool show) { showNoteBlockNoteNames_ = show; menuItemsChanged(); }
 
@@ -97,6 +107,9 @@ public:
 private:
     OpenTuneAudioProcessor& processor_;
     juce::MenuBarComponent menuBar_;
+#if JUCE_WINDOWS
+    std::function<bool(juce::juce_wchar)> win32MenuMnemonicPoster_;
+#endif
     juce::ListenerList<Listener> listeners_;
     RecentProjectsManager* recentProjects_{nullptr};
     int currentNoteNameMode_ = 1;
@@ -118,6 +131,8 @@ private:
 
         EditUndo = 50,
         EditRedo,
+        EditUndoToFirst = 60,
+        EditUndoToLast = 69,
         EditCut,
         EditCopy,
         EditPaste,

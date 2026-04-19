@@ -191,6 +191,8 @@ public:
     
     // 跨轨道移动 Clip
     bool moveClipToTrack(int sourceTrackId, int targetTrackId, uint64_t clipId, double newStartSeconds);
+    bool insertEmptyTrackAt(int trackId);
+    bool deleteTrackAt(int trackId);
 
     void bumpEditVersion();
     void showAudioSettingsDialog(juce::AudioProcessorEditor& editor);
@@ -377,6 +379,9 @@ public:
     float getTrackVolume(int trackId) const;
     float getTrackRMS(int trackId) const;
 
+    juce::String getTrackName(int trackId) const;
+    void setTrackName(int trackId, const juce::String& name);
+
     // Track height (shared state)
     void setTrackHeight(int height);
     int getTrackHeight() const { return trackHeight_; }
@@ -404,6 +409,7 @@ public:
     int findClipIndexById(int trackId, uint64_t clipId) const;
     double getClipStartSeconds(int trackId, int clipIndex) const;
     juce::String getClipName(int trackId, int clipIndex) const;
+    void setClipName(int trackId, int clipIndex, const juce::String& name);
     float getClipGain(int trackId, int clipIndex) const;
     void setClipStartSeconds(int trackId, int clipIndex, double startSeconds);
     void setClipGain(int trackId, int clipIndex, float gain);
@@ -577,6 +583,10 @@ public:
     bool canRedo() const { return globalUndoManager_.canRedo(); }
     juce::String getUndoDescription() const { return globalUndoManager_.getUndoDescription(); }
     juce::String getRedoDescription() const { return globalUndoManager_.getRedoDescription(); }
+    std::vector<juce::String> getRecentUndoDescriptions(int maxCount) const
+    {
+        return globalUndoManager_.getRecentUndoDescriptions(maxCount);
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenTuneAudioProcessor)
 };

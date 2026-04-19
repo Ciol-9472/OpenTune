@@ -3,6 +3,8 @@
 #include "../Utils/AppLogger.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <unordered_set>
 #include "../Utils/NoteGenerator.h"
 #include "../Utils/SimdPerceptualPitchEstimator.h"
 #include "../Utils/ZoomSensitivityConfig.h"
@@ -662,6 +664,57 @@ void PianoRollComponent::setPitchCurve(std::shared_ptr<PitchCurve> curve) {
     repaint();
 }
 
+void PianoRollComponent::setTrackTimeOffset(double offsetSeconds)
+{
+    trackOffsetSeconds_ = juce::jmax(0.0, offsetSeconds);
+    recomputeTimelineAnchor();
+    playheadOverlay_.setTrackOffsetSeconds(timelineAnchorSeconds_);
+    syncWaveformCachesForCurrentTrack();
+    repaint();
+}
+
+void PianoRollComponent::recomputeTimelineAnchor()
+{
+    if (!processor_ || currentTrackId_ < 0)
+    {
+        timelineAnchorSeconds_ = trackOffsetSeconds_;
+        return;
+    }
+
+    const int n = processor_->getNumClips(currentTrackId_);
+    if (n <= 0)
+    {
+        timelineAnchorSeconds_ = trackOffsetSeconds_;
+        return;
+    }
+
+    double minS = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < n; ++i)
+        minS = std::min(minS, processor_->getClipStartSeconds(currentTrackId_, i));
+
+    timelineAnchorSeconds_ = std::isfinite(minS) ? minS : 0.0;
+}
+
+void PianoRollComponent::syncWaveformCachesForCurrentTrack()
+{
+    if (!processor_ || currentTrackId_ < 0)
+    {
+        waveformMipmapCache_.clear();
+        return;
+    }
+
+    std::unordered_set<uint64_t> alive;
+    const int n = processor_->getNumClips(currentTrackId_);
+    for (int i = 0; i < n; ++i)
+    {
+        const uint64_t id = processor_->getClipId(currentTrackId_, i);
+        alive.insert(id);
+        const auto buf = processor_->getClipAudioBuffer(currentTrackId_, i);
+        waveformMipmapCache_.getOrCreate(id).setAudioSource(buf);
+    }
+    waveformMipmapCache_.prune(alive);
+}
+
 void PianoRollComponent::setAudioBuffer(std::shared_ptr<const juce::AudioBuffer<float>> buffer, int sampleRate) {
     audioBuffer_ = buffer;
     
@@ -760,7 +813,7 @@ void PianoRollComponent::fitToScreen() {
 
     const double preservedRelativeStartSeconds = juce::jmax(
         0.0,
-        getVisibleStartTimeSeconds() - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+        getVisibleStartTimeSeconds() - timelineAnchorSeconds_ + alignmentOffsetSeconds_);
 
     // 1. Vertical Fit: Show C1 to C8 (minMidi_ to maxMidi_)
     // Total range: maxMidi_ - minMidi_
@@ -774,13 +827,10 @@ void PianoRollComponent::fitToScreen() {
         verticalScrollOffset_ = 0;
     }
 
-    // 2. Horizontal Fit:
-    // If has audio: fit audio length
-    // If no audio: fit 16 seconds
+    // 2. Horizontal Fit: 整轨多 clip 时按轨道时间跨度适配
     double duration = 16.0;
-    if (hasUserAudio_ && audioBuffer_ && PianoRollComponent::kAudioSampleRate > 0) {
-        duration = static_cast<double>(audioBuffer_->getNumSamples()) / PianoRollComponent::kAudioSampleRate;
-    }
+    if (hasUserAudio_)
+        duration = getTimelineSpanSeconds();
     
     // Available width: getWidth() - pianoKeyWidth_
     int viewWidth = getWidth() - pianoKeyWidth_;
@@ -796,7 +846,7 @@ void PianoRollComponent::fitToScreen() {
         playheadOverlay_.setZoomLevel(zoomLevel_);
     }
 
-    if (hasUserAudio_ && audioBuffer_ && PianoRollComponent::kAudioSampleRate > 0) {
+    if (hasUserAudio_) {
         const int newScroll = static_cast<int>(std::llround(preservedRelativeStartSeconds * 100.0 * zoomLevel_));
         setScrollOffset(newScroll);
     } else {
@@ -857,11 +907,11 @@ float PianoRollComponent::freqToY(float freq) const {
 }
 
 int PianoRollComponent::timeToX(double seconds) const {
-    return timeConverter_.timeToPixel(seconds - trackOffsetSeconds_ + alignmentOffsetSeconds_) + pianoKeyWidth_;
+    return timeConverter_.timeToPixel(seconds - timelineAnchorSeconds_ + alignmentOffsetSeconds_) + pianoKeyWidth_;
 }
 
 double PianoRollComponent::xToTime(int x) const {
-    return timeConverter_.pixelToTime(x - pianoKeyWidth_) + trackOffsetSeconds_ - alignmentOffsetSeconds_;
+    return timeConverter_.pixelToTime(x - pianoKeyWidth_) + timelineAnchorSeconds_ - alignmentOffsetSeconds_;
 }
 
 
@@ -872,6 +922,9 @@ void PianoRollComponent::setCurrentClipContext(int trackId, uint64_t clipId)
     if (correctionWorker_) {
         correctionWorker_->setClipContext(trackId, clipId);
     }
+    recomputeTimelineAnchor();
+    playheadOverlay_.setTrackOffsetSeconds(timelineAnchorSeconds_);
+    syncWaveformCachesForCurrentTrack();
 }
 
 void PianoRollComponent::clearClipContext()
@@ -882,6 +935,9 @@ void PianoRollComponent::clearClipContext()
     if (correctionWorker_) {
         correctionWorker_->setClipContext(-1, 0);
     }
+    timelineAnchorSeconds_ = 0.0;
+    waveformMipmapCache_.clear();
+    playheadOverlay_.setTrackOffsetSeconds(0.0);
 }
 
 std::vector<Note>& PianoRollComponent::getCurrentClipNotes() {

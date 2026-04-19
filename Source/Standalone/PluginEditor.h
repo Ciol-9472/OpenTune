@@ -94,6 +94,7 @@ public:
     void themeChanged(ThemeId themeId) override;
     void mouseTrailThemeChanged(MouseTrailConfig::TrailTheme theme) override;
     void undoRequested() override;
+    void undoToRequested(int steps) override;
     void redoRequested() override;
     void editCutRequested() override;
     void editCopyRequested() override;
@@ -122,11 +123,13 @@ public:
     void arrangementHorizontalPanWheel(float deltaX, float deltaY) override;
     void arrangementTrackHeightWheel(float deltaY) override;
     void arrangementAltCtrlWheel(float deltaY) override;
+    void trackInsertRequested(int trackId) override;
+    void trackDeleteRequested(int trackId) override;
 
     // ArrangementViewComponent::Listener
     void clipSelectionChanged(int trackId, int clipIndex) override;
     void clipTimingChanged(int trackId, int clipIndex) override;
-    void clipDoubleClicked(int trackId, int clipIndex) override;
+    void arrangementClipNameEdited(int trackId, int clipIndex) override;
     void arrangementClipContextMenu(int trackId, int clipIndex, juce::Point<int> screenPos) override;
     void verticalScrollChanged(int newOffset) override;
     // trackHeightChanged已在TrackPanelComponent::Listener中声明
@@ -181,6 +184,8 @@ private:
     void launchBackgroundUiTask(std::function<void()> task);
     void waitForBackgroundUiTasks();
     void refreshAfterUndoRedo();
+    /** 与 processor 轨道结构/混音状态对齐（插入删除轨道撤销、工程加载等共用） */
+    void syncTrackPanelFromProcessorState(bool preserveExpandedVisibleRows = false);
     void syncUiAfterProjectLoad();
     void restorePersistedPianoRollZoomState();
     void restorePersistedWorkspaceSplitRatio();

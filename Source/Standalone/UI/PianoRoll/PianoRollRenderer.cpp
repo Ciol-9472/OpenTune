@@ -2,6 +2,7 @@
 #include "../UIColors.h"
 #include "../ThemeTokens.h"
 #include "../BlueBreezeTheme.h"
+#include "../../../PluginProcessor.h"
 #include "../../../Utils/AppLogger.h"
 #include "../../../Utils/NoteGenerator.h"
 #include <algorithm>
@@ -140,19 +141,104 @@ void PianoRollRenderer::drawLanes(juce::Graphics& g, const RenderContext& ctx)
 void PianoRollRenderer::drawWaveform(juce::Graphics& g, const RenderContext& ctx)
 {
     PerfTimer timer("[PianoRollRenderer] drawWaveform");
-    
-    if (!ctx.hasUserAudio || !waveformMipmap_)
+
+    if (!ctx.hasUserAudio)
         return;
 
     const int startX = ctx.pianoKeyWidth;
     const int endX = ctx.width;
-    const int w = endX - startX;
-    if (w <= 0) return;
+    if (endX <= startX)
+        return;
 
+    const float centerY = ctx.height / 2.0f;
+    const float amplitudeScale = ctx.height / 2.0f;
     const double pixelsPerSecond = 100.0 * ctx.zoomLevel;
+
+    if (ctx.processor != nullptr && ctx.waveformTrackId >= 0 && ctx.waveformCache != nullptr
+        && ctx.processor->getNumClips(ctx.waveformTrackId) > 0)
+    {
+        OpenTuneAudioProcessor& proc = *ctx.processor;
+        const int tid = ctx.waveformTrackId;
+        const uint64_t editClipId = ctx.waveformEditingClipId;
+        constexpr double kStoredSr = OpenTuneAudioProcessor::getStoredAudioSampleRate();
+
+        juce::Path waveformPathActive;
+        juce::Path waveformPathInactive;
+
+        for (int x = startX; x < endX; ++x)
+        {
+            const double absTime = ctx.xToTime(x);
+            int clipIdx = -1;
+            double localT = 0.0;
+            uint64_t cid = 0;
+
+            const int n = proc.getNumClips(tid);
+            for (int i = 0; i < n; ++i)
+            {
+                const double s = proc.getClipStartSeconds(tid, i);
+                const auto buf = proc.getClipAudioBuffer(tid, i);
+                const double dur = buf ? static_cast<double>(buf->getNumSamples()) / kStoredSr : 0.0;
+                if (dur <= 0.0)
+                    continue;
+                if (absTime >= s && absTime <= s + dur - 1.0e-9)
+                {
+                    clipIdx = i;
+                    localT = absTime - s;
+                    cid = proc.getClipId(tid, i);
+                    break;
+                }
+            }
+            if (clipIdx < 0)
+                continue;
+
+            const WaveformMipmap* wm = ctx.waveformCache->get(cid);
+            if (wm == nullptr || !wm->hasSource())
+                continue;
+
+            const int levelIndex = wm->selectBestLevelIndex(pixelsPerSecond);
+            const auto& level = wm->getLevel(levelIndex);
+            if (level.peaks.empty())
+                continue;
+
+            const int samplesPerPeak = WaveformMipmap::kSamplesPerPeak[levelIndex];
+            const double timePerPeak = static_cast<double>(samplesPerPeak) / WaveformMipmap::kBaseSampleRate;
+            const int64_t numPeaks = static_cast<int64_t>(level.peaks.size());
+            const int64_t builtPeaks = level.complete ? numPeaks : level.buildProgress;
+            const int64_t peakIndex = static_cast<int64_t>(localT / timePerPeak);
+
+            if (peakIndex < 0 || peakIndex >= builtPeaks)
+                continue;
+
+            const auto& peak = level.peaks[static_cast<std::size_t>(peakIndex)];
+            if (peak.isZero())
+                continue;
+
+            const float yMin = centerY - peak.getMax() * amplitudeScale;
+            const float yMax = centerY - peak.getMin() * amplitudeScale;
+            juce::Path* dest = (cid == editClipId) ? &waveformPathActive : &waveformPathInactive;
+            dest->startNewSubPath(static_cast<float>(x), yMin);
+            dest->lineTo(static_cast<float>(x), yMax);
+        }
+
+        if (!waveformPathInactive.isEmpty())
+        {
+            g.setColour(juce::Colour(0xFF909090).withAlpha(0.22f));
+            g.strokePath(waveformPathInactive, juce::PathStrokeType(1.0f));
+        }
+        if (!waveformPathActive.isEmpty())
+        {
+            g.setColour(UIColors::waveformFill.withAlpha(0.2f));
+            g.strokePath(waveformPathActive, juce::PathStrokeType(1.0f));
+        }
+        return;
+    }
+
+    if (!waveformMipmap_)
+        return;
+
     const int levelIndex = waveformMipmap_->selectBestLevelIndex(pixelsPerSecond);
     const auto& level = waveformMipmap_->getLevel(levelIndex);
-    
+
     if (level.peaks.empty())
         return;
 
@@ -161,15 +247,14 @@ void PianoRollRenderer::drawWaveform(juce::Graphics& g, const RenderContext& ctx
 
     const double startTime = ctx.xToTime(startX);
     const double endTime = ctx.xToTime(endX);
-    if (endTime <= startTime) return;
+    if (endTime <= startTime)
+        return;
 
-    const double startClipTime = startTime - ctx.trackOffsetSeconds;
-    const double endClipTime = endTime - ctx.trackOffsetSeconds;
+    const double startClipTime = startTime - ctx.editingClipStartSeconds;
+    const double endClipTime = endTime - ctx.editingClipStartSeconds;
     const double clipVisibleDuration = endClipTime - startClipTime;
-    if (clipVisibleDuration <= 0.0) return;
-
-    const float centerY = ctx.height / 2.0f;
-    const float amplitudeScale = ctx.height / 2.0f;
+    if (clipVisibleDuration <= 0.0)
+        return;
 
     g.setColour(UIColors::waveformFill.withAlpha(0.2f));
 
@@ -182,20 +267,20 @@ void PianoRollRenderer::drawWaveform(juce::Graphics& g, const RenderContext& ctx
 
     for (int x = startX; x < endX; ++x)
     {
-        const double time = ctx.xToTime(x) - ctx.trackOffsetSeconds;
+        const double time = ctx.xToTime(x) - ctx.editingClipStartSeconds;
         const int64_t peakIndex = static_cast<int64_t>(time / timePerPeak);
-        
+
         if (peakIndex < 0 || peakIndex >= builtPeaks)
             continue;
 
         const auto& peak = level.peaks[static_cast<std::size_t>(peakIndex)];
-        
+
         if (peak.isZero())
             continue;
 
         const float yMin = centerY - peak.getMax() * amplitudeScale;
         const float yMax = centerY - peak.getMin() * amplitudeScale;
-        
+
         waveformPath.startNewSubPath(static_cast<float>(x), yMin);
         waveformPath.lineTo(static_cast<float>(x), yMax);
     }
@@ -639,14 +724,15 @@ void PianoRollRenderer::drawPianoKeys(juce::Graphics& g, const RenderContext& ct
 
 void PianoRollRenderer::drawNotes(juce::Graphics& g, const RenderContext& ctx,
                                    const std::vector<Note>& notes,
-                                   double trackOffsetSeconds)
+                                   double clipStartOnTimelineSeconds,
+                                   bool isActiveClip)
 {
     PerfTimer timer("[PianoRollRenderer] drawNotes");
     
     if (notes.empty()) return;
 
     AppLogger::debug("[PianoRollRenderer] drawNotes: noteCount=" + juce::String(static_cast<int>(notes.size()))
-        + ", trackOffsetSeconds=" + juce::String(trackOffsetSeconds));
+        + ", clipStartOnTimelineSeconds=" + juce::String(clipStartOnTimelineSeconds));
 
     int selectedCount = 0;
     for (const auto& note : notes)
@@ -664,8 +750,8 @@ void PianoRollRenderer::drawNotes(juce::Graphics& g, const RenderContext& ctx,
         float y = ctx.midiToY(midi) - (ctx.pixelsPerSemitone * 0.5f);
         float h = ctx.pixelsPerSemitone;
 
-        double noteStartTime = note.startTime + trackOffsetSeconds;
-        double noteEndTime = note.endTime + trackOffsetSeconds;
+        double noteStartTime = note.startTime + clipStartOnTimelineSeconds;
+        double noteEndTime = note.endTime + clipStartOnTimelineSeconds;
 
         int x1 = ctx.timeToX(noteStartTime);
         int x2 = ctx.timeToX(noteEndTime);
@@ -674,18 +760,21 @@ void PianoRollRenderer::drawNotes(juce::Graphics& g, const RenderContext& ctx,
         juce::Colour noteColor = note.selected
             ? juce::Colour(0xFFE74C3C)
             : juce::Colour(0xFF87CEEB);
+        if (!isActiveClip)
+            noteColor = noteColor.darker(0.55f);
 
-        g.setColour(noteColor.withAlpha(0.8f));
+        g.setColour(noteColor.withAlpha(isActiveClip ? 0.8f : 0.45f));
         g.fillRect(static_cast<float>(x1), y, w, h);
 
-        g.setColour(noteColor.brighter(0.3f));
+        g.setColour(noteColor.brighter(0.3f).withAlpha(isActiveClip ? 1.0f : 0.55f));
         g.drawRect(static_cast<float>(x1), y, w, h, 1.5f);
     }
 }
 
 void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& ctx,
                                        const std::vector<Note>& notes,
-                                       double trackOffsetSeconds)
+                                       double clipStartOnTimelineSeconds,
+                                       bool isActiveClip)
 {
     PerfTimer timer("[PianoRollRenderer] drawNoteLabels");
     if (notes.empty() || !ctx.showNoteBlockNoteNames)
@@ -713,8 +802,8 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
         const float y = ctx.midiToY(midi) - (ctx.pixelsPerSemitone * 0.5f);
         const float h = ctx.pixelsPerSemitone;
 
-        const double noteStartTime = note.startTime + trackOffsetSeconds;
-        const double noteEndTime = note.endTime + trackOffsetSeconds;
+        const double noteStartTime = note.startTime + clipStartOnTimelineSeconds;
+        const double noteEndTime = note.endTime + clipStartOnTimelineSeconds;
 
         const int x1 = ctx.timeToX(noteStartTime);
         const int x2 = ctx.timeToX(noteEndTime);
@@ -737,8 +826,16 @@ void PianoRollRenderer::drawNoteLabels(juce::Graphics& g, const RenderContext& c
         juce::Graphics::ScopedSaveState ss(g);
         g.reduceClipRegion(textR.toNearestIntEdges());
 
-        g.setColour(note.selected ? juce::Colours::white.withAlpha(0.95f)
-                                 : juce::Colours::black.withAlpha(0.88f));
+        if (isActiveClip)
+        {
+            g.setColour(note.selected ? juce::Colours::white.withAlpha(0.95f)
+                                     : juce::Colours::black.withAlpha(0.88f));
+        }
+        else
+        {
+            g.setColour(note.selected ? juce::Colours::lightgrey.withAlpha(0.75f)
+                                     : juce::Colours::darkgrey.withAlpha(0.72f));
+        }
         g.drawText(label, textR, juce::Justification::centredLeft);
     }
 }
@@ -750,7 +847,9 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
                                      bool isThinLine,
                                      const RenderContext& ctx,
                                      std::shared_ptr<PitchCurve> currentCurve,
-                                     const std::vector<uint8_t>* visibleMask)
+                                     const std::vector<uint8_t>* visibleMask,
+                                     double clipTimelineStartSeconds,
+                                     double clipLocalDurationSeconds)
 {
     PerfTimer timer("[PianoRollRenderer] drawF0Curve");
     
@@ -784,6 +883,19 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
         }
     }
 
+    const auto localTimeForFrame = [&](std::size_t i) -> double {
+        if (ctx.hopSize <= 0 || ctx.f0SampleRate <= 0.0)
+            return 0.0;
+        const double raw = static_cast<double>(i) * static_cast<double>(ctx.hopSize) / ctx.f0SampleRate;
+        if (clipLocalDurationSeconds <= 0.0 || f0.size() <= 1)
+            return raw;
+        const double modelSpan =
+            (static_cast<double>(f0.size() - 1) * static_cast<double>(ctx.hopSize)) / ctx.f0SampleRate;
+        if (modelSpan <= 1e-15)
+            return raw;
+        return raw * (clipLocalDurationSeconds / modelSpan);
+    };
+
     const int contentStartX = ctx.pianoKeyWidth;
     const int contentEndX = ctx.width;
 
@@ -797,9 +909,15 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
     {
         const int marginFrames = 10;
 
-        const double framesPerSecond = ctx.f0SampleRate / static_cast<double>(ctx.hopSize);
-        const int startFrame = std::max(0, static_cast<int>(std::floor((visibleStartTime - ctx.trackOffsetSeconds) * framesPerSecond)) - marginFrames);
-        const int endFrame = std::min(static_cast<int>(f0.size()), static_cast<int>(std::ceil((visibleEndTime - ctx.trackOffsetSeconds) * framesPerSecond)) + marginFrames);
+        const double visStartLocal = visibleStartTime - clipTimelineStartSeconds;
+        const double visEndLocal = visibleEndTime - clipTimelineStartSeconds;
+
+        double framesPerLocalSecond = ctx.f0SampleRate / static_cast<double>(ctx.hopSize);
+        if (clipLocalDurationSeconds > 0.0 && f0.size() > 1)
+            framesPerLocalSecond = static_cast<double>(f0.size() - 1) / clipLocalDurationSeconds;
+
+        const int startFrame = std::max(0, static_cast<int>(std::floor(visStartLocal * framesPerLocalSecond)) - marginFrames);
+        const int endFrame = std::min(static_cast<int>(f0.size()), static_cast<int>(std::ceil(visEndLocal * framesPerLocalSecond)) + marginFrames);
         iStart = static_cast<std::size_t>(startFrame);
         iEnd = static_cast<std::size_t>(std::max(startFrame, endFrame));
     }
@@ -836,8 +954,8 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
         float midi = ctx.freqToMidi(frequency);
         float y = ctx.midiToY(midi);
 
-        const double frameTime = static_cast<double>(i) * static_cast<double>(ctx.hopSize) / ctx.f0SampleRate;
-        const double absoluteTime = frameTime + ctx.trackOffsetSeconds;
+        const double frameLocalTime = localTimeForFrame(i);
+        const double absoluteTime = frameLocalTime + clipTimelineStartSeconds;
         const int x = ctx.timeToX(absoluteTime);
 
         if (x < contentStartX || x > contentEndX)
@@ -914,8 +1032,8 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
                     {
                         float midi = ctx.freqToMidi(freq);
                         float y = ctx.midiToY(midi);
-                        const double frameTime = static_cast<double>(fadeStartIdx) * static_cast<double>(ctx.hopSize) / ctx.f0SampleRate;
-                        const double absoluteTime = frameTime + ctx.trackOffsetSeconds;
+                        const double frameLocalTime = localTimeForFrame(fadeStartIdx);
+                        const double absoluteTime = frameLocalTime + clipTimelineStartSeconds;
                         const int x = ctx.timeToX(absoluteTime);
 
                         g.setColour(colour.withAlpha(fadeAlpha));
@@ -931,8 +1049,8 @@ void PianoRollRenderer::drawF0Curve(juce::Graphics& g,
                     {
                         float midi = ctx.freqToMidi(freq);
                         float y = ctx.midiToY(midi);
-                        const double frameTime = static_cast<double>(fadeEndIdx) * static_cast<double>(ctx.hopSize) / ctx.f0SampleRate;
-                        const double absoluteTime = frameTime + ctx.trackOffsetSeconds;
+                        const double frameLocalTime = localTimeForFrame(fadeEndIdx);
+                        const double absoluteTime = frameLocalTime + clipTimelineStartSeconds;
                         const int x = ctx.timeToX(absoluteTime);
 
                         g.setColour(colour.withAlpha(fadeAlpha));

@@ -423,6 +423,13 @@ public:
     }
 
     /**
+     * Resize original F0/energy to the RMVPE frame count implied by stored PCM length (44.1 kHz),
+     * and clamp corrected segments / anchor groups when arrays are shortened.
+     * Idempotent when already aligned. Call after loading a project or before splitting a clip.
+     */
+    void alignOriginalDataToStoredPcmSamples(int numPcmSamplesAt44100Hz);
+
+    /**
      * Copy F0 / energy / corrections / anchors for frame range [startFrame, endExclusive),
      * rebasing frame indices so the result starts at frame 0.
      * @return nullptr if range invalid or empty F0

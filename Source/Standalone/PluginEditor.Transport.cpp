@@ -226,6 +226,89 @@ void OpenTuneAudioProcessorEditor::arrangementAltCtrlWheel(float deltaY)
     arrangementView_.applyWheelTimelineZoom(deltaY, anchorX);
 }
 
+void OpenTuneAudioProcessorEditor::trackInsertRequested(int trackId)
+{
+    const int visibleBefore = trackPanel_.getVisibleTrackCount();
+    if (!processorRef_.insertEmptyTrackAt(trackId))
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Insert Track",
+            "Cannot insert a new track because the last track already contains clips.");
+        return;
+    }
+    const int visibleAfter = juce::jmin(OpenTuneAudioProcessor::MAX_TRACKS, visibleBefore + 1);
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    processorRef_.getUndoManager().addAction(
+        std::make_unique<TrackInsertDeleteAction>(
+            processorRef_,
+            trackId,
+            TrackInsertDeleteAction::Type::Insert,
+            visibleBefore,
+            visibleAfter,
+            [safeThis](int count) {
+                if (safeThis != nullptr) {
+                    safeThis->trackPanel_.setVisibleTrackCount(count);
+                }
+            }));
+
+    trackPanel_.setVisibleTrackCount(visibleAfter);
+    trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
+    trackPanel_.syncTrackNamesFromProcessor(processorRef_);
+    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i)
+    {
+        trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
+        trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
+        trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
+        lastTrackVolumes_[static_cast<size_t>(i)] = processorRef_.getTrackVolume(i);
+    }
+    arrangementView_.repaint();
+    trackPanel_.repaint();
+    const int activeTrack = processorRef_.getActiveTrackId();
+    syncPianoRollFromClipSelection(activeTrack, processorRef_.getSelectedClip(activeTrack));
+    markSessionNeedsSave();
+}
+
+void OpenTuneAudioProcessorEditor::trackDeleteRequested(int trackId)
+{
+    if (trackPanel_.getVisibleTrackCount() <= 1)
+        return;
+
+    const int visibleBefore = trackPanel_.getVisibleTrackCount();
+    if (!processorRef_.deleteTrackAt(trackId))
+        return;
+    const int visibleAfter = juce::jmax(1, visibleBefore - 1);
+    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
+    processorRef_.getUndoManager().addAction(
+        std::make_unique<TrackInsertDeleteAction>(
+            processorRef_,
+            trackId,
+            TrackInsertDeleteAction::Type::Delete,
+            visibleBefore,
+            visibleAfter,
+            [safeThis](int count) {
+                if (safeThis != nullptr) {
+                    safeThis->trackPanel_.setVisibleTrackCount(count);
+                }
+            }));
+
+    trackPanel_.setVisibleTrackCount(visibleAfter);
+    trackPanel_.setActiveTrack(processorRef_.getActiveTrackId());
+    trackPanel_.syncTrackNamesFromProcessor(processorRef_);
+    for (int i = 0; i < OpenTuneAudioProcessor::MAX_TRACKS; ++i)
+    {
+        trackPanel_.setTrackMuted(i, processorRef_.isTrackMuted(i));
+        trackPanel_.setTrackSolo(i, processorRef_.isTrackSolo(i));
+        trackPanel_.setTrackVolume(i, processorRef_.getTrackVolume(i));
+        lastTrackVolumes_[static_cast<size_t>(i)] = processorRef_.getTrackVolume(i);
+    }
+    arrangementView_.repaint();
+    trackPanel_.repaint();
+    const int activeTrack = processorRef_.getActiveTrackId();
+    syncPianoRollFromClipSelection(activeTrack, processorRef_.getSelectedClip(activeTrack));
+    markSessionNeedsSave();
+}
+
 void OpenTuneAudioProcessorEditor::trackHeightChanged(int newHeight)
 {
     // 鏇存柊processor涓殑杞ㄩ亾楂樺害
@@ -357,17 +440,10 @@ void OpenTuneAudioProcessorEditor::verticalScrollChanged(int newOffset)
     arrangementView_.setVerticalScrollOffset(newOffset);
 }
 
-void OpenTuneAudioProcessorEditor::clipDoubleClicked(int trackId, int clipIndex)
+void OpenTuneAudioProcessorEditor::arrangementClipNameEdited(int trackId, int clipIndex)
 {
-    clipSelectionChanged(trackId, clipIndex);
+    juce::ignoreUnused(trackId, clipIndex);
     markSessionNeedsSave();
-
-    juce::Component::SafePointer<OpenTuneAudioProcessorEditor> safeThis(this);
-    juce::Timer::callAfterDelay(50, [safeThis]() {
-        if (safeThis != nullptr && !safeThis->pianoRoll_.hasUserManuallyZoomed()) {
-            safeThis->pianoRoll_.fitToScreen();
-        }
-    });
 }
 
 } // namespace OpenTune

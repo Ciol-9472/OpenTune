@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -86,7 +87,7 @@ void PianoRollComponent::setScrollOffset(int offset)
 
 double PianoRollComponent::getVisibleStartTimeSeconds() const
 {
-    return static_cast<double>(scrollOffset_) / (100.0 * zoomLevel_) + trackOffsetSeconds_ - alignmentOffsetSeconds_;
+    return static_cast<double>(scrollOffset_) / (100.0 * zoomLevel_) + timelineAnchorSeconds_ - alignmentOffsetSeconds_;
 }
 
 double PianoRollComponent::getVisibleDurationSeconds() const
@@ -98,7 +99,7 @@ double PianoRollComponent::getVisibleDurationSeconds() const
 
 void PianoRollComponent::setVisibleStartTimeSeconds(double timeSeconds)
 {
-    const double relativeStart = juce::jmax(0.0, timeSeconds - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+    const double relativeStart = juce::jmax(0.0, timeSeconds - timelineAnchorSeconds_ + alignmentOffsetSeconds_);
     const int newOffset = static_cast<int>(std::llround(relativeStart * 100.0 * zoomLevel_));
     setScrollOffset(newOffset);
 }
@@ -172,20 +173,30 @@ void PianoRollComponent::onHeartbeatTick()
     if (isRendering_)
         repaint();
 
-    if (!waveformMipmap_.isComplete() && showWaveform_)
+    if (showWaveform_)
     {
-        if (inferenceActive_)
+        bool progressed = false;
+        if (processor_ != nullptr && currentTrackId_ >= 0 && waveformMipmapCache_.buildIncremental(4.0))
+            progressed = true;
+
+        if (!waveformMipmap_.isComplete())
         {
-            waveformBuildTickCounter_ = (waveformBuildTickCounter_ + 1) % 8;
-            if (waveformBuildTickCounter_ == 0 && waveformMipmap_.buildIncremental(1.0))
-                repaint();
+            if (inferenceActive_)
+            {
+                waveformBuildTickCounter_ = (waveformBuildTickCounter_ + 1) % 8;
+                if (waveformBuildTickCounter_ == 0 && waveformMipmap_.buildIncremental(1.0))
+                    progressed = true;
+            }
+            else
+            {
+                waveformBuildTickCounter_ = 0;
+                if (waveformMipmap_.buildIncremental(5.0))
+                    progressed = true;
+            }
         }
-        else
-        {
-            waveformBuildTickCounter_ = 0;
-            if (waveformMipmap_.buildIncremental(5.0))
-                repaint();
-        }
+
+        if (progressed)
+            repaint();
     }
 }
 
@@ -199,7 +210,7 @@ void PianoRollComponent::onScrollVBlankCallback(double timestampSec)
     const double playheadTime = readPlayheadTime();
     playheadOverlay_.setPlayheadSeconds(playheadTime);
 
-    const double relativePlayheadTime = juce::jmax(0.0, playheadTime - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+    const double relativePlayheadTime = juce::jmax(0.0, playheadTime - timelineAnchorSeconds_ + alignmentOffsetSeconds_);
     const double pixelsPerSecond = 100.0 * zoomLevel_;
     const float playheadAbsX = static_cast<float>(relativePlayheadTime * pixelsPerSecond);
 
@@ -309,6 +320,27 @@ void PianoRollComponent::notifyVisibleStartTimeChanged()
 
 double PianoRollComponent::getTimelineSpanSeconds() const
 {
+    if (processor_ != nullptr && currentTrackId_ >= 0)
+    {
+        const int n = processor_->getNumClips(currentTrackId_);
+        if (n > 0)
+        {
+            double minS = std::numeric_limits<double>::infinity();
+            double maxE = 0.0;
+            constexpr double kSr = OpenTuneAudioProcessor::getStoredAudioSampleRate();
+            for (int i = 0; i < n; ++i)
+            {
+                const double s = processor_->getClipStartSeconds(currentTrackId_, i);
+                const auto buf = processor_->getClipAudioBuffer(currentTrackId_, i);
+                const double dur = buf ? static_cast<double>(buf->getNumSamples()) / kSr : 0.0;
+                minS = std::min(minS, s);
+                maxE = juce::jmax(maxE, s + dur);
+            }
+            if (std::isfinite(minS) && maxE > minS)
+                return juce::jmax(maxE - minS, 1.0);
+        }
+    }
+
     double maxTime = 0.0;
 
     if (audioBuffer_)
@@ -356,7 +388,7 @@ void PianoRollComponent::applyScrollBarThumbResize(double thumbStartNormalized, 
     const double oldZoom = zoomLevel_;
     const int oldScrollOffset = scrollOffset_;
     const double playheadTime = readPlayheadTime();
-    const double relativePlayheadTime = juce::jmax(0.0, playheadTime - trackOffsetSeconds_ + alignmentOffsetSeconds_);
+    const double relativePlayheadTime = juce::jmax(0.0, playheadTime - timelineAnchorSeconds_ + alignmentOffsetSeconds_);
     const double oldPlayheadPixel = relativePlayheadTime * (100.0 * oldZoom);
     const double oldViewportPlayheadX = oldPlayheadPixel - static_cast<double>(oldScrollOffset) + static_cast<double>(pianoKeyWidth_);
 
