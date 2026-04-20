@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 #include <array>
+#include <cstring>
 #include <functional>
 
 namespace OpenTune {
@@ -552,7 +553,7 @@ inline juce::String get(Language lang, const char* key)
     
     for (const auto& t : translations)
     {
-        if (strcmp(t.key, key) == 0)
+        if (std::strcmp(t.key, key) == 0)
         {
             switch (lang)
             {
