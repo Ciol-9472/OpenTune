@@ -320,7 +320,9 @@ target_sources(OpenTune
         Source/Inference/ModelFactory.cpp
         Source/Inference/ModelFactory.h
         Source/Inference/F0InferenceService.cpp
-        Source/Inference/VocoderDomain.cpp
+        Source/Inference/VocoderLifecycle.cpp
+        Source/Inference/VocoderChunkSynthesizer.cpp
+        Source/Inference/ClipChunkRenderPipeline.cpp
         Source/Inference/VocoderInferenceService.cpp
         Source/Inference/VocoderRenderScheduler.cpp
 

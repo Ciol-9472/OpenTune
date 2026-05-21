@@ -855,6 +855,7 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
     struct PendingRenderInfo {
         int trackId;
         int clipIndex;
+        uint64_t clipId;
         double duration;
     };
 
@@ -868,14 +869,21 @@ bool OpenTuneAudioProcessor::loadProjectFromFile(const juce::File& file)
                 if (clip.pitchCurve && clip.pitchCurve->hasAnyCorrection() && clip.audioBuffer) {
                     const double clipDuration =
                         TimeCoordinate::samplesToSeconds(clip.audioBuffer->getNumSamples(), TimeCoordinate::kRenderSampleRate);
-                    clipsToRender.push_back({trackId, clipIdx, clipDuration});
+                    clipsToRender.push_back({trackId, clipIdx, clip.clipId, clipDuration});
                 }
             }
         }
     }
 
     for (const auto& info : clipsToRender) {
-        enqueuePartialRender(info.trackId, info.clipIndex, 0.0, info.duration);
+        const int lastFrame = [&]() {
+            auto curve = getClipPitchCurve(info.trackId, info.clipIndex);
+            if (!curve || curve->size() == 0) {
+                return 0;
+            }
+            return static_cast<int>(curve->size()) - 1;
+        }();
+        invalidateClipRender(info.clipId, 0, lastFrame);
     }
 
     return true;

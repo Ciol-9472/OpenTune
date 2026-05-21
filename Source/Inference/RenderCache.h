@@ -49,7 +49,8 @@ public:
 
     // 调度状态管理 API
     // 编辑事件入口：请求渲染（更新 desiredRevision，Idle -> Pending）
-    void requestRenderPending(double startSeconds, double endSeconds);
+    // targetRevision == 0：兼容旧行为（desiredRevision++）；>0：与 PitchCurve renderGeneration 对齐（B1）
+    void requestRenderPending(double startSeconds, double endSeconds, uint64_t targetRevision = 0);
 
     // Worker 拉取：查找 Pending 状态的 Chunk（供调度器遍历）
     struct PendingJob {

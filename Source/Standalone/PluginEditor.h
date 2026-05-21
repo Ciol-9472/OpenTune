@@ -140,7 +140,7 @@ public:
     void stopPlaybackRequested() override;
     void autoTuneRequested() override;
     void autoTuneOptionsRequested() override;
-    void pitchCurveEdited(int startFrame, int endFrame) override;
+    void pitchCurveEdited(uint64_t clipId, int startFrame, int endFrame) override;
     void trackTimeOffsetChanged(int trackId, double newOffset) override;
     void escapeKeyPressed() override;
     void toolChanged(int toolId) override;

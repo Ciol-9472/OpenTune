@@ -548,7 +548,7 @@ PianoRollToolHandler::Context PianoRollComponent::buildToolHandlerContext() {
         }
     };
     toolCtx.notifyPitchCurveEdited = [this](int s, int e) {
-        listeners_.call([s, e](Listener& l) { l.pitchCurveEdited(s, e); });
+        notifyPitchCurveRenderInvalidated(currentClipId_, s, e);
     };
     toolCtx.beginEditTransaction = [this](const juce::String& name) {
         undoSupport_->beginTransaction(name);
@@ -974,5 +974,14 @@ bool PianoRollComponent::isAnchorFitting() const
     return anchorFitting_.load(std::memory_order_acquire);
 }
 
+void PianoRollComponent::notifyPitchCurveRenderInvalidated(uint64_t clipId, int startFrame, int endFrame)
+{
+    if (clipId == 0) {
+        return;
+    }
+    listeners_.call([clipId, startFrame, endFrame](Listener& l) {
+        l.pitchCurveEdited(clipId, startFrame, endFrame);
+    });
+}
 
 } // namespace OpenTune

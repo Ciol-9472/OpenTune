@@ -32,7 +32,7 @@
 #include "DSP/ChromaKeyDetector.h"
 #include "Inference/RenderCache.h"
 #include "Inference/F0InferenceService.h"
-#include "Inference/VocoderDomain.h"
+#include "Inference/VocoderLifecycle.h"
 #include "Utils/ClipSnapshot.h"
 #include "Utils/UndoAction.h"
 #include "Utils/SilentGapDetector.h"
@@ -63,11 +63,15 @@ std::unique_ptr<HostIntegration> createHostIntegration();
  * 继承自 juce::AudioProcessor，实现 JUCE 音频插件接口。
  * 管理多轨道、Clip、音高曲线、渲染缓存等核心数据。
  */
+class ClipChunkRenderPipeline;
+
 class OpenTuneAudioProcessor : public juce::AudioProcessor
 #if JucePlugin_Enable_ARA
                            , public juce::AudioProcessorARAExtension
 #endif
 {
+    friend class ClipChunkRenderPipeline;
+
 public:
     struct PerfProbeSnapshot {
         double audioCallbackP99Ms{0.0};
@@ -312,7 +316,7 @@ private:
     
     std::unique_ptr<ResamplingManager> resamplingManager_;
     std::unique_ptr<F0InferenceService> f0Service_;
-    std::unique_ptr<VocoderDomain> vocoderDomain_;
+    std::unique_ptr<VocoderLifecycle> vocoderLifecycle_;
 
     // UI state
     bool showWaveform_{true};
@@ -342,6 +346,10 @@ private:
     // ========================================================================
 
     void chunkRenderWorkerLoop();
+
+    void enqueuePartialRender(int trackId, int clipIndex, double relStartSeconds, double relEndSeconds,
+                              uint64_t targetRevision);
+    void enqueuePartialRenderForFrameRange(int trackId, int clipIndex, int startFrame, int endFrame);
 
     std::thread chunkRenderWorkerThread_;
     mutable std::mutex schedulerMutex_;
@@ -395,7 +403,7 @@ public:
     bool initializeInferenceIfNeeded();
 
     F0InferenceService* getF0Service() const { return f0Service_.get(); }
-    VocoderDomain* getVocoderDomain() const { return vocoderDomain_.get(); }
+    VocoderLifecycle* getVocoderLifecycle() const { return vocoderLifecycle_.get(); }
 
     int getNumClips(int trackId) const;
     /** 任意轨道上是否存在音频片段（用于判断未命名空白工程是否需“未保存”确认） */
@@ -464,11 +472,10 @@ public:
     void clearLastExportError() { lastExportError_.clear(); }
 
     // Rendering & Buffering
-    void enqueuePartialRender(int trackId, int clipIndex, double relStartSeconds, double relEndSeconds);
-    /** 按 F0 帧范围入队渲染（内部换算为秒并调用 enqueuePartialRender） */
-    void enqueuePartialRenderForFrameRange(int trackId, int clipIndex, int startFrame, int endFrame);
-    /** 同上，用 clipId 定位片段（异步修音完成时选区可能已变） */
-    void enqueuePartialRenderForFrameRangeByClipId(int trackId, uint64_t clipId, int startFrame, int endFrame);
+    /** 唯一公开入口：PitchCurve 编辑后按 clipId + F0 帧范围失效分块渲染（A1） */
+    void invalidateClipRender(uint64_t clipId, int startFrame, int endFrame);
+    /** 按 clipId 定位片段（全轨道扫描；trackId 仅用于日志） */
+    bool findClipById(uint64_t clipId, int& outTrackId, int& outClipIndex) const;
 
     // Playback Buffering State
     bool isBuffering() const { return isBuffering_; }

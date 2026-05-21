@@ -1154,7 +1154,6 @@ void OpenTuneAudioProcessorEditor::resized()
 
 void OpenTuneAudioProcessorEditor::timerCallback()
 {
-    auto* vocoderDomain = processorRef_.getVocoderDomain();
     const bool inferenceNow = pianoRoll_.isAutoTuneProcessing();
     setInferenceActive(inferenceNow);
 
@@ -1216,7 +1215,7 @@ void OpenTuneAudioProcessorEditor::timerCallback()
     transportBar_.setPositionSeconds(currentPositionSeconds);
 
     // Sync Rendering Progress
-    if (vocoderDomain != nullptr) {
+    if (processorRef_.getVocoderLifecycle() != nullptr) {
         // [AUTO overlay completion] Use snapshot target (trackId+clipId) when latched, otherwise current selection
         int activeTrack = processorRef_.getActiveTrackId();
         int activeClip = processorRef_.getSelectedClip(activeTrack);
@@ -1862,18 +1861,16 @@ void OpenTuneAudioProcessorEditor::autoTuneOptionsRequested()
     pianoRoll_.setCurrentTool(ToolId::Select);
 }
 
-void OpenTuneAudioProcessorEditor::pitchCurveEdited(int startFrame, int endFrame)
+void OpenTuneAudioProcessorEditor::pitchCurveEdited(uint64_t clipId, int startFrame, int endFrame)
 {
-    DBG("Editor: Pitch curve edited frames " + juce::String(startFrame) + " to " + juce::String(endFrame));
+    DBG("Editor: Pitch curve edited clipId=" + juce::String(static_cast<juce::int64>(clipId))
+        + " frames " + juce::String(startFrame) + " to " + juce::String(endFrame));
 
-    const int trackId = processorRef_.getActiveTrackId();
-    const int clipIndex = processorRef_.getSelectedClip(trackId);
-
-    if (clipIndex < 0) {
+    if (clipId == 0) {
         return;
     }
 
-    processorRef_.enqueuePartialRenderForFrameRange(trackId, clipIndex, startFrame, endFrame);
+    processorRef_.invalidateClipRender(clipId, startFrame, endFrame);
 }
 
 void OpenTuneAudioProcessorEditor::trackTimeOffsetChanged(int trackId, double newOffset)

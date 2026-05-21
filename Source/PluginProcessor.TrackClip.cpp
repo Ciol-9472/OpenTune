@@ -1034,6 +1034,26 @@ int OpenTuneAudioProcessor::getClipIndexById(int trackId, uint64_t clipId) const
     return -1;
 }
 
+bool OpenTuneAudioProcessor::findClipById(uint64_t clipId, int& outTrackId, int& outClipIndex) const
+{
+    if (clipId == 0) {
+        return false;
+    }
+
+    const juce::ScopedReadLock tracksReadLock(tracksLock_);
+    for (int t = 0; t < MAX_TRACKS; ++t) {
+        const auto& clips = tracks_[static_cast<size_t>(t)].clips;
+        for (int i = 0; i < static_cast<int>(clips.size()); ++i) {
+            if (clips[static_cast<size_t>(i)].clipId == clipId) {
+                outTrackId = t;
+                outClipIndex = i;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void OpenTuneAudioProcessor::setClipNotes(int trackId, int clipIndex, const std::vector<Note>& notes)
 {
     if (trackId >= 0 && trackId < MAX_TRACKS) {

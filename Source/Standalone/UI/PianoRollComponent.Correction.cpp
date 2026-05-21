@@ -79,20 +79,8 @@ void PianoRollComponent::consumeCompletedCorrectionResults()
         const int notifyEndExclusive = wasAutoTune ? (completed->autoEndFrame + 1) : completed->endFrameExclusive;
         const int notifyEnd = std::max(notifyStart, notifyEndExclusive - 1);
 
-        bool enqueuedByClip = false;
-        if (processor_ != nullptr)
-        {
-            const int tid = completed->trackIdSnapshot;
-            const uint64_t cid = completed->clipIdSnapshot;
-            if (tid >= 0 && cid != 0)
-            {
-                processor_->enqueuePartialRenderForFrameRangeByClipId(tid, cid, notifyStart, notifyEnd);
-                enqueuedByClip = true;
-            }
-        }
-
-        if (!enqueuedByClip)
-            listeners_.call([notifyStart, notifyEnd](Listener& l) { l.pitchCurveEdited(notifyStart, notifyEnd); });
+        const uint64_t clipId = completed->clipIdSnapshot != 0 ? completed->clipIdSnapshot : currentClipId_;
+        notifyPitchCurveRenderInvalidated(clipId, notifyStart, notifyEnd);
     }
 
     if (wasAutoTune)
@@ -126,11 +114,8 @@ void PianoRollComponent::enqueueManualCorrectionPatchAsync(const std::vector<Pia
             op.retuneSpeed);
     }
 
-    if (triggerRenderEvent && dirtyEndFrame >= dirtyStartFrame)
-    {
-        listeners_.call([dirtyStartFrame, dirtyEndFrame](Listener& l) {
-            l.pitchCurveEdited(dirtyStartFrame, dirtyEndFrame);
-        });
+    if (triggerRenderEvent && dirtyEndFrame >= dirtyStartFrame) {
+        notifyPitchCurveRenderInvalidated(currentClipId_, dirtyStartFrame, dirtyEndFrame);
     }
 
     requestInteractiveRepaint();
@@ -238,7 +223,7 @@ bool PianoRollComponent::applyRetuneSpeedToSelectedNotes(float speed)
         request->audioSampleRate = static_cast<double>(PianoRollComponent::kAudioSampleRate);
         correctionWorker_->enqueue(request);
         undoSupport_->commitTransaction();
-        listeners_.call([startFrame, endFrame](Listener& l) { l.pitchCurveEdited(startFrame, endFrame); });
+        notifyPitchCurveRenderInvalidated(currentClipId_, startFrame, endFrame);
     }
     else
     {
@@ -762,9 +747,7 @@ void PianoRollComponent::refreshAfterUndoRedoWithRange(int startFrame, int endFr
         AppLogger::log("refreshAfterUndoRedo: using provided range [" + juce::String(affectedStartFrame)
             + ", " + juce::String(affectedEndFrame) + "]");
 
-        listeners_.call([affectedStartFrame, affectedEndFrame](Listener& l) {
-            l.pitchCurveEdited(affectedStartFrame, affectedEndFrame);
-        });
+        notifyPitchCurveRenderInvalidated(currentClipId_, affectedStartFrame, affectedEndFrame);
     }
     repaint();
 }

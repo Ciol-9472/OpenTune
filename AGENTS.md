@@ -511,3 +511,19 @@ F0 frame range (`selectedF0StartFrame/EndFrame`). Deselection triggers: Escape k
 - `chunkQueueMutex_` + `chunkQueueCv_`: chunk render task queue coordination.
 - `pendingRequestMutex_` on `PianoRollCorrectionWorker`: guards request handoff.
 - `std::shared_mutex` on the F0 model in `F0InferenceService`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live in GitHub Issues for `Ciol-9472/OpenTune`; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five triage roles use default label names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain documentation
+
+Single-context layout: root `CONTEXT.md` and `docs/adr/` when present. See `docs/agents/domain.md`.
+
+Clip render invalidation uses `invalidateClipRender(clipId, …)`; chunk worker delegates to `ClipChunkRenderPipeline`.

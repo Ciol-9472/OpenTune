@@ -460,14 +460,18 @@ RenderCache::GlobalMemoryStats RenderCache::getGlobalMemoryStats() {
 // 调度状态管理实现
 // ---------------------------------------------------------------------------
 
-void RenderCache::requestRenderPending(double startSeconds, double endSeconds) {
+void RenderCache::requestRenderPending(double startSeconds, double endSeconds, uint64_t targetRevision) {
     if (endSeconds <= startSeconds) return;
 
     const juce::SpinLock::ScopedLockType guard(lock_);
     auto& chunk = chunks_[startSeconds];
     chunk.startSeconds = startSeconds;
     chunk.endSeconds = endSeconds;
-    ++chunk.desiredRevision;
+    if (targetRevision > 0) {
+        chunk.desiredRevision = std::max(chunk.desiredRevision, targetRevision);
+    } else {
+        ++chunk.desiredRevision;
+    }
 
     AppLogger::log("RenderCache::requestRenderPending"
         " start=" + juce::String(startSeconds, 3)
