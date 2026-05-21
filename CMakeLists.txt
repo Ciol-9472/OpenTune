@@ -291,6 +291,8 @@ target_sources(OpenTune
         Source/Standalone/PluginEditor.h
         Source/Services/F0ExtractionService.cpp
         Source/Services/F0ExtractionService.h
+        Source/Services/ClipRenderInvalidation.cpp
+        Source/Services/ClipRenderInvalidation.h
         Source/Host/HostIntegration.h
 
         # Core Plugin Files

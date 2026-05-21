@@ -526,4 +526,4 @@ Five triage roles use default label names (`needs-triage`, `needs-info`, `ready-
 
 Single-context layout: root `CONTEXT.md` and `docs/adr/` when present. See `docs/agents/domain.md`.
 
-Clip render invalidation uses `invalidateClipRender(clipId, …)`; chunk worker delegates to `ClipChunkRenderPipeline`.
+Clip render invalidation: `ClipRenderInvalidation` (frame→seconds + revision) → `enqueuePartialRender`; chunk worker uses `ClipChunkRenderPipeline`.

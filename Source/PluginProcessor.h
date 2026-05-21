@@ -33,6 +33,7 @@
 #include "Inference/RenderCache.h"
 #include "Inference/F0InferenceService.h"
 #include "Inference/VocoderLifecycle.h"
+#include "Services/ClipRenderInvalidation.h"
 #include "Utils/ClipSnapshot.h"
 #include "Utils/UndoAction.h"
 #include "Utils/SilentGapDetector.h"
@@ -64,6 +65,7 @@ std::unique_ptr<HostIntegration> createHostIntegration();
  * 管理多轨道、Clip、音高曲线、渲染缓存等核心数据。
  */
 class ClipChunkRenderPipeline;
+class ClipRenderInvalidation;
 
 class OpenTuneAudioProcessor : public juce::AudioProcessor
 #if JucePlugin_Enable_ARA
@@ -71,6 +73,7 @@ class OpenTuneAudioProcessor : public juce::AudioProcessor
 #endif
 {
     friend class ClipChunkRenderPipeline;
+    friend class ClipRenderInvalidation;
 
 public:
     struct PerfProbeSnapshot {
@@ -317,6 +320,7 @@ private:
     std::unique_ptr<ResamplingManager> resamplingManager_;
     std::unique_ptr<F0InferenceService> f0Service_;
     std::unique_ptr<VocoderLifecycle> vocoderLifecycle_;
+    std::unique_ptr<ClipRenderInvalidation> clipRenderInvalidation_;
 
     // UI state
     bool showWaveform_{true};
@@ -349,7 +353,6 @@ private:
 
     void enqueuePartialRender(int trackId, int clipIndex, double relStartSeconds, double relEndSeconds,
                               uint64_t targetRevision);
-    void enqueuePartialRenderForFrameRange(int trackId, int clipIndex, int startFrame, int endFrame);
 
     std::thread chunkRenderWorkerThread_;
     mutable std::mutex schedulerMutex_;
