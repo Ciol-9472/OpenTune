@@ -18,7 +18,11 @@ void PianoRollToolHandler::handleDrawCurveTool(const juce::MouseEvent& e)
         return;
     }
 
-    double curveTime = ctx_.xToTime(e.x);
+    // xToTime() is timeline-absolute; F0 frames and notes use clip-local seconds (same as DrawNote /
+    // LineAnchor). After a clip split, the right-hand clip starts later on the timeline but curve indices
+    // still begin at 0 — subtract track offset so hand-draw hits valid frames.
+    const double offsetSeconds = ctx_.getTrackOffsetSeconds();
+    double curveTime = ctx_.xToTime(e.x) - offsetSeconds;
     auto* audioBuffer = ctx_.getAudioBuffer();
     if (audioBuffer != nullptr)
     {
